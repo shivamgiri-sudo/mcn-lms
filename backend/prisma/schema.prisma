@@ -25,6 +25,9 @@ model RoleAccessMatrix {
   branch                     String?
   process                    String?
   lob                        String?
+  designation                String?
+  department                 String?
+  employeeCode               String?   @map("employee_code")
   active                     Boolean   @default(true)
   canCreateBatch             Boolean   @default(false) @map("can_create_batch")
   canOnboardTrainee          Boolean   @default(false) @map("can_onboard_trainee")
@@ -39,6 +42,38 @@ model RoleAccessMatrix {
   updatedAt                  DateTime  @updatedAt @map("updated_at")
 
   @@map("role_access_matrix")
+}
+
+model BranchMaster {
+  id          String   @id @default(uuid())
+  branchName  String   @unique @map("branch_name")
+  branchCode  String?  @map("branch_code")
+  city        String?
+  state       String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("branch_master")
+}
+
+model DesignationMaster {
+  id          String   @id @default(uuid())
+  title       String   @unique
+  department  String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("designation_master")
+}
+
+model DepartmentMaster {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("department_master")
 }
 
 model PortalSession {

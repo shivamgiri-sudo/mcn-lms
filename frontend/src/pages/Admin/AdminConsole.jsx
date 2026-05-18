@@ -18,6 +18,7 @@ import ProcessLobTab from './ProcessLobTab.jsx';
 import ReportsTab from './ReportsTab.jsx';
 import BranchTab from './BranchTab.jsx';
 import UsersTab from './UsersTab.jsx';
+import OrgTab from './OrgTab.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -39,6 +40,7 @@ const NAV = [
   { section: 'Config', items: [
     { id: 'processlob', label: 'Process & LOB', icon: '⚙️' },
     { id: 'certrules', label: 'Cert Rules', icon: '🎓' },
+    { id: 'org', label: 'Organization', icon: '🏢' },
   ]},
 ];
 
@@ -135,6 +137,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'certrules' && <CertRulesTab />}
           {activeId === 'branches' && <BranchTab />}
           {activeId === 'users' && <UsersTab />}
+          {activeId === 'org' && <OrgTab />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}

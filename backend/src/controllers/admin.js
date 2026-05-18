@@ -1515,15 +1515,15 @@ export async function createPortalUser(req, res) {
 
     const user = await prisma.roleAccessMatrix.create({
       data: {
-        loginId,
-        pin,
-        name,
+        loginId, pin, name,
         role: role || 'Coordinator',
         portalAccess: portalAccess || role || 'Coordinator',
-        branch: branch || null,
-        process: process || null,
-        lob: lob || null,
+        branch: branch || null, process: process || null, lob: lob || null,
+        designation: designation || null, department: department || null, employeeCode: employeeCode || null,
         active: true,
+        canCreateBatch: !!canCreateBatch, canOnboardTrainee: !!canOnboardTrainee,
+        canUploadLmsReport: !!canUploadLmsReport, canOverrideAttendance: !!canOverrideAttendance,
+        canCloseBatch: !!canCloseBatch, canViewManagementDashboard: !!canViewManagementDashboard,
       },
     });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_PORTAL_USER', module: 'Users', referenceId: loginId });
@@ -1588,4 +1588,146 @@ export async function resetPortalUserPin(req, res) {
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
+}
+
+export async function bulkCreatePortalUsers(req, res) {
+  try {
+    const { users } = req.body;
+    if (!Array.isArray(users) || users.length === 0)
+      return res.status(400).json({ ok: false, message: 'No users provided.' });
+
+    const results = [];
+    for (const u of users) {
+      const { loginId, pin, name, role, branch, process, lob, designation, department, employeeCode,
+        canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard } = u;
+      if (!loginId || !pin || !name) { results.push({ loginId, ok: false, message: 'Login ID, PIN and Name required.' }); continue; }
+      if (String(pin).length < 4) { results.push({ loginId, ok: false, message: 'PIN min 4 chars.' }); continue; }
+      const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
+      if (existing) { results.push({ loginId, ok: false, message: 'Login ID already exists.' }); continue; }
+      try {
+        await prisma.roleAccessMatrix.create({
+          data: {
+            loginId, pin: String(pin), name,
+            role: role || 'Coordinator', portalAccess: role || 'Coordinator',
+            branch: branch || null, process: process || null, lob: lob || null,
+            designation: designation || null, department: department || null, employeeCode: employeeCode || null,
+            active: true,
+            canCreateBatch: !!canCreateBatch, canOnboardTrainee: !!canOnboardTrainee,
+            canUploadLmsReport: !!canUploadLmsReport, canOverrideAttendance: !!canOverrideAttendance,
+            canCloseBatch: !!canCloseBatch, canViewManagementDashboard: !!canViewManagementDashboard,
+          },
+        });
+        results.push({ loginId, ok: true });
+      } catch (err) {
+        results.push({ loginId, ok: false, message: err.message });
+      }
+    }
+    const success = results.filter(r => r.ok).length;
+    const failed = results.filter(r => !r.ok);
+    res.json({ ok: true, data: { success, failed: failed.length, errors: failed }, message: `${success} created, ${failed.length} failed.` });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ── Branch Master ─────────────────────────────────────────────────────────────
+export async function listBranchMaster(req, res) {
+  try {
+    const branches = await prisma.branchMaster.findMany({ where: { active: true }, orderBy: { branchName: 'asc' } });
+    res.json({ ok: true, data: branches });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function createBranchMaster(req, res) {
+  try {
+    const { branchName, branchCode, city, state } = req.body;
+    if (!branchName) return res.status(400).json({ ok: false, message: 'Branch name required.' });
+    const b = await prisma.branchMaster.create({ data: { branchName, branchCode: branchCode || null, city: city || null, state: state || null } });
+    res.json({ ok: true, data: b });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function updateBranchMaster(req, res) {
+  try {
+    const { id } = req.params;
+    const { branchName, branchCode, city, state } = req.body;
+    const b = await prisma.branchMaster.update({ where: { id }, data: { branchName, branchCode: branchCode || null, city: city || null, state: state || null } });
+    res.json({ ok: true, data: b });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function deleteBranchMaster(req, res) {
+  try {
+    const { id } = req.params;
+    await prisma.branchMaster.update({ where: { id }, data: { active: false } });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+// ── Designation Master ────────────────────────────────────────────────────────
+export async function listDesignations(req, res) {
+  try {
+    const data = await prisma.designationMaster.findMany({ where: { active: true }, orderBy: { title: 'asc' } });
+    res.json({ ok: true, data });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function createDesignation(req, res) {
+  try {
+    const { title, department } = req.body;
+    if (!title) return res.status(400).json({ ok: false, message: 'Title required.' });
+    const d = await prisma.designationMaster.create({ data: { title, department: department || null } });
+    res.json({ ok: true, data: d });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function updateDesignation(req, res) {
+  try {
+    const { id } = req.params;
+    const { title, department } = req.body;
+    const d = await prisma.designationMaster.update({ where: { id }, data: { title, department: department || null } });
+    res.json({ ok: true, data: d });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function deleteDesignation(req, res) {
+  try {
+    const { id } = req.params;
+    await prisma.designationMaster.update({ where: { id }, data: { active: false } });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+// ── Department Master ─────────────────────────────────────────────────────────
+export async function listDepartments(req, res) {
+  try {
+    const data = await prisma.departmentMaster.findMany({ where: { active: true }, orderBy: { name: 'asc' } });
+    res.json({ ok: true, data });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function createDepartment(req, res) {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ ok: false, message: 'Department name required.' });
+    const d = await prisma.departmentMaster.create({ data: { name } });
+    res.json({ ok: true, data: d });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function updateDepartment(req, res) {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    const d = await prisma.departmentMaster.update({ where: { id }, data: { name } });
+    res.json({ ok: true, data: d });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+export async function deleteDepartment(req, res) {
+  try {
+    const { id } = req.params;
+    await prisma.departmentMaster.update({ where: { id }, data: { active: false } });
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
 }

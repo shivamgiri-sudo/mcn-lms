@@ -1,6 +1,39 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
+const BULK_CSV_TEMPLATE = 'loginId,name,pin,role,branch,process,lob,designation,department,employeeCode,canCreateBatch,canOnboardTrainee,canUploadLmsReport,canOverrideAttendance,canCloseBatch,canViewManagementDashboard\nCOORD001,John Doe,1234,Coordinator,Bangalore,Collections,LOB1,Training Coordinator,Training,,true,true,false,false,false,false\n';
+
+function parseBulkUsersCsv(text) {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
+  return lines.slice(1).map(line => {
+    const cols = line.split(',').map(c => c.trim());
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = cols[i] || ''; });
+    const bool = v => v === 'true' || v === '1' || v === 'yes';
+    return {
+      loginId: obj.loginid || obj['login id'] || '',
+      name: obj.name || '',
+      pin: obj.pin || '',
+      role: obj.role || 'Coordinator',
+      portalAccess: obj.role || 'Coordinator',
+      branch: obj.branch || null,
+      process: obj.process || null,
+      lob: obj.lob || null,
+      designation: obj.designation || null,
+      department: obj.department || null,
+      employeeCode: obj.employeecode || obj['employee code'] || null,
+      canCreateBatch: bool(obj.cancreatebatch),
+      canOnboardTrainee: bool(obj.canonboardtrainee),
+      canUploadLmsReport: bool(obj.canuploadlmsreport),
+      canOverrideAttendance: bool(obj.canoverrideattendance),
+      canCloseBatch: bool(obj.canclosebatch),
+      canViewManagementDashboard: bool(obj.canviewmanagementdashboard),
+    };
+  }).filter(u => u.loginId && u.name && u.pin);
+}
+
 const ROLES = ['Coordinator', 'Manager', 'Trainer', 'Admin', 'Viewer'];
 const PERMISSIONS = [
   { key: 'canCreateBatch', label: 'Create Batch' },
@@ -30,6 +63,10 @@ export default function UsersTab() {
   const [msg, setMsg] = useState({ text: '', ok: true });
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [showBulk, setShowBulk] = useState(false);
+  const [bulkDragging, setBulkDragging] = useState(false);
+  const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkLoading, setBulkLoading] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -49,7 +86,7 @@ export default function UsersTab() {
       loginId: u.loginId, pin: '', confirmPin: '', name: u.name || '',
       role: u.role || 'Coordinator', portalAccess: u.portalAccess || 'Coordinator',
       branch: u.branch || '', process: u.process || '', lob: u.lob || '',
-      designation: '', department: '', employeeCode: '',
+      designation: u.designation || '', department: u.department || '', employeeCode: u.employeeCode || '',
       canCreateBatch: u.canCreateBatch || false,
       canOnboardTrainee: u.canOnboardTrainee || false,
       canUploadLmsReport: u.canUploadLmsReport || false,
@@ -76,6 +113,9 @@ export default function UsersTab() {
       branch: form.branch || null,
       process: form.process || null,
       lob: form.lob || null,
+      designation: form.designation || null,
+      department: form.department || null,
+      employeeCode: form.employeeCode || null,
       canCreateBatch: form.canCreateBatch,
       canOnboardTrainee: form.canOnboardTrainee,
       canUploadLmsReport: form.canUploadLmsReport,
@@ -117,6 +157,31 @@ export default function UsersTab() {
     else toast(res.message || 'Failed.', false);
   }
 
+  function handleBulkFile(file) {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+      const rows = parseBulkUsersCsv(e.target.result);
+      setBulkPreview(rows);
+    };
+    reader.readAsText(file);
+  }
+
+  async function submitBulkImport() {
+    if (!bulkPreview?.length) return;
+    setBulkLoading(true);
+    const res = await api.post('/admin/portal-users/bulk', { users: bulkPreview }, 'admin');
+    setBulkLoading(false);
+    if (res.ok) {
+      toast(`Created ${res.data?.success} users${res.data?.failed ? `, ${res.data.failed} failed` : ''}.`);
+      setShowBulk(false);
+      setBulkPreview(null);
+      loadUsers();
+    } else {
+      toast(res.message || 'Bulk import failed.', false);
+    }
+  }
+
   const uniqueProcesses = [...new Set(processList.map(p => p.process).filter(Boolean))];
   const lobsForProcess = processList.filter(p => p.process === form.process).map(p => p.lob);
 
@@ -136,7 +201,10 @@ export default function UsersTab() {
           <h2 style={{ fontSize: 20, fontWeight: 900, color: 'var(--ink)', margin: 0 }}>Portal Users</h2>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Manage coordinators, trainers, and managers who can log in to the coordinator portal.</p>
         </div>
-        <button className="btn" onClick={openCreate}>+ New User</button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn secondary" onClick={() => { setShowBulk(true); setBulkPreview(null); }}>⬆ Bulk CSV</button>
+          <button className="btn" onClick={openCreate}>+ New User</button>
+        </div>
       </div>
 
       {msg.text && (
@@ -339,6 +407,78 @@ export default function UsersTab() {
                   {loading ? '...' : editing ? 'Save Changes' : 'Create User'}
                 </button>
               </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk CSV Modal */}
+      {showBulk && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && (setShowBulk(false), setBulkPreview(null))}>
+          <div className="modal-box" style={{ maxWidth: 680 }}>
+            <div className="modal-head">
+              <b>Bulk Create Portal Users</b>
+              <button className="btn small secondary" onClick={() => { setShowBulk(false); setBulkPreview(null); }}>✕</button>
+            </div>
+            <div className="modal-body">
+              {!bulkPreview ? (
+                <>
+                  <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+                    Upload a CSV with columns: loginId, name, pin, role, branch, process, lob, designation, department, employeeCode, canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard
+                  </p>
+                  <div
+                    onDragOver={e => { e.preventDefault(); setBulkDragging(true); }}
+                    onDragLeave={() => setBulkDragging(false)}
+                    onDrop={e => { e.preventDefault(); setBulkDragging(false); handleBulkFile(e.dataTransfer.files[0]); }}
+                    style={{
+                      border: `2px dashed ${bulkDragging ? 'var(--accent)' : 'var(--line)'}`,
+                      borderRadius: 12, padding: '36px 24px', textAlign: 'center',
+                      background: bulkDragging ? 'var(--accent-soft)' : 'var(--card)',
+                      cursor: 'pointer', marginBottom: 14, transition: 'all .15s',
+                    }}
+                    onClick={() => document.getElementById('bulk-users-input').click()}
+                  >
+                    <div style={{ fontSize: 28, marginBottom: 8 }}>📤</div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drag & drop CSV or click to browse</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Supports .csv files</div>
+                    <input id="bulk-users-input" type="file" accept=".csv" style={{ display: 'none' }} onChange={e => handleBulkFile(e.target.files[0])} />
+                  </div>
+                  <a
+                    href={`data:text/csv;charset=utf-8,${encodeURIComponent(BULK_CSV_TEMPLATE)}`}
+                    download="portal-users-template.csv"
+                    style={{ fontSize: 12, color: 'var(--brand)', textDecoration: 'none' }}
+                  >
+                    ⬇ Download CSV Template
+                  </a>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 10, color: 'var(--ink)' }}>Preview — {bulkPreview.length} users found</div>
+                  <div className="table-wrap" style={{ maxHeight: 280, overflowY: 'auto', marginBottom: 14 }}>
+                    <table>
+                      <thead><tr><th>Login ID</th><th>Name</th><th>Role</th><th>Branch</th><th>Process</th><th>Designation</th></tr></thead>
+                      <tbody>
+                        {bulkPreview.map((u, i) => (
+                          <tr key={i}>
+                            <td style={{ fontSize: 12 }}>{u.loginId}</td>
+                            <td style={{ fontSize: 12 }}>{u.name}</td>
+                            <td style={{ fontSize: 12 }}>{u.role}</td>
+                            <td style={{ fontSize: 12 }}>{u.branch || '—'}</td>
+                            <td style={{ fontSize: 12 }}>{u.process || '—'}</td>
+                            <td style={{ fontSize: 12 }}>{u.designation || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button className="btn" onClick={submitBulkImport} disabled={bulkLoading} style={{ flex: 1 }}>
+                      {bulkLoading ? 'Creating...' : `Create ${bulkPreview.length} Users`}
+                    </button>
+                    <button className="btn secondary" onClick={() => setBulkPreview(null)}>Re-upload</button>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

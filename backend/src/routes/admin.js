@@ -25,6 +25,10 @@ import {
   setContentLock, unlockContentForTrainee,
   listBranches, getBranchDetail,
   listPortalUsers, createPortalUser, updatePortalUser, deletePortalUser, resetPortalUserPin,
+  bulkCreatePortalUsers,
+  listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
+  listDesignations, createDesignation, updateDesignation, deleteDesignation,
+  listDepartments, createDepartment, updateDepartment, deleteDepartment,
 } from '../controllers/admin.js';
 import { contentUpload } from '../utils/upload.js';
 
@@ -128,8 +132,25 @@ router.get('/branches/:branch', ...auth, getBranchDetail);
 // Portal user management
 router.get('/portal-users', ...auth, listPortalUsers);
 router.post('/portal-users', ...auth, createPortalUser);
+router.post('/portal-users/bulk', ...auth, bulkCreatePortalUsers);
 router.put('/portal-users/:id', ...auth, updatePortalUser);
 router.delete('/portal-users/:id', ...auth, deletePortalUser);
 router.post('/portal-users/:id/reset-pin', ...auth, resetPortalUserPin);
+
+// Org master data
+router.get('/org/branches', ...auth, listBranchMaster);
+router.post('/org/branches', ...auth, createBranchMaster);
+router.put('/org/branches/:id', ...auth, updateBranchMaster);
+router.delete('/org/branches/:id', ...auth, deleteBranchMaster);
+
+router.get('/org/designations', ...auth, listDesignations);
+router.post('/org/designations', ...auth, createDesignation);
+router.put('/org/designations/:id', ...auth, updateDesignation);
+router.delete('/org/designations/:id', ...auth, deleteDesignation);
+
+router.get('/org/departments', ...auth, listDepartments);
+router.post('/org/departments', ...auth, createDepartment);
+router.put('/org/departments/:id', ...auth, updateDepartment);
+router.delete('/org/departments/:id', ...auth, deleteDepartment);
 
 export default router;

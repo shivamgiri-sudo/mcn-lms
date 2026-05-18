@@ -53,6 +53,7 @@ export default function QuestionsTab() {
   const [csvPreview, setCsvPreview] = useState(null);
   const [msg, setMsg] = useState('');
   const [deleteModal, setDeleteModal] = useState(null);
+  const [aSearch, setASearch] = useState({ name: '', classroomId: '' });
 
   useEffect(() => {
     api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data));
@@ -209,8 +210,35 @@ export default function QuestionsTab() {
       <div style={{display:'grid',gridTemplateColumns:'240px 1fr',gap:'16px'}}>
         <div>
           <div style={{fontWeight:'700',fontSize:'12px',marginBottom:'8px',color:'var(--muted)'}}>ASSESSMENTS</div>
-          {assessments.length === 0 && <p style={{fontSize:'12px',color:'var(--muted)'}}>No assessments yet.</p>}
-          {assessments.map(a => (
+          {/* Search */}
+          <div style={{display:'grid',gap:6,marginBottom:10}}>
+            <input
+              className="input"
+              style={{fontSize:12,padding:'6px 10px'}}
+              placeholder="Search by name..."
+              value={aSearch.name}
+              onChange={e => setASearch(p => ({...p, name: e.target.value}))}
+            />
+            <select
+              className="select"
+              style={{fontSize:12,padding:'6px 10px'}}
+              value={aSearch.classroomId}
+              onChange={e => setASearch(p => ({...p, classroomId: e.target.value}))}
+            >
+              <option value="">All classrooms</option>
+              {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+            </select>
+          </div>
+          {(() => {
+            const filteredA = assessments.filter(a => {
+              const q = aSearch.name.toLowerCase();
+              const cid = aSearch.classroomId;
+              return (!q || a.assessmentName.toLowerCase().includes(q)) &&
+                     (!cid || a.classroomId === cid);
+            });
+            return filteredA.length === 0
+              ? <p style={{fontSize:'12px',color:'var(--muted)'}}>{assessments.length === 0 ? 'No assessments yet.' : 'No match.'}</p>
+              : filteredA.map(a => (
             <div key={a.assessmentId} style={{marginBottom:'4px'}}>
               <div onClick={() => { setSelected(a); setShowBulk(false); setMsg(''); }}
                 style={{padding:'10px 12px',borderRadius:'var(--radius-sm)',cursor:'pointer',background:selected?.assessmentId===a.assessmentId?'var(--accent-soft)':'var(--card)',border:`1px solid ${selected?.assessmentId===a.assessmentId?'var(--accent)':'var(--line)'}`,fontSize:'13px',fontWeight:selected?.assessmentId===a.assessmentId?'700':'400', position:'relative'}}>
@@ -226,7 +254,8 @@ export default function QuestionsTab() {
                 >✕</button>
               </div>
             </div>
-          ))}
+          ));
+          })()}
         </div>
 
         <div>

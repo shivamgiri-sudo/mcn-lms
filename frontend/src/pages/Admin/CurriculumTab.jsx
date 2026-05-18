@@ -796,6 +796,7 @@ export default function CurriculumTab() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('content');
   const [deleteClModal, setDeleteClModal] = useState(null); // classroom to delete
+  const [clSearch, setClSearch] = useState({ name: '', process: '', branch: '' });
 
   const [modForm, setModForm] = useState({ dayNo: '', moduleTitle: '', moduleOrder: '', description: '' });
   const [contentForm, setContentForm] = useState({ contentType: 'video', contentTitle: '', driveFileId: '', driveUrl: '', directMediaUrl: '', playerMode: 'Auto', contentOrder: '', estimatedMins: '', completionRulePct: 80, description: '' });
@@ -989,10 +990,9 @@ export default function CurriculumTab() {
 
         {/* ── Classrooms column ── */}
         <div style={{ minWidth: 0, maxHeight: '80vh', overflowY: 'auto', overflowX: 'visible' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div>
               <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--ink)' }}>Classrooms</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{classrooms.length} total</div>
             </div>
             <button
               className="btn xs"
@@ -1002,8 +1002,46 @@ export default function CurriculumTab() {
               + New
             </button>
           </div>
-          <div style={{ display: 'grid', gap: 8 }}>
-            {classrooms.map(cl => (
+          {/* Search/filter */}
+          <div style={{ display: 'grid', gap: 6, marginBottom: 10 }}>
+            <input
+              className="input"
+              style={{ fontSize: 12, padding: '6px 10px' }}
+              placeholder="Search by name..."
+              value={clSearch.name}
+              onChange={e => setClSearch(p => ({ ...p, name: e.target.value }))}
+            />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              <input
+                className="input"
+                style={{ fontSize: 12, padding: '6px 10px' }}
+                placeholder="Process..."
+                value={clSearch.process}
+                onChange={e => setClSearch(p => ({ ...p, process: e.target.value }))}
+              />
+              <input
+                className="input"
+                style={{ fontSize: 12, padding: '6px 10px' }}
+                placeholder="Branch..."
+                value={clSearch.branch}
+                onChange={e => setClSearch(p => ({ ...p, branch: e.target.value }))}
+              />
+            </div>
+          </div>
+          {(() => {
+            const filtered = classrooms.filter(cl => {
+              const q = clSearch.name.toLowerCase();
+              const p = clSearch.process.toLowerCase();
+              const b = clSearch.branch.toLowerCase();
+              return (!q || cl.classroomName.toLowerCase().includes(q)) &&
+                     (!p || (cl.process || '').toLowerCase().includes(p)) &&
+                     (!b || (cl.branch || '').toLowerCase().includes(b));
+            });
+            return (
+              <>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8 }}>{filtered.length} of {classrooms.length}</div>
+                <div style={{ display: 'grid', gap: 8 }}>
+                  {filtered.map(cl => (
               <div key={cl.classroomId}>
               <ClassroomCard
                 cl={cl}
@@ -1030,15 +1068,18 @@ export default function CurriculumTab() {
                 </div>
               )}
               </div>
-            ))}
-            {classrooms.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '32px 16px', background: 'var(--card)', borderRadius: 14, border: '1.5px dashed var(--line)' }}>
-                <div style={{ fontSize: 28, marginBottom: 8 }}>🏫</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>No classrooms yet</div>
-                <div style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 4 }}>Create one to get started</div>
-              </div>
-            )}
-          </div>
+                  ))}
+                  {filtered.length === 0 && (
+                    <div style={{ textAlign: 'center', padding: '32px 16px', background: 'var(--card)', borderRadius: 14, border: '1.5px dashed var(--line)' }}>
+                      <div style={{ fontSize: 28, marginBottom: 8 }}>🏫</div>
+                      <div style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>{classrooms.length === 0 ? 'No classrooms yet' : 'No match'}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 4 }}>{classrooms.length === 0 ? 'Create one to get started' : 'Try different filters'}</div>
+                    </div>
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
 
         {/* ── Modules column ── */}
