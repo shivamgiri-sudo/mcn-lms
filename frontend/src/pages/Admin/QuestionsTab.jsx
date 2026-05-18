@@ -44,6 +44,7 @@ export default function QuestionsTab() {
   const [showCreate, setShowCreate] = useState(false);
   const [showBulk, setShowBulk] = useState(false);
   const [classrooms, setClassrooms] = useState([]);
+  const [classroomModules, setClassroomModules] = useState([]);
   const [aForm, setAForm] = useState({ classroomId: '', dayNo: '', moduleId: '', assessmentName: '', passingPct: 60, attemptLimit: 3, timeLimitMins: 30, instructions: '' });
   const [bulkJson, setBulkJson] = useState('');
   const [bulkMode, setBulkMode] = useState('csv');
@@ -56,6 +57,17 @@ export default function QuestionsTab() {
     api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data));
     api.get('/admin/classrooms', 'admin').then(r => r.ok && setClassrooms(r.data));
   }, []);
+
+  useEffect(() => {
+    if (aForm.classroomId) {
+      api.get(`/admin/classrooms/${aForm.classroomId}/modules`, 'admin').then(r => {
+        if (r.ok) setClassroomModules(r.data || []);
+      });
+    } else {
+      setClassroomModules([]);
+      setAForm(f => ({ ...f, moduleId: '' }));
+    }
+  }, [aForm.classroomId]);
 
   useEffect(() => {
     if (selected) api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data));
@@ -141,15 +153,26 @@ export default function QuestionsTab() {
               <input className="input" required value={aForm.assessmentName} onChange={e => setAForm(f => ({...f,assessmentName:e.target.value}))} />
             </div>
             <div>
-              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Classroom</label>
-              <select className="input" value={aForm.classroomId} onChange={e => setAForm(f => ({...f,classroomId:e.target.value}))}>
-                <option value="">-- Select --</option>
+              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Classroom *</label>
+              <select className="input" required value={aForm.classroomId} onChange={e => setAForm(f => ({...f,classroomId:e.target.value,moduleId:''}))}>
+                <option value="">-- Select Classroom --</option>
                 {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Link to Module <span style={{fontWeight:400,color:'var(--muted)'}}>(shows in learner view)</span></label>
+              <select className="input" value={aForm.moduleId} onChange={e => setAForm(f => ({...f,moduleId:e.target.value}))} disabled={!aForm.classroomId}>
+                <option value="">-- No module link --</option>
+                {classroomModules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} · {m.moduleTitle}</option>)}
               </select>
             </div>
             <div>
               <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Passing % *</label>
               <input className="input" type="number" min="0" max="100" required value={aForm.passingPct} onChange={e => setAForm(f => ({...f,passingPct:Number(e.target.value)}))} />
+            </div>
+            <div>
+              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Attempt Limit</label>
+              <input className="input" type="number" min="1" value={aForm.attemptLimit} onChange={e => setAForm(f => ({...f,attemptLimit:Number(e.target.value)}))} />
             </div>
             <div>
               <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Time Limit (mins)</label>
@@ -170,7 +193,11 @@ export default function QuestionsTab() {
           {assessments.map(a => (
             <div key={a.assessmentId} onClick={() => { setSelected(a); setShowBulk(false); setMsg(''); }}
               style={{padding:'10px 12px',borderRadius:'var(--radius-sm)',cursor:'pointer',marginBottom:'4px',background:selected?.assessmentId===a.assessmentId?'var(--accent-soft)':'var(--card)',border:`1px solid ${selected?.assessmentId===a.assessmentId?'var(--accent)':'var(--line)'}`,fontSize:'13px',fontWeight:selected?.assessmentId===a.assessmentId?'700':'400'}}>
-              {a.assessmentName}
+              <div>{a.assessmentName}</div>
+              {a.moduleId
+                ? <div style={{fontSize:'10px',color:'var(--ok)',marginTop:2}}>✓ Linked to module</div>
+                : <div style={{fontSize:'10px',color:'var(--muted)',marginTop:2}}>Not linked to module</div>
+              }
             </div>
           ))}
         </div>
@@ -183,11 +210,18 @@ export default function QuestionsTab() {
                 <div>
                   <span style={{fontWeight:'700'}}>{selected.assessmentName}</span>
                   <span style={{fontSize:'12px',color:'var(--muted)',marginLeft:'10px'}}>{questions.length} questions</span>
+                  {selected.moduleId
+                    ? <span style={{fontSize:'11px',color:'var(--ok)',marginLeft:8}}>✓ Linked</span>
+                    : <span style={{fontSize:'11px',color:'var(--warn)',marginLeft:8}}>⚠ Not linked to any module — learners won't see this</span>
+                  }
                 </div>
                 <button className="btn small" onClick={() => { setShowBulk(!showBulk); setMsg(''); }}>
                   {showBulk ? 'Hide Upload' : '+ Bulk Upload'}
                 </button>
               </div>
+              {!selected.moduleId && selected.classroomId && (
+                <LinkToModulePanel assessmentId={selected.assessmentId} classroomId={selected.classroomId} onLinked={a => { setSelected(a); api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data)); }} />
+              )}
 
               {showBulk && (
                 <div style={{marginBottom:'16px',background:'rgba(255,255,255,.04)',border:'1px solid rgba(255,255,255,.08)',borderRadius:'16px',padding:'20px'}}>
@@ -267,6 +301,53 @@ export default function QuestionsTab() {
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function LinkToModulePanel({ assessmentId, classroomId, onLinked }) {
+  const [modules, setModules] = useState([]);
+  const [moduleId, setModuleId] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (show && classroomId) {
+      api.get(`/admin/classrooms/${classroomId}/modules`, 'admin').then(r => r.ok && setModules(r.data || []));
+    }
+  }, [show, classroomId]);
+
+  async function link() {
+    if (!moduleId) return;
+    setSaving(true);
+    const res = await api.put(`/admin/assessments/${assessmentId}`, { moduleId }, 'admin');
+    setSaving(false);
+    if (res.ok) onLinked(res.data);
+  }
+
+  if (!show) {
+    return (
+      <div className="toast warn" style={{marginBottom:12,fontSize:12,display:'flex',alignItems:'center',gap:8}}>
+        <span>This assessment is not linked to any module — learners cannot see it.</span>
+        <button className="btn small" onClick={() => setShow(true)}>Link Now</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'14px'}}>
+      <b style={{fontSize:13}}>Link to Module</b>
+      <div style={{display:'flex',gap:10,marginTop:10,alignItems:'flex-end'}}>
+        <div style={{flex:1}}>
+          <label style={{display:'block',fontSize:'11px',fontWeight:'600',marginBottom:'4px'}}>Select Module</label>
+          <select className="input" value={moduleId} onChange={e => setModuleId(e.target.value)}>
+            <option value="">-- Select module --</option>
+            {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} · {m.moduleTitle}</option>)}
+          </select>
+        </div>
+        <button className="btn small" onClick={link} disabled={!moduleId || saving}>{saving ? 'Saving...' : 'Link'}</button>
+        <button className="btn small secondary" onClick={() => setShow(false)}>Cancel</button>
       </div>
     </div>
   );

@@ -358,6 +358,15 @@ export async function createAssessment(req, res) {
         instructions,
       },
     });
+
+    // If a specific module was selected, link this assessment to it
+    if (moduleId) {
+      await prisma.moduleMaster.update({
+        where: { moduleId },
+        data: { assessmentId },
+      });
+    }
+
     res.json({ ok: true, data: a });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -367,7 +376,15 @@ export async function createAssessment(req, res) {
 export async function updateAssessment(req, res) {
   try {
     const { assessmentId } = req.params;
-    const a = await prisma.assessmentMaster.update({ where: { assessmentId }, data: req.body });
+    const { moduleId, ...rest } = req.body;
+    const a = await prisma.assessmentMaster.update({
+      where: { assessmentId },
+      data: { ...rest, ...(moduleId !== undefined ? { moduleId: moduleId || null } : {}) },
+    });
+    // If linking to a module, update ModuleMaster.assessmentId too
+    if (moduleId) {
+      await prisma.moduleMaster.update({ where: { moduleId }, data: { assessmentId } });
+    }
     res.json({ ok: true, data: a });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });

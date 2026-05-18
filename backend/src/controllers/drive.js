@@ -1,5 +1,5 @@
 import { google } from 'googleapis';
-import { getOAuthClient, saveTokens, deleteSavedTokens, loadSavedTokens, listDriveFolderAny, hasDriveAccess } from '../services/drive.js';
+import { getOAuthClient, saveTokens, deleteSavedTokens, loadSavedTokens, listDriveFolderAny, hasDriveAccess, getDriveService } from '../services/drive.js';
 
 export async function getDriveAuthUrl(req, res) {
   if (!process.env.GOOGLE_CLIENT_ID) {
@@ -95,5 +95,57 @@ export async function getFileInfo(req, res) {
     res.json({ ok: true, data: file.data });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// Proxy Drive file content through the backend so learners don't need Google accounts
+export async function proxyDriveFile(req, res) {
+  try {
+    const { fileId } = req.params;
+    const drive = await getDriveService();
+
+    // Get file metadata first for MIME type and name
+    const meta = await drive.files.get({
+      fileId,
+      fields: 'id, name, mimeType, size',
+      supportsAllDrives: true,
+    });
+
+    const mimeType = meta.data.mimeType || 'application/octet-stream';
+    const fileName = meta.data.name || fileId;
+
+    // Google Workspace formats (Docs, Sheets, Slides) must be exported
+    const exportMimeMap = {
+      'application/vnd.google-apps.document': 'application/pdf',
+      'application/vnd.google-apps.spreadsheet': 'application/pdf',
+      'application/vnd.google-apps.presentation': 'application/pdf',
+      'application/vnd.google-apps.drawing': 'image/png',
+    };
+
+    const exportMime = exportMimeMap[mimeType];
+
+    if (exportMime) {
+      const exported = await drive.files.export(
+        { fileId, mimeType: exportMime, supportsAllDrives: true },
+        { responseType: 'stream' }
+      );
+      res.setHeader('Content-Type', exportMime);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName)}.pdf"`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      exported.data.pipe(res);
+    } else {
+      const fileStream = await drive.files.get(
+        { fileId, alt: 'media', supportsAllDrives: true },
+        { responseType: 'stream' }
+      );
+      res.setHeader('Content-Type', mimeType);
+      res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(fileName)}"`);
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+      if (meta.data.size) res.setHeader('Content-Length', meta.data.size);
+      fileStream.data.pipe(res);
+    }
+  } catch (err) {
+    console.error('Drive proxy error:', err.message);
+    res.status(500).json({ ok: false, message: 'Could not load file: ' + err.message });
   }
 }

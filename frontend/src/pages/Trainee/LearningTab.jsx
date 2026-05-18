@@ -3,6 +3,13 @@ import { api } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
 
+const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
+
+function getDriveProxyUrl(fileId) {
+  const token = localStorage.getItem('lms_token_trainee') || localStorage.getItem('lms_token_admin') || '';
+  return `${API_BASE}/drive/proxy/${fileId}?token=${encodeURIComponent(token)}`;
+}
+
 export default function LearningTab({ days, onRefresh }) {
   const [openDays, setOpenDays] = useState({ 0: true });
   const [viewingContent, setViewingContent] = useState(null);
@@ -87,8 +94,21 @@ export default function LearningTab({ days, onRefresh }) {
       if (ytEmbed) return { type: 'youtube', url: ytEmbed };
       if (!url.includes('drive.google.com')) return { type: 'html5', url };
     }
+    // Use backend proxy for Drive files — avoids Google sign-in requirement
+    if (c.driveFileId) {
+      const proxyUrl = getDriveProxyUrl(c.driveFileId);
+      const isVid = c.contentType === 'video';
+      return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: c.driveFileId };
+    }
+    if (url && url.includes('drive.google.com')) {
+      const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (match) {
+        const proxyUrl = getDriveProxyUrl(match[1]);
+        const isVid = c.contentType === 'video';
+        return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: match[1] };
+      }
+    }
     if (c.driveUrl) return { type: 'drive', url: c.driveUrl };
-    if (c.driveFileId) return { type: 'drive', url: `https://drive.google.com/file/d/${c.driveFileId}/preview` };
     if (url) return { type: 'drive', url };
     return null;
   }
@@ -396,7 +416,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
           <div className="row" style={{ gap: 8 }}>
             {media && (
               <a
-                href={media.url.replace('/preview', '/view')}
+                href={media.fileId ? `https://drive.google.com/file/d/${media.fileId}/view` : media.url.replace('/preview', '/view')}
                 target="_blank"
                 rel="noopener"
                 className="btn small secondary"
@@ -409,7 +429,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
         </div>
 
         <div style={{ padding: '0 0 0 0' }}>
-          {(media?.type === 'drive' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && (
+          {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && (
             <div className="info-box" style={{ marginBottom: 8, fontSize: 13, borderRadius: 0 }}>
               Last watched: {formatSeconds(progress.lastPositionSeconds)} — Drive videos resume automatically if still open.
             </div>
@@ -443,7 +463,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
               title={content.contentTitle}
             />
           )}
-          {(media?.type === 'drive' || (media?.type === 'html5' && !isVideo)) && (
+          {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && (
             <iframe
               src={media.url}
               style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}

@@ -1,7 +1,7 @@
 import { prisma } from '../utils/db.js';
 
 export async function requireSession(req, res, next) {
-  const token = req.headers.authorization?.replace('Bearer ', '').trim();
+  const token = (req.headers.authorization?.replace('Bearer ', '') || req.query.token || '').trim();
   if (!token) return res.status(401).json({ ok: false, message: 'Unauthorized' });
 
   const session = await prisma.portalSession.findUnique({ where: { token } });
