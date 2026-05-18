@@ -33,3 +33,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Superpowers AI tool
+.superpowers/
+docs/superpowers/
+frontend/.env.production

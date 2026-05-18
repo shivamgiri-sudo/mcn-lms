@@ -124,11 +124,14 @@ export default function DriveTab() {
 
   function addContentFromDriveFile(file) {
     setAddingFile(file);
+    // Use cleaned display title (strips numeric prefix + extension)
+    const displayTitle = file.displayTitle || file.name.replace(/^[\d.]+[_\s-]+/, '').replace(/\.[^/.]+$/, '').trim();
     setAddForm({
-      contentTitle: file.name.replace(/\.[^/.]+$/, ''),
+      contentTitle: displayTitle,
       contentType: file.contentType || 'video',
       estimatedMins: '',
       completionRulePct: 80,
+      contentOrder: file.sortOrder || '',
     });
   }
 
@@ -143,6 +146,7 @@ export default function DriveTab() {
       playerMode: 'Drive Preview',
       estimatedMins: addForm.estimatedMins,
       completionRulePct: addForm.completionRulePct,
+      contentOrder: addForm.contentOrder || undefined,
     }, 'admin');
     if (res.ok) {
       toast(`✓ "${addForm.contentTitle}" added to module.`);
@@ -270,18 +274,21 @@ export default function DriveTab() {
             <table>
               <thead>
                 <tr>
+                  <th>#</th>
                   <th>Name</th>
                   <th>Type</th>
-                  <th>File ID</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {files.map(f => (
                   <tr key={f.id}>
-                    <td><b style={{ fontSize: 13 }}>{f.name}</b></td>
+                    <td style={{ color: 'var(--muted)', fontSize: 12, width: 32 }}>{f.sortOrder || ''}</td>
+                    <td>
+                      <b style={{ fontSize: 13 }}>{f.displayTitle || f.name.replace(/\.[^/.]+$/, '')}</b>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{f.name}</div>
+                    </td>
                     <td><span className="content-type-badge">{normalizeType(f)}</span></td>
-                    <td style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>{f.id}</td>
                     <td>
                       <div className="row" style={{ gap: 6 }}>
                         <a href={f.viewUrl || `https://drive.google.com/file/d/${f.id}/view`} target="_blank" rel="noopener" className="btn xs secondary">View ↗</a>

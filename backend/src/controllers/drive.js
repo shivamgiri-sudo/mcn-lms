@@ -56,11 +56,25 @@ export async function disconnectOAuth(req, res) {
   res.json({ ok: true, message: 'OAuth disconnected.' });
 }
 
+function parseFileOrder(name) {
+  const m = name.match(/^(\d+(?:\.\d+)*)[_\s-]/);
+  if (!m) return Infinity;
+  const parts = m[1].split('.').map(Number);
+  return parts[0] + (parts[1] || 0) / 100 + (parts[2] || 0) / 10000;
+}
+
 export async function listFolder(req, res) {
   try {
     const { folderId } = req.params;
     const { recursive } = req.query;
-    const { files, method } = await listDriveFolderAny(folderId, recursive === 'true');
+    const { files: rawFiles, method } = await listDriveFolderAny(folderId, recursive === 'true');
+    const files = [...rawFiles]
+      .sort((a, b) => parseFileOrder(a.name) - parseFileOrder(b.name))
+      .map((f, i) => ({
+        ...f,
+        sortOrder: i + 1,
+        displayTitle: f.name.replace(/^[\d.]+[_\s-]+/, '').replace(/\.[^/.]+$/, '').trim(),
+      }));
     res.json({ ok: true, data: files, method });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });

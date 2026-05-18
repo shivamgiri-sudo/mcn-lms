@@ -105,14 +105,18 @@ export default function ClassroomWizard({ onClose, onCreated }) {
     } else setMsg(res.message || 'Failed to list folder.');
   }
 
+  function cleanDriveTitle(name) {
+    return name.replace(/^[\d.]+[_\s-]+/, '').replace(/\.[^/.]+$/, '').trim() || name;
+  }
+
   function addDriveFileToDay(idx, file) {
     const c = {
       contentType: file.mimeType?.includes('video') ? 'video' : file.mimeType?.includes('pdf') ? 'pdf' : file.mimeType?.includes('presentation') ? 'ppt' : 'doc',
-      contentTitle: file.name,
+      contentTitle: file.displayTitle || cleanDriveTitle(file.name),
       driveFileId: file.id,
       driveUrl: `https://drive.google.com/file/d/${file.id}/view`,
       playerMode: 'Auto',
-      contentOrder: (days[idx]?.contents?.length || 0) + 1,
+      contentOrder: file.sortOrder || (days[idx]?.contents?.length || 0) + 1,
       estimatedMins: '',
       completionRulePct: 80,
       description: '',
@@ -125,11 +129,11 @@ export default function ClassroomWizard({ onClose, onCreated }) {
     driveFiles.forEach((f, fi) => {
       const c = {
         contentType: f.mimeType?.includes('video') ? 'video' : f.mimeType?.includes('pdf') ? 'pdf' : f.mimeType?.includes('presentation') ? 'ppt' : 'doc',
-        contentTitle: f.name,
+        contentTitle: f.displayTitle || cleanDriveTitle(f.name),
         driveFileId: f.id,
         driveUrl: `https://drive.google.com/file/d/${f.id}/view`,
         playerMode: 'Auto',
-        contentOrder: (days[idx]?.contents?.length || 0) + fi + 1,
+        contentOrder: f.sortOrder || (days[idx]?.contents?.length || 0) + fi + 1,
         estimatedMins: '',
         completionRulePct: 80,
         description: '',

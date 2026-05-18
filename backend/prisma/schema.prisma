@@ -716,6 +716,7 @@ model DriveFile {
   driveUrl      String   @map("drive_url")
   thumbnailUrl  String?  @map("thumbnail_url")
   size          BigInt?
+  sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")
   syncedAt      DateTime @default(now()) @map("synced_at")
 

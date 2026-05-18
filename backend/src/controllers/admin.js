@@ -192,6 +192,17 @@ export async function createContent(req, res) {
       localFilePath = `/uploads/content/${req.file.filename}`;
     }
 
+    // Auto-assign next order if not provided
+    let order = parseInt(contentOrder || 0, 10);
+    if (!order) {
+      const last = await prisma.contentMaster.findFirst({
+        where: { moduleId },
+        orderBy: { contentOrder: 'desc' },
+        select: { contentOrder: true },
+      });
+      order = (last?.contentOrder || 0) + 1;
+    }
+
     const contentId = `CON-${generateId()}`;
     const content = await prisma.contentMaster.create({
       data: {
@@ -204,7 +215,7 @@ export async function createContent(req, res) {
         directMediaUrl: directMediaUrl || (localFilePath ? `${process.env.API_URL || 'http://localhost:4000'}${localFilePath}` : null),
         localFilePath,
         playerMode: playerMode || 'Auto',
-        contentOrder: parseInt(contentOrder || 0, 10),
+        contentOrder: order,
         required: required !== false,
         estimatedMins: parseInt(estimatedMins || 0, 10),
         completionRulePct: parseFloat(completionRulePct || 80),
@@ -546,6 +557,27 @@ function extractFolderId(raw) {
   return m ? m[1] : raw.trim();
 }
 
+// Parse numeric prefix from filename: "1_foo", "1.1_foo", "2.3.1_foo" → float for sorting
+function parseFileOrder(name) {
+  const m = name.match(/^(\d+(?:\.\d+)*)[_\s-]/);
+  if (!m) return Infinity;
+  // Convert "1.2.3" → 1.0203 so 1.1 < 1.2 < 2
+  const parts = m[1].split('.').map(Number);
+  return parts[0] + (parts[1] || 0) / 100 + (parts[2] || 0) / 10000;
+}
+
+function sortFilesByPrefix(files) {
+  return [...files].sort((a, b) => parseFileOrder(a.name) - parseFileOrder(b.name));
+}
+
+// Strip numeric prefix from display title: "1.2_Welcome Video" → "Welcome Video"
+function cleanTitle(name) {
+  return name
+    .replace(/^[\d.]+[_\s-]+/, '')   // strip leading "1_", "1.2_", "1.2 - " etc
+    .replace(/\.[^/.]+$/, '')         // strip extension
+    .trim();
+}
+
 export async function syncClassroomFromDrive(req, res) {
   try {
     const { classroomId } = req.params;
@@ -557,13 +589,18 @@ export async function syncClassroomFromDrive(req, res) {
     const driveFolderId = extractFolderId(rawFolderId) || classroom.driveFolderId;
     if (!driveFolderId) return res.status(400).json({ ok: false, message: 'No Drive folder ID provided.' });
 
-    const { files } = await listDriveFolderAny(driveFolderId);
+    const { files: rawFiles } = await listDriveFolderAny(driveFolderId);
+
+    // Sort files by numeric prefix before saving
+    const files = sortFilesByPrefix(rawFiles);
 
     // Update classroom with folder id
     await prisma.classroomMaster.update({ where: { classroomId }, data: { driveFolderId } });
 
-    // Sync Drive files into DriveFile table
-    for (const f of files) {
+    // Sync Drive files into DriveFile table with sortOrder from filename prefix
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const sortOrder = i + 1;
       await prisma.driveFile.upsert({
         where: { driveFileId: f.id },
         create: {
@@ -575,12 +612,20 @@ export async function syncClassroomFromDrive(req, res) {
           thumbnailUrl: f.thumbnailLink || null,
           size: f.size ? BigInt(f.size) : null,
           syncedAt: new Date(),
+          sortOrder,
         },
-        update: { fileName: f.name, syncedAt: new Date() },
+        update: { fileName: f.name, syncedAt: new Date(), sortOrder },
       });
     }
 
-    res.json({ ok: true, data: { synced: files.length, files } });
+    // Return files with sortOrder and cleaned title attached
+    const enriched = files.map((f, i) => ({
+      ...f,
+      sortOrder: i + 1,
+      displayTitle: cleanTitle(f.name),
+    }));
+
+    res.json({ ok: true, data: { synced: files.length, files: enriched } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: err.message || 'Drive sync failed.' });
