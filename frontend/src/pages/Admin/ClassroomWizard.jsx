@@ -143,6 +143,67 @@ export default function ClassroomWizard({ onClose, onCreated }) {
     });
   }
 
+  // Multi-CSV bulk MCQ drop: files named "1_Day1.csv" → day index 0
+  const [bulkCsvFiles, setBulkCsvFiles] = useState([]); // [{file, dayIdx, parsed}]
+  const [bulkCsvDragging, setBulkCsvDragging] = useState(false);
+  const [mcqMode, setMcqMode] = useState('single'); // 'single' | 'bulk'
+
+  function parseCsvText(text) {
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) return [];
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const required = ['question', 'option_a', 'option_b', 'correct'];
+    if (!required.every(r => header.includes(r))) return [];
+    return lines.slice(1).map(line => {
+      const vals = line.split(',');
+      return {
+        question: vals[header.indexOf('question')]?.trim() || '',
+        optionA: vals[header.indexOf('option_a')]?.trim() || '',
+        optionB: vals[header.indexOf('option_b')]?.trim() || '',
+        optionC: vals[header.indexOf('option_c')]?.trim() || '',
+        optionD: vals[header.indexOf('option_d')]?.trim() || '',
+        correct: vals[header.indexOf('correct')]?.trim()?.toUpperCase() || 'A',
+        marks: vals[header.indexOf('marks')]?.trim() || '1',
+        difficulty: vals[header.indexOf('difficulty')]?.trim() || 'Medium',
+      };
+    }).filter(q => q.question);
+  }
+
+  function guessDayIdxFromFilename(name) {
+    const m = name.match(/^(\d+)[_\s-]/);
+    if (m) return parseInt(m[1], 10) - 1; // "1_Day1.csv" → idx 0
+    return -1;
+  }
+
+  function handleBulkCsvDrop(files) {
+    const items = [];
+    let pending = files.length;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = e => {
+        const parsed = parseCsvText(e.target.result);
+        const dayIdx = guessDayIdxFromFilename(file.name);
+        items.push({ file, dayIdx, parsed, name: file.name });
+        if (--pending === 0) setBulkCsvFiles(prev => [...prev, ...items]);
+      };
+      reader.readAsText(file);
+    });
+  }
+
+  function applyBulkCsvs() {
+    setBulkCsvFiles(prev => {
+      const updated = [...days];
+      prev.forEach(item => {
+        const idx = item.dayIdx >= 0 && item.dayIdx < days.length ? item.dayIdx : null;
+        if (idx !== null && item.parsed.length > 0) {
+          updated[idx] = { ...updated[idx], mcqs: [...updated[idx].mcqs, ...item.parsed] };
+        }
+      });
+      setDays(updated);
+      return [];
+    });
+  }
+
   // MCQ CSV parse
   function parseCsv(text) {
     const lines = text.trim().split('\n');
@@ -239,10 +300,17 @@ export default function ClassroomWizard({ onClose, onCreated }) {
         }
       }
 
-      // FAQs
-      for (let fi = 0; fi < day.faqs.length; fi++) {
-        const faq = day.faqs[fi];
-        await api.post(`/admin/modules/${moduleId}/faqs`, { ...faq, sortOrder: fi + 1 }, 'admin');
+      // FAQs — file-based FAQs use bulk upload endpoint
+      const fileFaqs = day.faqs.filter(f => f._file);
+      const textFaqs = day.faqs.filter(f => !f._file);
+      for (let fi = 0; fi < textFaqs.length; fi++) {
+        const faq = textFaqs[fi];
+        await api.post(`/admin/modules/${moduleId}/faqs`, { question: faq.question, answer: faq.answer, sortOrder: fi + 1 }, 'admin');
+      }
+      if (fileFaqs.length > 0) {
+        const fd = new FormData();
+        fileFaqs.forEach(f => fd.append('files', f._file));
+        await uploadFile(`/admin/modules/${moduleId}/faqs/bulk-upload`, fd, 'admin');
       }
 
       // MCQs — create assessment for this module then bulk upload
@@ -427,44 +495,121 @@ export default function ClassroomWizard({ onClose, onCreated }) {
 
           {/* ── Step 2: MCQs ── */}
           {step === 2 && (
-            <div style={{ display: 'grid', gridTemplateColumns: '180px 1fr', gap: 16, minHeight: 380 }}>
-              <div>
-                <b style={{ fontSize: 13, display: 'block', marginBottom: 10 }}>Days</b>
-                <div style={{ display: 'grid', gap: 6 }}>
-                  {days.map((d, i) => (
-                    <div
-                      key={i}
-                      onClick={() => setActiveDayIdx(i)}
-                      style={{
-                        padding: '9px 12px', borderRadius: 12, border: '1px solid',
-                        borderColor: activeDayIdx === i ? '#2563eb' : 'var(--line)',
-                        background: activeDayIdx === i ? 'rgba(37,99,235,.18)' : 'var(--card)',
-                        cursor: 'pointer',
-                      }}
-                    >
-                      <div style={{ fontSize: 12, fontWeight: 700, color: activeDayIdx === i ? '#1d4ed8' : 'var(--ink)' }}>Day {d.dayNo}</div>
-                      <div style={{ fontSize: 10, color: 'var(--muted)' }}>{d.mcqs.length} questions</div>
-                    </div>
-                  ))}
-                </div>
+            <div>
+              {/* Mode switch */}
+              <div style={{ display: 'flex', gap: 4, marginBottom: 14, background: 'var(--card)', borderRadius: 10, padding: 4 }}>
+                {[['single', 'Per-Day CSV / Manual'], ['bulk', '📦 Bulk Multi-CSV (all days at once)']].map(([k, label]) => (
+                  <button key={k} onClick={() => setMcqMode(k)} style={{
+                    flex: 1, padding: '7px 12px', borderRadius: 8, border: 'none', cursor: 'pointer',
+                    background: mcqMode === k ? 'var(--card-solid)' : 'transparent',
+                    color: mcqMode === k ? 'var(--ink)' : 'var(--muted)',
+                    fontWeight: mcqMode === k ? 700 : 500, fontSize: 12, transition: 'all .12s',
+                  }}>{label}</button>
+                ))}
               </div>
 
-              <div>
-                {days.length === 0 && <div className="empty">No days added.</div>}
-                {days.length > 0 && activeDayIdx < days.length && (
-                  <McqEditor
-                    day={days[activeDayIdx]}
-                    dayIdx={activeDayIdx}
-                    csvText={csvText}
-                    csvPreview={csvPreview}
-                    onCsvFile={handleCsvFile}
-                    onAddCsv={() => addCsvMcqsToDay(activeDayIdx)}
-                    onAddManual={q => addManualMcqToDay(activeDayIdx, q)}
-                    onRemoveMcq={mi => removeMcqFromDay(activeDayIdx, mi)}
-                    onDownloadTemplate={downloadCsvTemplate}
-                  />
-                )}
-              </div>
+              {/* Bulk multi-CSV mode */}
+              {mcqMode === 'bulk' && (
+                <div>
+                  <div
+                    onDragOver={e => { e.preventDefault(); setBulkCsvDragging(true); }}
+                    onDragLeave={() => setBulkCsvDragging(false)}
+                    onDrop={e => { e.preventDefault(); setBulkCsvDragging(false); handleBulkCsvDrop(Array.from(e.dataTransfer.files).filter(f => f.name.endsWith('.csv'))); }}
+                    onClick={() => document.getElementById('bulk-csv-input').click()}
+                    style={{
+                      border: `2px dashed ${bulkCsvDragging ? '#6366f1' : 'rgba(255,255,255,.15)'}`,
+                      borderRadius: 14, padding: '32px 24px', textAlign: 'center',
+                      background: bulkCsvDragging ? 'rgba(99,102,241,.1)' : 'rgba(255,255,255,.03)',
+                      cursor: 'pointer', marginBottom: 14, transition: 'all .15s',
+                    }}
+                  >
+                    <input id="bulk-csv-input" type="file" multiple accept=".csv" style={{ display: 'none' }}
+                      onChange={e => { handleBulkCsvDrop(Array.from(e.target.files)); e.target.value = ''; }} />
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>📊</div>
+                    <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Drop multiple CSV files here</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6, lineHeight: 1.6 }}>
+                      Name files with day prefix: <b style={{ color: 'var(--ink)' }}>1_Day1_MCQ.csv</b>, <b style={{ color: 'var(--ink)' }}>2_Day2_MCQ.csv</b><br />
+                      Each file's questions are auto-routed to that day number
+                    </div>
+                  </div>
+
+                  {bulkCsvFiles.length > 0 && (
+                    <div>
+                      <div style={{ display: 'grid', gap: 8, marginBottom: 14, maxHeight: 240, overflowY: 'auto' }}>
+                        {bulkCsvFiles.map((item, i) => {
+                          const dayLabel = item.dayIdx >= 0 && item.dayIdx < days.length
+                            ? `→ Day ${days[item.dayIdx]?.dayNo}`
+                            : <span style={{ color: '#f87171' }}>⚠ Day not found (prefix day number to filename)</span>;
+                          return (
+                            <div key={i} style={{ display: 'flex', gap: 10, alignItems: 'center', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px' }}>
+                              <span style={{ fontSize: 20 }}>📄</span>
+                              <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{item.name}</div>
+                                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{item.parsed.length} questions · {dayLabel}</div>
+                              </div>
+                              <button onClick={() => setBulkCsvFiles(p => p.filter((_, xi) => xi !== i))} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16 }}>✕</button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <button className="btn" onClick={applyBulkCsvs} style={{ width: '100%', justifyContent: 'center' }}>
+                        ✓ Apply {bulkCsvFiles.reduce((s, x) => s + x.parsed.length, 0)} Questions to Days
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Summary after applying */}
+                  {days.some(d => d.mcqs.length > 0) && (
+                    <div style={{ marginTop: 14, display: 'grid', gap: 6 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Applied MCQs</div>
+                      {days.filter(d => d.mcqs.length > 0).map((d, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--card)', borderRadius: 8, border: '1px solid var(--line)' }}>
+                          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Day {d.dayNo}</span>
+                          <span style={{ fontSize: 12, color: 'var(--muted)' }}>{d.mcqs.length} questions</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Per-day mode */}
+              {mcqMode === 'single' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 16, minHeight: 340 }}>
+                  <div>
+                    <b style={{ fontSize: 12, display: 'block', marginBottom: 8, color: 'var(--muted)', textTransform: 'uppercase' }}>Days</b>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {days.map((d, i) => (
+                        <div key={i} onClick={() => setActiveDayIdx(i)} style={{
+                          padding: '9px 12px', borderRadius: 12, border: '1px solid',
+                          borderColor: activeDayIdx === i ? '#2563eb' : 'var(--line)',
+                          background: activeDayIdx === i ? 'rgba(37,99,235,.18)' : 'var(--card)',
+                          cursor: 'pointer',
+                        }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: activeDayIdx === i ? '#60a5fa' : 'var(--ink)' }}>Day {d.dayNo}</div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)' }}>{d.mcqs.length} questions</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    {days.length === 0 && <div className="empty">No days added.</div>}
+                    {days.length > 0 && activeDayIdx < days.length && (
+                      <McqEditor
+                        day={days[activeDayIdx]}
+                        dayIdx={activeDayIdx}
+                        csvText={csvText}
+                        csvPreview={csvPreview}
+                        onCsvFile={handleCsvFile}
+                        onAddCsv={() => addCsvMcqsToDay(activeDayIdx)}
+                        onAddManual={q => addManualMcqToDay(activeDayIdx, q)}
+                        onRemoveMcq={mi => removeMcqFromDay(activeDayIdx, mi)}
+                        onDownloadTemplate={downloadCsvTemplate}
+                      />
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -787,7 +932,10 @@ function McqEditor({ day, dayIdx, csvText, csvPreview, onCsvFile, onAddCsv, onAd
 
 // ── FAQ Editor ──
 function FaqEditor({ day, dayIdx, onAddFaq, onRemoveFaq }) {
+  const [mode, setMode] = useState('manual'); // 'manual' | 'bulk'
   const [form, setForm] = useState({ question: '', answer: '' });
+  const [bulkFiles, setBulkFiles] = useState([]);
+  const [dragging, setDragging] = useState(false);
 
   function submit(e) {
     e.preventDefault();
@@ -796,21 +944,93 @@ function FaqEditor({ day, dayIdx, onAddFaq, onRemoveFaq }) {
     setForm({ question: '', answer: '' });
   }
 
+  function handleFiles(files) {
+    const allowed = ['.pdf', '.doc', '.docx', '.ppt', '.pptx'];
+    const valid = Array.from(files).filter(f => allowed.some(ext => f.name.toLowerCase().endsWith(ext)));
+    setBulkFiles(prev => [...prev, ...valid]);
+  }
+
+  function addBulkAsText() {
+    bulkFiles.forEach(f => {
+      const ext = f.name.split('.').pop().toUpperCase();
+      const title = f.name.replace(/^[\d.]+[_\s-]+/, '').replace(/\.[^/.]+$/, '').trim();
+      onAddFaq({ question: title, answer: `[${ext} Document] ${f.name}`, _file: f });
+    });
+    setBulkFiles([]);
+  }
+
   return (
     <div>
-      <b style={{ fontSize: 15, display: 'block', marginBottom: 14 }}>Day {day.dayNo} — FAQs ({day.faqs.length})</b>
-      <form onSubmit={submit} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
-        <div className="field"><label>Question *</label><input className="input" required value={form.question} onChange={e => setForm(p => ({ ...p, question: e.target.value }))} /></div>
-        <div className="field"><label>Answer *</label><textarea className="input" rows={3} required value={form.answer} onChange={e => setForm(p => ({ ...p, answer: e.target.value }))} /></div>
-        <button type="submit" className="btn small">+ Add FAQ</button>
-      </form>
-      {day.faqs.length === 0 && <div className="empty">No FAQs yet.</div>}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+        <b style={{ fontSize: 15 }}>Day {day.dayNo} — FAQs &amp; SOPs ({day.faqs.length})</b>
+        <div style={{ display: 'flex', gap: 4, background: 'var(--card)', borderRadius: 8, padding: 3 }}>
+          {[['manual', '✏ Manual'], ['bulk', '📎 Bulk Files']].map(([k, label]) => (
+            <button key={k} onClick={() => setMode(k)} style={{
+              padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11,
+              background: mode === k ? 'var(--card-solid)' : 'transparent',
+              color: mode === k ? 'var(--ink)' : 'var(--muted)', fontWeight: mode === k ? 700 : 400,
+            }}>{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {mode === 'manual' && (
+        <form onSubmit={submit} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '14px 16px', marginBottom: 14 }}>
+          <div className="field"><label>Question / Title *</label><input className="input" required value={form.question} onChange={e => setForm(p => ({ ...p, question: e.target.value }))} /></div>
+          <div className="field"><label>Answer *</label><textarea className="input" rows={3} required value={form.answer} onChange={e => setForm(p => ({ ...p, answer: e.target.value }))} /></div>
+          <button type="submit" className="btn small">+ Add FAQ</button>
+        </form>
+      )}
+
+      {mode === 'bulk' && (
+        <div style={{ marginBottom: 14 }}>
+          <div
+            onDragOver={e => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={e => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+            onClick={() => document.getElementById(`faq-bulk-${dayIdx}`).click()}
+            style={{
+              border: `2px dashed ${dragging ? '#6366f1' : 'rgba(255,255,255,.15)'}`,
+              borderRadius: 12, padding: '28px 20px', textAlign: 'center',
+              background: dragging ? 'rgba(99,102,241,.1)' : 'rgba(255,255,255,.03)',
+              cursor: 'pointer', marginBottom: 10, transition: 'all .15s',
+            }}
+          >
+            <input id={`faq-bulk-${dayIdx}`} type="file" multiple accept=".pdf,.doc,.docx,.ppt,.pptx" style={{ display: 'none' }}
+              onChange={e => { handleFiles(e.target.files); e.target.value = ''; }} />
+            <div style={{ fontSize: 28, marginBottom: 6 }}>📎</div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drop PDF, DOC, PPT files</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Each file becomes a FAQ/SOP entry — filename as title, file as attachment</div>
+          </div>
+          {bulkFiles.length > 0 && (
+            <div>
+              <div style={{ display: 'grid', gap: 6, maxHeight: 180, overflowY: 'auto', marginBottom: 10 }}>
+                {bulkFiles.map((f, i) => {
+                  const ext = f.name.split('.').pop().toLowerCase();
+                  const icons = { pdf: '📄', doc: '📝', docx: '📝', ppt: '📊', pptx: '📊' };
+                  return (
+                    <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'center', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: '7px 10px' }}>
+                      <span style={{ fontSize: 16 }}>{icons[ext] || '📄'}</span>
+                      <span style={{ flex: 1, fontSize: 12, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                      <button onClick={() => setBulkFiles(p => p.filter((_, xi) => xi !== i))} style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 14 }}>✕</button>
+                    </div>
+                  );
+                })}
+              </div>
+              <button className="btn small" onClick={addBulkAsText}>+ Add {bulkFiles.length} File{bulkFiles.length > 1 ? 's' : ''} as FAQs</button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {day.faqs.length === 0 && <div className="empty">No FAQs/SOPs yet.</div>}
       <div style={{ display: 'grid', gap: 7 }}>
         {day.faqs.map((f, fi) => (
           <div key={fi} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '10px 13px', background: 'var(--card-solid)', borderRadius: 10, border: '1px solid var(--line)' }}>
             <div style={{ flex: 1 }}>
-              <b style={{ fontSize: 13, color: 'var(--ink)' }}>{f.question}</b>
-              <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>{f.answer}</p>
+              <b style={{ fontSize: 13, color: 'var(--ink)' }}>{f._file ? '📎 ' : ''}{f.question}</b>
+              {!f._file && <p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>{f.answer}</p>}
+              {f._file && <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{f._file.name} · {(f._file.size / 1024).toFixed(0)} KB</p>}
             </div>
             <button style={{ background: 'transparent', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 14, padding: '0 4px' }} onClick={() => onRemoveFaq(fi)}>✕</button>
           </div>

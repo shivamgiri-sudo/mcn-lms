@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../../utils/api.js';
+import { api, downloadCsv } from '../../utils/api.js';
 
 function StatCard({ label, value, sub, color = '#1d4ed8' }) {
   return (
@@ -61,25 +61,11 @@ export default function ReportsTab() {
   async function downloadReport(type) {
     setMsg('');
     try {
-      const token = localStorage.getItem('lms_token_admin') || '';
       const params = new URLSearchParams();
       if (selectedBatch) params.set('batchNo', selectedBatch);
       if (selectedClassroom) params.set('classroomId', selectedClassroom);
-
-      const res = await fetch(`/api/admin/trainees/export?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!res.ok) { setMsg('Export failed. Please try again.'); return; }
-
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
       const batchLabel = selectedBatch || 'all-batches';
-      a.download = `trainee-report-${batchLabel}-${new Date().toISOString().slice(0,10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadCsv(`/admin/trainees/export?${params}`, `trainee-report-${batchLabel}-${new Date().toISOString().slice(0,10)}.csv`);
     } catch {
       setMsg('Download failed. Check your connection.');
     }

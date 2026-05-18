@@ -264,6 +264,7 @@ model ContentMaster {
   contentOrder      Int      @default(0) @map("content_order")
   required          Boolean  @default(true)
   active            Boolean  @default(true)
+  locked            Boolean  @default(false)
   estimatedMins     Int      @default(0) @map("estimated_mins")
   completionRulePct Float    @default(80) @map("completion_rule_pct")
   description       String?

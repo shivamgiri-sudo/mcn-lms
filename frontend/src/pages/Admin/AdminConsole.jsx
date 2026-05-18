@@ -15,6 +15,8 @@ import TraineeDetailPage from './TraineeDetailPage.jsx';
 import RiskDrilldownPage from './RiskDrilldownPage.jsx';
 import ProcessLobTab from './ProcessLobTab.jsx';
 import ReportsTab from './ReportsTab.jsx';
+import BranchTab from './BranchTab.jsx';
+import UsersTab from './UsersTab.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -25,8 +27,10 @@ const NAV = [
   ]},
   { section: 'People', items: [
     { id: 'batches', label: 'Batches', icon: '🏢' },
+    { id: 'branches', label: 'Branches', icon: '🌿' },
     { id: 'accounts', label: 'Trainee Accounts', icon: '👤' },
     { id: 'coordinators', label: 'Coordinators', icon: '🧑‍💼' },
+    { id: 'users', label: 'Portal Users', icon: '🔑' },
   ]},
   { section: 'Reports', items: [
     { id: 'reports', label: 'Reports & Exports', icon: '📥' },
@@ -122,6 +126,8 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'reports' && <ReportsTab />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}
+          {activeId === 'branches' && <BranchTab />}
+          {activeId === 'users' && <UsersTab />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}

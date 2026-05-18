@@ -46,3 +46,17 @@ export async function uploadFile(url, formData, type = 'admin') {
   const res = await fetch(`${BASE}${url}`, { method: 'POST', headers, body: formData });
   return res.json().catch(() => ({ ok: false }));
 }
+
+export async function downloadCsv(url, filename, type = 'admin') {
+  const token = getToken(type);
+  const headers = {};
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  const res = await fetch(`${BASE}${url}`, { headers });
+  if (!res.ok) return;
+  const blob = await res.blob();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}

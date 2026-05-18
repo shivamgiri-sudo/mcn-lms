@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { api } from '../../utils/api.js';
+import { api, downloadCsv } from '../../utils/api.js';
 import { formatDate, pct, riskColor } from '../../utils/format.js';
 
 export default function AccountsTab() {
@@ -40,7 +40,7 @@ export default function AccountsTab() {
           <button className="btn" type="submit">Search</button>
         </form>
         <div style={{ display: 'flex', gap: 8 }}>
-          <a className="btn small secondary" href="/api/admin/trainees/export" download="all-trainees.csv">⬇ Export All CSV</a>
+          <button className="btn small secondary" onClick={() => downloadCsv('/admin/trainees/export', 'all-trainees.csv')}>⬇ Export All CSV</button>
           {trainees.length > 0 && (
             <button className="btn small secondary" onClick={() => {
               const rows = [['Employee ID','Name','Batch','Branch','Process','Course%','MCQ%','Attendance%','Risk','Certification']];

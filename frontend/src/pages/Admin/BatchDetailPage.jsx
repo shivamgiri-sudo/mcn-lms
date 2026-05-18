@@ -1,22 +1,64 @@
 import { useState, useEffect } from 'react';
-import { api } from '../../utils/api.js';
+import { api, downloadCsv } from '../../utils/api.js';
+
+const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile\nEMP1001,John Doe,john@example.com,9876543210\n';
+
+function parseCsvTrainees(text) {
+  const lines = text.trim().split('\n').filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+  const empIdx = header.findIndex(h => h.includes('emp') || h.includes('id'));
+  const nameIdx = header.findIndex(h => h.includes('name'));
+  const emailIdx = header.findIndex(h => h.includes('email') || h.includes('mail'));
+  const mobileIdx = header.findIndex(h => h.includes('mobile') || h.includes('phone'));
+  return lines.slice(1).map(line => {
+    const cols = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+    return {
+      employeeId: (empIdx >= 0 ? cols[empIdx] : cols[0]) || '',
+      traineeName: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || '',
+      email: (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
+      mobile: (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
+    };
+  }).filter(t => t.employeeId);
+}
 
 export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [data, setData] = useState(null);
   const [analytics, setAnalytics] = useState(null);
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
+  const [addMsg, setAddMsg] = useState({ text: '', ok: true });
+  const [csvDragging, setCsvDragging] = useState(false);
+  const [csvPreview, setCsvPreview] = useState(null);
+  const [addLoading, setAddLoading] = useState(false);
 
-  useEffect(() => {
-    Promise.all([
+  function addToast(text, ok = true) { setAddMsg({ text, ok }); setTimeout(() => setAddMsg({ text: '', ok: true }), 5000); }
+
+  async function reload() {
+    const [d, a] = await Promise.all([
       api.get(`/admin/batches/${batchNo}`, 'admin'),
       api.get(`/admin/batches/${batchNo}/analytics`, 'admin'),
-    ]).then(([d, a]) => {
-      if (d.ok) setData(d.data);
-      if (a.ok) setAnalytics(a.data);
-      setLoading(false);
-    });
-  }, [batchNo]);
+    ]);
+    if (d.ok) setData(d.data);
+    if (a.ok) setAnalytics(a.data);
+    setLoading(false);
+  }
+
+  useEffect(() => { reload(); }, [batchNo]);
+
+  async function bulkAddFromCsv() {
+    if (!csvPreview || csvPreview.length === 0) return;
+    setAddLoading(true);
+    const res = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees: csvPreview }, 'admin');
+    setAddLoading(false);
+    if (res.ok) {
+      addToast(`Added ${res.data.success} trainee(s).${res.data.failed > 0 ? ` ${res.data.failed} failed.` : ''}`);
+      setCsvPreview(null);
+      reload();
+    } else {
+      addToast(res.message || 'Failed.', false);
+    }
+  }
 
   if (loading) return <div style={{color:'var(--muted)',padding:'40px',textAlign:'center'}}>Loading batch...</div>;
   if (!data) return <div style={{color:'var(--bad)',padding:'40px'}}>Batch not found.</div>;
@@ -61,27 +103,97 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
       )}
 
       {tab === 'trainees' && (
-        <div className="glass-panel">
-          <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span>Trainees <span className="panel-sub">{trainees.length} enrolled</span></span>
-            <a className="btn small secondary" href={`/api/admin/trainees/export?batchNo=${encodeURIComponent(batchNo)}`} download={`trainees-${batchNo}.csv`}>⬇ Export CSV</a>
+        <div>
+          {/* Add trainees via CSV */}
+          <div className="glass-panel" style={{marginBottom:'14px'}}>
+            <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+              <span>Add Trainees</span>
+              <button className="btn small secondary" onClick={() => {
+                const blob = new Blob([TRAINEE_CSV_TEMPLATE], { type: 'text/csv' });
+                const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Trainee_Upload_Template.csv'; a.click();
+              }}>⬇ Download Template</button>
+            </div>
+            {addMsg.text && (
+              <div className={`${addMsg.ok ? 'toast ok' : 'toast bad'}`} style={{ marginBottom: 10, fontSize: 12 }}>
+                {addMsg.text}
+              </div>
+            )}
+            <div
+              onDragOver={e => { e.preventDefault(); setCsvDragging(true); }}
+              onDragLeave={() => setCsvDragging(false)}
+              onDrop={e => {
+                e.preventDefault(); setCsvDragging(false);
+                const file = e.dataTransfer.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => setCsvPreview(parseCsvTrainees(ev.target.result));
+                reader.readAsText(file);
+              }}
+              onClick={() => document.getElementById(`bdp-csv-${batchNo}`).click()}
+              style={{
+                border: `2px dashed ${csvDragging ? '#2563eb' : 'rgba(255,255,255,.15)'}`,
+                borderRadius: 12, padding: '22px 20px', textAlign: 'center',
+                background: csvDragging ? 'rgba(37,99,235,.12)' : 'rgba(255,255,255,.03)',
+                cursor: 'pointer', transition: 'all .15s', marginBottom: 10,
+              }}
+            >
+              <input id={`bdp-csv-${batchNo}`} type="file" accept=".csv" style={{ display: 'none' }} onChange={e => {
+                const file = e.target.files[0]; if (!file) return;
+                const reader = new FileReader();
+                reader.onload = ev => setCsvPreview(parseCsvTrainees(ev.target.result));
+                reader.readAsText(file); e.target.value = '';
+              }} />
+              <div style={{ fontSize: 22, marginBottom: 6 }}>📂</div>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drop trainee CSV here or click to browse</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Columns: EmployeeID, Name, Email, Mobile</div>
+            </div>
+            {csvPreview && csvPreview.length > 0 && (
+              <div style={{ background: 'rgba(255,255,255,.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', padding: '12px 16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{csvPreview.length} trainees found</span>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button className="btn small" onClick={bulkAddFromCsv} disabled={addLoading}>
+                      {addLoading ? '...' : `+ Add ${csvPreview.length} Trainees`}
+                    </button>
+                    <button className="btn small secondary" onClick={() => setCsvPreview(null)}>Discard</button>
+                  </div>
+                </div>
+                <div style={{ maxHeight: 120, overflowY: 'auto', display: 'grid', gap: 3 }}>
+                  {csvPreview.slice(0, 8).map((t, i) => (
+                    <div key={i} style={{ fontSize: 11, display: 'flex', gap: 10, padding: '3px 0' }}>
+                      <b style={{ color: 'var(--brand)', minWidth: 80 }}>{t.employeeId}</b>
+                      <span style={{ color: 'var(--ink)' }}>{t.traineeName}</span>
+                      {t.email && <span style={{ color: 'var(--muted)' }}>{t.email}</span>}
+                    </div>
+                  ))}
+                  {csvPreview.length > 8 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>...and {csvPreview.length - 8} more</div>}
+                </div>
+              </div>
+            )}
           </div>
-          <table className="glass-table">
-            <thead><tr><th>Emp ID</th><th>Name</th><th>Course</th><th>Attendance</th><th>MCQ</th><th>Risk</th><th>Certified</th></tr></thead>
-            <tbody>
-              {trainees.map(t => (
-                <tr key={t.employeeId} className="clickable" onClick={() => navigate('trainee-detail', { empId: t.employeeId, from: batch.batchName || batchNo, fromId: 'batch-detail', batchNo })}>
-                  <td>{t.employeeId}</td>
-                  <td style={{fontWeight:'600'}}>{t.traineeName}</td>
-                  <td>{Math.round(t.courseCompletionPct)}%</td>
-                  <td>{Math.round(t.attendancePct)}%</td>
-                  <td>{Math.round(t.assessmentPassPct)}%</td>
-                  <td><span className={`pill ${t.riskStatus==='CRITICAL'?'crit':t.riskStatus==='HIGH'?'bad':t.riskStatus==='MEDIUM'?'warn':'ok'}`}>{t.riskStatus}</span></td>
-                  <td>{t.certificationStatus === 'Certified' ? <span className="pill ok">Certified</span> : <span style={{color:'var(--muted-2)',fontSize:'11px'}}>Pending</span>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+
+          {/* Trainees list */}
+          <div className="glass-panel">
+            <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Enrolled Trainees <span className="panel-sub">{trainees.length}</span></span>
+              <button className="btn small secondary" onClick={() => downloadCsv(`/admin/trainees/export?batchNo=${encodeURIComponent(batchNo)}`, `trainees-${batchNo}.csv`)}>⬇ Export CSV</button>
+            </div>
+            <table className="glass-table">
+              <thead><tr><th>Emp ID</th><th>Name</th><th>Course</th><th>Attendance</th><th>MCQ</th><th>Risk</th><th>Certified</th></tr></thead>
+              <tbody>
+                {trainees.map(t => (
+                  <tr key={t.employeeId} className="clickable" onClick={() => navigate('trainee-detail', { empId: t.employeeId, from: batch.batchName || batchNo, fromId: 'batch-detail', batchNo })}>
+                    <td>{t.employeeId}</td>
+                    <td style={{fontWeight:'600'}}>{t.traineeName}</td>
+                    <td>{Math.round(t.courseCompletionPct)}%</td>
+                    <td>{Math.round(t.attendancePct)}%</td>
+                    <td>{Math.round(t.assessmentPassPct)}%</td>
+                    <td><span className={`pill ${t.riskStatus==='CRITICAL'?'crit':t.riskStatus==='HIGH'?'bad':t.riskStatus==='MEDIUM'?'warn':'ok'}`}>{t.riskStatus}</span></td>
+                    <td>{t.certificationStatus === 'Certified' ? <span className="pill ok">Certified</span> : <span style={{color:'var(--muted-2)',fontSize:'11px'}}>Pending</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 

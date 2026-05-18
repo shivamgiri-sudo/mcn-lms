@@ -1325,3 +1325,178 @@ export async function deleteBatch(req, res) {
     res.status(500).json({ ok: false, message: err.message });
   }
 }
+
+// ── Branch Management ─────────────────────────────────────────────────────────
+
+export async function listBranches(req, res) {
+  try {
+    // Aggregate branch data from batches and coordinators
+    const [batches, coords] = await Promise.all([
+      prisma.batchMaster.findMany({
+        where: { branch: { not: null } },
+        select: { branch: true, process: true, lob: true, batchStatus: true },
+      }),
+      prisma.roleAccessMatrix.findMany({
+        where: { active: true, branch: { not: null } },
+        select: { loginId: true, name: true, branch: true, process: true, lob: true, role: true, portalAccess: true },
+      }),
+    ]);
+
+    // Build branch summary
+    const branchMap = {};
+    batches.forEach(b => {
+      const br = (b.branch || '').trim();
+      if (!br) return;
+      if (!branchMap[br]) branchMap[br] = { branch: br, processes: new Set(), activeBatches: 0, totalBatches: 0, users: [] };
+      if (b.process) branchMap[br].processes.add(b.process);
+      branchMap[br].totalBatches++;
+      if (b.batchStatus === 'Active') branchMap[br].activeBatches++;
+    });
+    coords.forEach(c => {
+      const br = (c.branch || '').trim();
+      if (!br) return;
+      if (!branchMap[br]) branchMap[br] = { branch: br, processes: new Set(), activeBatches: 0, totalBatches: 0, users: [] };
+      branchMap[br].users.push({ loginId: c.loginId, name: c.name, role: c.role, process: c.process });
+    });
+
+    const data = Object.values(branchMap).map(b => ({
+      ...b,
+      processes: [...b.processes],
+    })).sort((a, b) => a.branch.localeCompare(b.branch));
+
+    res.json({ ok: true, data });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function getBranchDetail(req, res) {
+  try {
+    const { branch } = req.params;
+    const [batches, users, trainees] = await Promise.all([
+      prisma.batchMaster.findMany({
+        where: { branch },
+        orderBy: { createdAt: 'desc' },
+        select: { batchNo: true, batchName: true, process: true, lob: true, batchStatus: true, startDate: true, totalTrainees: true, coordinatorName: true },
+      }),
+      prisma.roleAccessMatrix.findMany({
+        where: { branch, active: true },
+        select: { loginId: true, name: true, role: true, process: true, lob: true, portalAccess: true },
+        orderBy: { name: 'asc' },
+      }),
+      prisma.traineeMaster.findMany({
+        where: { branch, status: 'Active' },
+        select: { employeeId: true, traineeName: true, batchNo: true, process: true, courseCompletionPct: true, riskStatus: true },
+        take: 100,
+        orderBy: { traineeName: 'asc' },
+      }),
+    ]);
+    res.json({ ok: true, data: { branch, batches, users, trainees } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Portal User Management ────────────────────────────────────────────────────
+
+export async function listPortalUsers(req, res) {
+  try {
+    const users = await prisma.roleAccessMatrix.findMany({
+      where: { active: true },
+      orderBy: [{ role: 'asc' }, { name: 'asc' }],
+    });
+    res.json({ ok: true, data: users });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function createPortalUser(req, res) {
+  try {
+    const { loginId, pin, name, role, portalAccess, branch, process, lob, designation, department, employeeCode,
+      canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard } = req.body;
+
+    if (!loginId || !pin || !name) return res.status(400).json({ ok: false, message: 'Login ID, PIN and Name are required.' });
+    if (pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN must be at least 4 characters.' });
+
+    const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
+    if (existing) return res.status(400).json({ ok: false, message: 'Login ID already exists.' });
+
+    const user = await prisma.roleAccessMatrix.create({
+      data: {
+        loginId,
+        pin,
+        name,
+        role: role || 'Coordinator',
+        portalAccess: portalAccess || role || 'Coordinator',
+        branch: branch || null,
+        process: process || null,
+        lob: lob || null,
+        active: true,
+      },
+    });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_PORTAL_USER', module: 'Users', referenceId: loginId });
+    res.json({ ok: true, data: user, message: `User ${loginId} created.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
+export async function updatePortalUser(req, res) {
+  try {
+    const { id } = req.params;
+    const { name, pin, role, portalAccess, branch, process, lob,
+      canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard, active } = req.body;
+
+    const user = await prisma.roleAccessMatrix.update({
+      where: { id },
+      data: {
+        ...(name !== undefined && { name }),
+        ...(pin !== undefined && { pin }),
+        ...(role !== undefined && { role }),
+        ...(portalAccess !== undefined && { portalAccess }),
+        ...(branch !== undefined && { branch: branch || null }),
+        ...(process !== undefined && { process: process || null }),
+        ...(lob !== undefined && { lob: lob || null }),
+        ...(canCreateBatch !== undefined && { canCreateBatch: !!canCreateBatch }),
+        ...(canOnboardTrainee !== undefined && { canOnboardTrainee: !!canOnboardTrainee }),
+        ...(canUploadLmsReport !== undefined && { canUploadLmsReport: !!canUploadLmsReport }),
+        ...(canOverrideAttendance !== undefined && { canOverrideAttendance: !!canOverrideAttendance }),
+        ...(canCloseBatch !== undefined && { canCloseBatch: !!canCloseBatch }),
+        ...(canViewManagementDashboard !== undefined && { canViewManagementDashboard: !!canViewManagementDashboard }),
+        ...(active !== undefined && { active: !!active }),
+      },
+    });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_PORTAL_USER', module: 'Users', referenceId: user.loginId });
+    res.json({ ok: true, data: user });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function deletePortalUser(req, res) {
+  try {
+    const { id } = req.params;
+    await prisma.roleAccessMatrix.update({ where: { id }, data: { active: false } });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DEACTIVATE_PORTAL_USER', module: 'Users', referenceId: id });
+    res.json({ ok: true, message: 'User deactivated.' });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+export async function resetPortalUserPin(req, res) {
+  try {
+    const { id } = req.params;
+    const { pin } = req.body;
+    if (!pin || pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN must be at least 4 characters.' });
+    const user = await prisma.roleAccessMatrix.update({ where: { id }, data: { pin, failedAttempts: 0, locked: false } });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_PORTAL_USER_PIN', module: 'Users', referenceId: user.loginId });
+    res.json({ ok: true, message: 'PIN reset.' });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}

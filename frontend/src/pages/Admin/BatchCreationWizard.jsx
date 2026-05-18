@@ -3,6 +3,27 @@ import { api } from '../../utils/api.js';
 
 const STEPS = ['Basic Info', 'Assign Coordinator', 'Assign Classroom', 'Add Trainees', 'Review & Submit'];
 
+const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile\nEMP1001,John Doe,john@example.com,9876543210\nEMP1002,Jane Smith,,9876543211\n';
+
+function parseCsvTrainees(text) {
+  const lines = text.trim().split('\n').filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+  const empIdx = header.findIndex(h => h.includes('emp') || h.includes('id'));
+  const nameIdx = header.findIndex(h => h.includes('name'));
+  const emailIdx = header.findIndex(h => h.includes('email') || h.includes('mail'));
+  const mobileIdx = header.findIndex(h => h.includes('mobile') || h.includes('phone'));
+  return lines.slice(1).map(line => {
+    const cols = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+    return {
+      employeeId: (empIdx >= 0 ? cols[empIdx] : cols[0]) || '',
+      traineeName: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || '',
+      email: (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
+      mobile: (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
+    };
+  }).filter(t => t.employeeId);
+}
+
 export default function BatchCreationWizard({ onClose, onCreated }) {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -25,6 +46,8 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
   const [traineeForm, setTraineeForm] = useState({ employeeId: '', traineeName: '', email: '', mobile: '' });
 
   const [created, setCreated] = useState(null);
+  const [traineeCsvDragging, setTraineeCsvDragging] = useState(false);
+  const [traineeCsvPreview, setTraineeCsvPreview] = useState(null);
 
   useEffect(() => {
     api.get('/admin/process-lob', 'admin').then(r => r.ok && setProcessList(r.data));
@@ -251,7 +274,80 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
           {/* Step 3: Trainees */}
           {step === 3 && (
             <div>
-              <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 18 }}>Add trainees now or later from the batch detail. You can add them individually or in bulk via CSV paste.</p>
+              <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 18 }}>Add trainees now or later from the batch detail. Use CSV upload (drag & drop), paste, or add individually.</p>
+
+              {/* Template download */}
+              <div style={{ marginBottom: 14, display: 'flex', gap: 10, alignItems: 'center' }}>
+                <button className="btn small secondary" onClick={() => {
+                  const blob = new Blob([TRAINEE_CSV_TEMPLATE], { type: 'text/csv' });
+                  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Trainee_Upload_Template.csv'; a.click();
+                }}>⬇ Download CSV Template</button>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Format: EmployeeID, Name, Email, Mobile</span>
+              </div>
+
+              {/* Drag & Drop CSV */}
+              <div
+                onDragOver={e => { e.preventDefault(); setTraineeCsvDragging(true); }}
+                onDragLeave={() => setTraineeCsvDragging(false)}
+                onDrop={e => {
+                  e.preventDefault(); setTraineeCsvDragging(false);
+                  const file = e.dataTransfer.files[0];
+                  if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => {
+                    const parsed = parseCsvTrainees(ev.target.result);
+                    setTraineeCsvPreview(parsed);
+                  };
+                  reader.readAsText(file);
+                }}
+                onClick={() => document.getElementById('trainee-csv-input').click()}
+                style={{
+                  border: `2px dashed ${traineeCsvDragging ? '#2563eb' : 'rgba(255,255,255,.2)'}`,
+                  borderRadius: 14, padding: '28px 24px', textAlign: 'center',
+                  background: traineeCsvDragging ? 'rgba(37,99,235,.12)' : 'rgba(255,255,255,.04)',
+                  cursor: 'pointer', marginBottom: 14, transition: 'all .15s',
+                }}
+              >
+                <input
+                  id="trainee-csv-input" type="file" accept=".csv" style={{ display: 'none' }}
+                  onChange={e => {
+                    const file = e.target.files[0]; if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = ev => { setTraineeCsvPreview(parseCsvTrainees(ev.target.result)); };
+                    reader.readAsText(file);
+                    e.target.value = '';
+                  }}
+                />
+                <div style={{ fontSize: 26, marginBottom: 6 }}>📂</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drop CSV file here or click to browse</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Supports EmployeeID, Name, Email, Mobile columns</div>
+              </div>
+
+              {/* CSV Preview */}
+              {traineeCsvPreview && traineeCsvPreview.length > 0 && (
+                <div style={{ marginBottom: 14, background: 'var(--card)', borderRadius: 12, border: '1px solid var(--line)', padding: '14px 16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{traineeCsvPreview.length} trainees found in CSV</div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn small" onClick={() => { setTrainees(prev => [...prev, ...traineeCsvPreview]); setTraineeCsvPreview(null); }}>
+                        + Add All to List
+                      </button>
+                      <button className="btn small secondary" onClick={() => setTraineeCsvPreview(null)}>Discard</button>
+                    </div>
+                  </div>
+                  <div style={{ maxHeight: 150, overflowY: 'auto', display: 'grid', gap: 4 }}>
+                    {traineeCsvPreview.slice(0, 10).map((t, i) => (
+                      <div key={i} style={{ fontSize: 11, padding: '4px 8px', background: 'rgba(255,255,255,.05)', borderRadius: 6, display: 'flex', gap: 10 }}>
+                        <b style={{ color: 'var(--brand)' }}>{t.employeeId}</b>
+                        <span style={{ color: 'var(--ink)' }}>{t.traineeName}</span>
+                        {t.email && <span style={{ color: 'var(--muted)' }}>{t.email}</span>}
+                        {t.mobile && <span style={{ color: 'var(--muted)' }}>{t.mobile}</span>}
+                      </div>
+                    ))}
+                    {traineeCsvPreview.length > 10 && <div style={{ fontSize: 11, color: 'var(--muted)', padding: '4px 8px' }}>...and {traineeCsvPreview.length - 10} more</div>}
+                  </div>
+                </div>
+              )}
 
               {/* Manual add */}
               <form onSubmit={addTraineeManual} style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: 14 }}>
@@ -276,15 +372,15 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
 
               {/* Bulk paste */}
               <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>BULK PASTE (CSV format: EmpID, Name, Email, Mobile)</label>
-                <textarea className="input" rows={3} placeholder={"EMP1001, John Doe, john@co.com, 9876543210\nEMP1002, Jane Smith, , "} value={bulkText} onChange={e => setBulkText(e.target.value)} />
+                <label style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>OR PASTE CSV (EmpID, Name, Email, Mobile)</label>
+                <textarea className="input" rows={2} placeholder={"EMP1001, John Doe, john@co.com, 9876543210"} value={bulkText} onChange={e => setBulkText(e.target.value)} />
                 <button className="btn small secondary" style={{ marginTop: 6 }} onClick={addBulkTrainees} disabled={!bulkText.trim()}>+ Parse &amp; Add</button>
               </div>
 
               {/* Trainee list */}
               {trainees.length > 0 && (
                 <div>
-                  <b style={{ fontSize: 13, color: 'var(--ink)', display: 'block', marginBottom: 8 }}>{trainees.length} trainees added</b>
+                  <b style={{ fontSize: 13, color: 'var(--ink)', display: 'block', marginBottom: 8 }}>{trainees.length} trainees queued</b>
                   <div style={{ maxHeight: 200, overflowY: 'auto', display: 'grid', gap: 6 }}>
                     {trainees.map((t, i) => (
                       <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', background: 'var(--card)', borderRadius: 8, border: '1px solid var(--line)' }}>

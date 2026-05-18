@@ -23,6 +23,8 @@ import {
   adminCreateBatch, adminUpdateBatchCoordinator, listAllCoordinators, closeBatch, deleteBatch,
   adminBulkAddTrainees, resetAdminPassword,
   setContentLock, unlockContentForTrainee,
+  listBranches, getBranchDetail,
+  listPortalUsers, createPortalUser, updatePortalUser, deletePortalUser, resetPortalUserPin,
 } from '../controllers/admin.js';
 import { contentUpload } from '../utils/upload.js';
 
@@ -116,5 +118,16 @@ router.post('/kpi/sync', ...auth, syncHistoricalKpi);
 // Content sequential lock management
 router.put('/content/:contentId/lock', ...auth, setContentLock);
 router.post('/content/:contentId/unlock/:employeeId', ...auth, unlockContentForTrainee);
+
+// Branch management
+router.get('/branches', ...auth, listBranches);
+router.get('/branches/:branch', ...auth, getBranchDetail);
+
+// Portal user management
+router.get('/portal-users', ...auth, listPortalUsers);
+router.post('/portal-users', ...auth, createPortalUser);
+router.put('/portal-users/:id', ...auth, updatePortalUser);
+router.delete('/portal-users/:id', ...auth, deletePortalUser);
+router.post('/portal-users/:id/reset-pin', ...auth, resetPortalUserPin);
 
 export default router;
