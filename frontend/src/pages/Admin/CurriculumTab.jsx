@@ -985,10 +985,10 @@ export default function CurriculumTab() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '230px 220px 1fr', gap: 14, minHeight: 560, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '260px 240px 1fr', gap: 14, minHeight: 560, alignItems: 'start' }}>
 
         {/* ── Classrooms column ── */}
-        <div style={{ minWidth: 0, maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' }}>
+        <div style={{ minWidth: 0, maxHeight: '80vh', overflowY: 'auto', overflowX: 'visible' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
               <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--ink)' }}>Classrooms</div>
@@ -1042,7 +1042,7 @@ export default function CurriculumTab() {
         </div>
 
         {/* ── Modules column ── */}
-        <div style={{ minWidth: 0, maxHeight: '80vh', overflowY: 'auto', overflowX: 'hidden' }}>
+        <div style={{ minWidth: 0, maxHeight: '80vh', overflowY: 'auto', overflowX: 'visible' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
             <div>
               <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--ink)' }}>Modules</div>

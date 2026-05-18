@@ -95,26 +95,25 @@ export default function LearningTab({ days, onRefresh }) {
       if (!url.includes('drive.google.com')) return { type: 'html5', url };
     }
     // Use backend proxy for Drive files — avoids Google sign-in requirement
+    // All Drive files use 'proxy' type (iframe) — video tag requires range requests
+    // which the Drive API doesn't support cleanly
     if (c.driveFileId) {
       const proxyUrl = getDriveProxyUrl(c.driveFileId);
-      const isVid = c.contentType === 'video';
-      return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: c.driveFileId };
+      return { type: 'proxy', url: proxyUrl, fileId: c.driveFileId };
     }
     if (url && url.includes('drive.google.com')) {
       const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
       if (match) {
         const proxyUrl = getDriveProxyUrl(match[1]);
-        const isVid = c.contentType === 'video';
-        return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: match[1] };
+        return { type: 'proxy', url: proxyUrl, fileId: match[1] };
       }
     }
-    // Fallback: try to extract fileId from driveUrl for older content records
+    // Fallback: extract fileId from driveUrl for older content records
     if (c.driveUrl) {
       const m = c.driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
       if (m) {
         const proxyUrl = getDriveProxyUrl(m[1]);
-        const isVid = c.contentType === 'video';
-        return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: m[1] };
+        return { type: 'proxy', url: proxyUrl, fileId: m[1] };
       }
       return { type: 'drive', url: c.driveUrl };
     }
@@ -408,6 +407,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   const media = renderContentUrl(content);
   const isVideo = content.contentType === 'video';
   const progress = content.progress;
+  const [iframeLoading, setIframeLoading] = useState(true);
 
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
@@ -473,12 +473,21 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
             />
           )}
           {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && (
-            <iframe
-              src={media.url}
-              style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
-              allowFullScreen
-              title={content.contentTitle}
-            />
+            <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+              {iframeLoading && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', zIndex: 2, gap: 16 }}>
+                  <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,.1)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                  <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading content…</div>
+                </div>
+              )}
+              <iframe
+                src={media.url}
+                style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+                allowFullScreen
+                title={content.contentTitle}
+                onLoad={() => setIframeLoading(false)}
+              />
+            </div>
           )}
         </div>
       </div>

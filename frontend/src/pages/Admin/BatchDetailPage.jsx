@@ -32,7 +32,38 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [csvPreview, setCsvPreview] = useState(null);
   const [addLoading, setAddLoading] = useState(false);
 
+  // Search & enroll existing trainee
+  const [searchQ, setSearchQ] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [enrolling, setEnrolling] = useState(null);
+
   function addToast(text, ok = true) { setAddMsg({ text, ok }); setTimeout(() => setAddMsg({ text: '', ok: true }), 5000); }
+
+  async function searchTrainees(q) {
+    setSearchQ(q);
+    if (q.trim().length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const res = await api.get(`/admin/trainees/search?q=${encodeURIComponent(q)}&limit=10`, 'admin');
+    setSearchLoading(false);
+    if (res.ok) setSearchResults(res.data || []);
+  }
+
+  async function enrollExisting(trainee) {
+    setEnrolling(trainee.employeeId);
+    const res = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, {
+      trainees: [{ employeeId: trainee.employeeId, traineeName: trainee.traineeName, email: trainee.email || '', mobile: trainee.mobile || '' }],
+    }, 'admin');
+    setEnrolling(null);
+    if (res.ok) {
+      addToast(`${trainee.traineeName} enrolled.`);
+      setSearchQ('');
+      setSearchResults([]);
+      reload();
+    } else {
+      addToast(res.message || 'Enroll failed.', false);
+    }
+  }
 
   async function reload() {
     const [d, a] = await Promise.all([
@@ -104,20 +135,57 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
 
       {tab === 'trainees' && (
         <div>
+          {/* Search & enroll existing trainee */}
+          <div className="glass-panel" style={{marginBottom:'14px'}}>
+            <div className="panel-title">Search & Enroll Existing Trainee</div>
+            {addMsg.text && (
+              <div className={`${addMsg.ok ? 'toast ok' : 'toast bad'}`} style={{ marginBottom: 10, fontSize: 12 }}>{addMsg.text}</div>
+            )}
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input"
+                placeholder="Search by name or Employee ID (min 2 chars)..."
+                value={searchQ}
+                onChange={e => searchTrainees(e.target.value)}
+                style={{ width: '100%', paddingRight: 36 }}
+              />
+              {searchLoading && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)' }}>⟳</span>}
+            </div>
+            {searchResults.length > 0 && (
+              <div style={{ marginTop: 8, background: 'rgba(255,255,255,.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', overflow: 'hidden' }}>
+                {searchResults.map(t => {
+                  const alreadyEnrolled = data?.trainees?.some(et => et.employeeId === t.employeeId);
+                  return (
+                    <div key={t.employeeId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.traineeName}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t.employeeId}{t.email ? ` · ${t.email}` : ''}{t.batchNo ? ` · Batch: ${t.batchNo}` : ''}</div>
+                      </div>
+                      {alreadyEnrolled
+                        ? <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 700 }}>✓ Enrolled</span>
+                        : <button className="btn small" onClick={() => enrollExisting(t)} disabled={enrolling === t.employeeId}>
+                            {enrolling === t.employeeId ? '...' : '+ Enroll'}
+                          </button>
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {searchQ.length >= 2 && !searchLoading && searchResults.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, textAlign: 'center', padding: '12px 0' }}>No trainees found for "{searchQ}"</div>
+            )}
+          </div>
+
           {/* Add trainees via CSV */}
           <div className="glass-panel" style={{marginBottom:'14px'}}>
             <div className="panel-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-              <span>Add Trainees</span>
+              <span>Bulk Upload via CSV</span>
               <button className="btn small secondary" onClick={() => {
                 const blob = new Blob([TRAINEE_CSV_TEMPLATE], { type: 'text/csv' });
                 const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Trainee_Upload_Template.csv'; a.click();
               }}>⬇ Download Template</button>
             </div>
-            {addMsg.text && (
-              <div className={`${addMsg.ok ? 'toast ok' : 'toast bad'}`} style={{ marginBottom: 10, fontSize: 12 }}>
-                {addMsg.text}
-              </div>
-            )}
             <div
               onDragOver={e => { e.preventDefault(); setCsvDragging(true); }}
               onDragLeave={() => setCsvDragging(false)}

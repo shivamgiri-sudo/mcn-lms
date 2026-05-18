@@ -323,7 +323,8 @@ export async function bulkUploadFaqs(req, res) {
     const files = req.files || [];
     if (!files.length) return res.status(400).json({ ok: false, message: 'No files uploaded.' });
 
-    const API_URL = process.env.API_URL || 'http://localhost:4000';
+    // Build base URL from the incoming request so it works on any host (Render, localhost, etc.)
+    const API_URL = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
     const created = [];
     for (let i = 0; i < files.length; i++) {
       const f = files[i];
