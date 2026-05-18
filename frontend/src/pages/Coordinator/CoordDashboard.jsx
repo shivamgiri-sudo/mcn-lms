@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
+import { useTheme } from '../../context/ThemeContext.jsx';
 import BatchList from './BatchList.jsx';
 import BatchDetail from './BatchDetail.jsx';
 import PendingActivities from './PendingActivities.jsx';
 import QueryLog from './QueryLog.jsx';
 
 export default function CoordDashboard({ user, onLogout }) {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [stats, setStats] = useState(null);
   const [activeTab, setActiveTab] = useState('batches');
   const [selectedBatch, setSelectedBatch] = useState(null);
@@ -35,6 +37,7 @@ export default function CoordDashboard({ user, onLogout }) {
         </div>
         <div className="row" style={{ gap: 8 }}>
           <button className="btn small secondary" onClick={loadStats}>↺ Refresh</button>
+          <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'var(--muted)', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" onClick={onLogout}>Logout</button>
         </div>
       </div>

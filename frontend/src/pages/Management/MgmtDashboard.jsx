@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
+import { useTheme } from '../../context/ThemeContext.jsx';
 import { pct, riskColor } from '../../utils/format.js';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -40,6 +41,7 @@ function StatusPill({ status }) {
 }
 
 export default function MgmtDashboard({ onLogout }) {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [kpis, setKpis] = useState(null);
   const [branches, setBranches] = useState([]);
   const [processes, setProcesses] = useState([]);
@@ -139,6 +141,7 @@ export default function MgmtDashboard({ onLogout }) {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <button className="btn small secondary" onClick={loadAll}>↻ Refresh</button>
+          <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'var(--muted)', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" onClick={onLogout}>Logout</button>
         </div>
       </div>

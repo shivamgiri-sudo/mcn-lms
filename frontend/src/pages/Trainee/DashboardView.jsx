@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { formatSeconds, pct } from '../../utils/format.js';
+import { useTheme } from '../../context/ThemeContext.jsx';
 import LearningTab from './LearningTab.jsx';
 import QATab from './QATab.jsx';
 import AssignedTab from './AssignedTab.jsx';
@@ -7,6 +8,7 @@ import ProfileTab from './ProfileTab.jsx';
 import PasswordResetBox from './PasswordResetBox.jsx';
 
 export default function DashboardView({ dashboard, forceReset, onLogout, onRefresh }) {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('learning');
   const [showForceReset, setShowForceReset] = useState(forceReset);
 
@@ -45,6 +47,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
         </div>
         <div className="row">
           <button className="btn small secondary" onClick={onRefresh}>↺ Refresh</button>
+          <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'var(--muted)', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" onClick={onLogout}>Logout</button>
         </div>
       </div>

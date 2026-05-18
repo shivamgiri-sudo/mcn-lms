@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { api } from '../../utils/api.js';
+import { useTheme } from '../../context/ThemeContext.jsx';
 import CurriculumTab from './CurriculumTab.jsx';
 import AccountsTab from './AccountsTab.jsx';
 import QuestionsTab from './QuestionsTab.jsx';
@@ -42,6 +43,7 @@ const NAV = [
 ];
 
 export default function AdminConsole({ user, onLogout }) {
+  const { theme, toggle: toggleTheme } = useTheme();
   const [page, setPage] = useState({ id: 'dashboard' });
   const [showPwModal, setShowPwModal] = useState(false);
   const [pwForm, setPwForm] = useState({ password: '', confirm: '' });
@@ -91,6 +93,11 @@ export default function AdminConsole({ user, onLogout }) {
         )}
         <div className="nav-right">
           <span className="nav-user">👤 {user?.adminId || 'Admin'}</span>
+          <button
+            onClick={toggleTheme}
+            title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            style={{ background: 'none', border: '1.5px solid rgba(128,128,128,.3)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'inherit', lineHeight: 1 }}
+          >{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" style={{ marginRight: 6 }} onClick={() => setShowPwModal(true)}>Change Password</button>
           <button className="nav-logout" onClick={onLogout}>Logout</button>
         </div>

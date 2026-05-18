@@ -329,7 +329,7 @@ export default function UsersTab() {
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
                   {PERMISSIONS.map(({ key, label }) => (
                     <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--line)', background: form[key] ? 'rgba(22,163,74,.15)' : 'var(--card)', transition: 'all .12s' }}>
-                      <input type="checkbox" checked={!!form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.checked })} style={{ accentColor: '#22c55e', width: 14, height: 14 }} />
+                      <input type="checkbox" checked={!!form[key]} onChange={e => setForm(p => ({ ...p, [key]: e.target.checked }))} style={{ accentColor: '#22c55e', width: 14, height: 14 }} />
                       <span style={{ fontSize: 12, fontWeight: form[key] ? 700 : 400, color: form[key] ? '#4ade80' : 'var(--muted)' }}>{label}</span>
                     </label>
                   ))}
