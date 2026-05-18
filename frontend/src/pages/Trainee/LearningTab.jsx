@@ -260,6 +260,17 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
   const total = activeContents.length;
   const modPct = total > 0 ? Math.round((done / total) * 100) : 0;
 
+  // Build one unified list sorted by each item's order number so the sequence
+  // Video→Video→MCQ→FAQ→Video→FAQ→MCQ→Video is respected exactly as numbered.
+  const unifiedItems = [
+    ...activeContents.map(c => ({ kind: 'content',     order: c.contentOrder  ?? 0, data: c })),
+    ...mod.faqs.map(f =>        ({ kind: 'faq',         order: f.sortOrder     ?? 0, data: f })),
+    ...(mod.assessments || []).map(a => {
+      const result = mod.assessmentResults?.find(r => r.assessment?.assessmentId === a.assessmentId)?.result || null;
+      return { kind: 'assessment', order: a.sortOrder ?? 0, data: a, result };
+    }),
+  ].sort((a, b) => a.order - b.order || (a.kind === 'content' ? -1 : 1));
+
   return (
     <div style={{
       border: '1.5px solid var(--line)', borderRadius: 14,
@@ -278,10 +289,11 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
         )}
       </div>
 
-      {/* Contents */}
-      {activeContents.length > 0 && (
-        <div style={{ display: 'grid', gap: 7, marginBottom: mod.faqs.length > 0 || mod.assessment ? 10 : 0 }}>
-          {activeContents.map(c => {
+      {/* Unified sequence — contents, FAQs, assessments interleaved by order number */}
+      <div style={{ display: 'grid', gap: 7 }}>
+        {unifiedItems.map((item, idx) => {
+          if (item.kind === 'content') {
+            const c = item.data;
             const prog = c.progress;
             const isDone = prog?.completionStatus === 'Completed';
             const isInProg = prog?.opened && !isDone;
@@ -290,7 +302,7 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
               <div
                 key={c.contentId}
                 className={`content-item${isDone ? ' done' : ''}${seqLocked ? ' locked' : ''}`}
-                onClick={() => onOpenContent(c)}
+                onClick={() => !seqLocked && onOpenContent(c)}
                 style={seqLocked ? { opacity: .65, cursor: 'default' } : {}}
                 title={seqLocked ? 'Complete the previous content to unlock' : undefined}
               >
@@ -323,36 +335,26 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
                 </div>
               </div>
             );
-          })}
-        </div>
-      )}
+          }
 
-      {/* FAQs */}
-      {mod.faqs.length > 0 && (
-        <div style={{ marginBottom: mod.assessment ? 10 : 0 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', margin: '8px 0 6px' }}>
-            FAQs ({mod.faqs.length})
-          </div>
-          {mod.faqs.map(faq => <FaqItem key={faq.faqId} faq={faq} />)}
-        </div>
-      )}
+          if (item.kind === 'faq') {
+            return <FaqItem key={item.data.faqId} faq={item.data} />;
+          }
 
-      {/* Assessments — supports multiple MCQs per module */}
-      {mod.assessments?.length > 0 && (
-        <div style={{ marginTop: mod.faqs.length > 0 ? 10 : 0 }}>
-          {mod.assessments.map((assessment, idx) => {
-            const result = mod.assessmentResults?.find(r => r.assessment?.assessmentId === assessment.assessmentId)?.result || null;
+          if (item.kind === 'assessment') {
             return (
               <AssessmentCard
-                key={assessment.assessmentId}
-                assessment={assessment}
-                result={result}
-                onStart={() => onStartAssessment(assessment.assessmentId)}
+                key={item.data.assessmentId}
+                assessment={item.data}
+                result={item.result}
+                onStart={() => onStartAssessment(item.data.assessmentId)}
               />
             );
-          })}
-        </div>
-      )}
+          }
+
+          return null;
+        })}
+      </div>
     </div>
   );
 }
