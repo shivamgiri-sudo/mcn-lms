@@ -54,9 +54,10 @@ export async function getLearnerDashboard(req, res) {
         progress: progressMap[c.contentId] || null,
       }));
       const faqs = allFaqs.filter(f => f.moduleId === mod.moduleId);
+      // Look up by ModuleMaster.assessmentId first, then fall back to AssessmentMaster.moduleId match
       const assessment = mod.assessmentId
         ? allAssessments.find(a => a.assessmentId === mod.assessmentId)
-        : null;
+        : allAssessments.find(a => a.moduleId === mod.moduleId) || null;
       const assessmentResult = assessment ? resultMap[assessment.assessmentId] : null;
 
       dayMap[mod.dayNo].modules.push({ ...mod, contents, faqs, assessment, assessmentResult });

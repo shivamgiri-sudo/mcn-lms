@@ -108,7 +108,16 @@ export default function LearningTab({ days, onRefresh }) {
         return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: match[1] };
       }
     }
-    if (c.driveUrl) return { type: 'drive', url: c.driveUrl };
+    // Fallback: try to extract fileId from driveUrl for older content records
+    if (c.driveUrl) {
+      const m = c.driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (m) {
+        const proxyUrl = getDriveProxyUrl(m[1]);
+        const isVid = c.contentType === 'video';
+        return { type: isVid ? 'html5' : 'proxy', url: proxyUrl, fileId: m[1] };
+      }
+      return { type: 'drive', url: c.driveUrl };
+    }
     if (url) return { type: 'drive', url };
     return null;
   }

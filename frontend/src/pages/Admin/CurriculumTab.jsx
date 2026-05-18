@@ -95,8 +95,10 @@ function EditClassroomModal({ classroom, onClose, onSaved }) {
       contentType: file.contentType || 'video',
       driveFileId: file.id,
       driveUrl: `https://drive.google.com/file/d/${file.id}/preview`,
-      playerMode: 'Drive Preview',
+      playerMode: 'Auto',
       contentOrder: file.sortOrder,
+      estimatedMins: file.contentType === 'video' ? 10 : 5,
+      completionRulePct: 80,
     }, 'admin');
     if (r.ok) toast(`Added "${file.displayTitle || file.name}" to module.`);
     else toast(r.message || 'Failed.', false);
@@ -106,19 +108,22 @@ function EditClassroomModal({ classroom, onClose, onSaved }) {
     if (!selectedMod) return toast('Select a module first.', false);
     setLoading(true);
     let added = 0;
-    for (const f of driveFiles) {
+    for (let i = 0; i < driveFiles.length; i++) {
+      const f = driveFiles[i];
       const r = await api.post(`/admin/modules/${selectedMod}/contents`, {
         contentTitle: f.displayTitle || f.name,
         contentType: f.contentType || 'video',
         driveFileId: f.id,
         driveUrl: `https://drive.google.com/file/d/${f.id}/preview`,
-        playerMode: 'Drive Preview',
-        contentOrder: f.sortOrder,
+        playerMode: 'Auto',
+        contentOrder: i + 1,
+        estimatedMins: f.contentType === 'video' ? 10 : 5,
+        completionRulePct: 80,
       }, 'admin');
       if (r.ok) added++;
     }
     setLoading(false);
-    toast(`Added ${added} of ${driveFiles.length} files.`);
+    toast(`Added ${added} of ${driveFiles.length} files in sequence order.`);
   }
 
   async function addSingleContent(e) {
@@ -790,6 +795,7 @@ export default function CurriculumTab() {
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('content');
+  const [deleteClModal, setDeleteClModal] = useState(null); // classroom to delete
 
   const [modForm, setModForm] = useState({ dayNo: '', moduleTitle: '', moduleOrder: '', description: '' });
   const [contentForm, setContentForm] = useState({ contentType: 'video', contentTitle: '', driveFileId: '', driveUrl: '', directMediaUrl: '', playerMode: 'Auto', contentOrder: '', estimatedMins: '', completionRulePct: 80, description: '' });
@@ -872,6 +878,30 @@ export default function CurriculumTab() {
     if (!window.confirm('Remove this content?')) return;
     await api.delete(`/admin/contents/${contentId}`, 'admin');
     loadContents(selectedMod.moduleId);
+  }
+
+  async function deleteClassroomConfirmed(classroomId, confirmName) {
+    const res = await api.delete(`/admin/classrooms/${classroomId}`, 'admin');
+    // Pass confirmName in body — use a custom fetch since api.delete doesn't support body
+    const token = localStorage.getItem('lms_token_admin') || '';
+    const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
+    const r = await fetch(`${BASE}/admin/classrooms/${classroomId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ confirmName }),
+    }).then(x => x.json()).catch(() => ({ ok: false, message: 'Network error' }));
+    if (r.ok) {
+      setDeleteClModal(null);
+      setSelectedCl(null);
+      setSelectedMod(null);
+      setModules([]);
+      setContents([]);
+      setFaqs([]);
+      setMsg('');
+      loadClassrooms();
+    } else {
+      setDeleteClModal(prev => ({ ...prev, error: r.message }));
+    }
   }
 
   function resetContentForm() {
@@ -981,13 +1011,23 @@ export default function CurriculumTab() {
                 onClick={() => { setSelectedCl(cl); setSelectedMod(null); }}
               />
               {selectedCl?.classroomId === cl.classroomId && (
-                <button
-                  className="btn xs"
-                  style={{ width: '100%', marginTop: 4, background: 'rgba(255,255,255,.07)', color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }}
-                  onClick={() => setEditingClassroom(cl)}
-                >
-                  ✏ Edit / Add Content to this Classroom
-                </button>
+                <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                  <button
+                    className="btn xs"
+                    style={{ flex: 1, background: 'rgba(255,255,255,.07)', color: 'var(--muted)', border: '1px solid var(--line)', borderRadius: 8, fontSize: 11 }}
+                    onClick={() => setEditingClassroom(cl)}
+                  >
+                    ✏ Edit / Add Content
+                  </button>
+                  <button
+                    className="btn xs"
+                    style={{ background: 'rgba(220,38,38,.15)', color: '#f87171', border: '1px solid rgba(220,38,38,.35)', borderRadius: 8, fontSize: 11, padding: '4px 8px' }}
+                    onClick={() => setDeleteClModal({ cl, confirmName: '', step: 1, error: '' })}
+                    title="Delete classroom permanently"
+                  >
+                    🗑
+                  </button>
+                </div>
               )}
               </div>
             ))}
@@ -1430,6 +1470,92 @@ export default function CurriculumTab() {
           </div>
         </div>
       )}
+
+      {/* ── Delete Classroom Modal ── */}
+      {deleteClModal && (
+        <DeleteClassroomModal
+          classroom={deleteClModal.cl}
+          onCancel={() => setDeleteClModal(null)}
+          onConfirm={(name) => deleteClassroomConfirmed(deleteClModal.cl.classroomId, name)}
+          error={deleteClModal.error}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeleteClassroomModal({ classroom, onCancel, onConfirm, error }) {
+  const [step, setStep] = useState(1);
+  const [typedName, setTypedName] = useState('');
+  const [typedConfirm, setTypedConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handleDelete() {
+    if (typedName !== classroom.classroomName) return;
+    if (typedConfirm !== 'DELETE') return;
+    setBusy(true);
+    await onConfirm(typedName);
+    setBusy(false);
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box" style={{ maxWidth: 460 }}>
+        <div className="modal-head">
+          <b style={{ color: '#f87171' }}>🗑 Delete Classroom</b>
+          <button className="btn small secondary" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body" style={{ padding: '20px 24px' }}>
+          {step === 1 && (
+            <div>
+              <div style={{ background: 'rgba(220,38,38,.12)', border: '1px solid rgba(220,38,38,.3)', borderRadius: 12, padding: '14px 16px', marginBottom: 18 }}>
+                <div style={{ fontWeight: 700, color: '#f87171', marginBottom: 6 }}>⚠ This action is permanent and cannot be undone.</div>
+                <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.6 }}>
+                  Deleting <b>{classroom.classroomName}</b> will permanently remove:
+                  <ul style={{ margin: '8px 0 0 16px', padding: 0, fontSize: 12 }}>
+                    <li>All modules, content and FAQs</li>
+                    <li>All assessments and questions</li>
+                    <li>All learner progress and completion records</li>
+                    <li>All assessment attempt history</li>
+                  </ul>
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn secondary" style={{ flex: 1 }} onClick={onCancel}>Cancel</button>
+                <button style={{ flex: 1, background: 'rgba(220,38,38,.85)', color: '#fff', border: 'none', borderRadius: 'var(--radius)', padding: '9px 16px', fontWeight: 700, cursor: 'pointer', fontSize: 13 }} onClick={() => setStep(2)}>
+                  I understand, proceed
+                </button>
+              </div>
+            </div>
+          )}
+          {step === 2 && (
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 16, lineHeight: 1.6 }}>
+                To confirm deletion of <b>{classroom.classroomName}</b>, type the classroom name exactly as shown, then type <b>DELETE</b> in the second field.
+              </div>
+              <div className="field">
+                <label>Type classroom name: <b>{classroom.classroomName}</b></label>
+                <input className="input" value={typedName} onChange={e => setTypedName(e.target.value)} placeholder={classroom.classroomName} />
+              </div>
+              <div className="field">
+                <label>Type <b>DELETE</b> to confirm</label>
+                <input className="input" value={typedConfirm} onChange={e => setTypedConfirm(e.target.value.toUpperCase())} placeholder="DELETE" />
+              </div>
+              {error && <div className="toast bad" style={{ marginBottom: 12 }}>{error}</div>}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn secondary" style={{ flex: 1 }} onClick={onCancel}>Cancel</button>
+                <button
+                  style={{ flex: 1, background: typedName === classroom.classroomName && typedConfirm === 'DELETE' ? 'rgba(220,38,38,.85)' : 'rgba(150,150,150,.3)', color: '#fff', border: 'none', borderRadius: 'var(--radius)', padding: '9px 16px', fontWeight: 700, cursor: 'pointer', fontSize: 13, transition: 'background .15s' }}
+                  onClick={handleDelete}
+                  disabled={busy || typedName !== classroom.classroomName || typedConfirm !== 'DELETE'}
+                >
+                  {busy ? 'Deleting...' : 'Delete Permanently'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

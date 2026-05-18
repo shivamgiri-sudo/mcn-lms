@@ -52,6 +52,7 @@ export default function QuestionsTab() {
   const [csvDragging, setCsvDragging] = useState(false);
   const [csvPreview, setCsvPreview] = useState(null);
   const [msg, setMsg] = useState('');
+  const [deleteModal, setDeleteModal] = useState(null);
 
   useEffect(() => {
     api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data));
@@ -78,6 +79,25 @@ export default function QuestionsTab() {
     const res = await api.post('/admin/assessments', aForm, 'admin');
     if (res.ok) { setShowCreate(false); setMsg('Assessment created.'); api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data)); }
     else setMsg(res.message || 'Failed.');
+  }
+
+  async function deleteAssessmentConfirmed(assessmentId) {
+    const token = localStorage.getItem('lms_token_admin') || '';
+    const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
+    const r = await fetch(`${BASE}/admin/assessments/${assessmentId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ confirm: 'DELETE' }),
+    }).then(x => x.json()).catch(() => ({ ok: false, message: 'Network error' }));
+    if (r.ok) {
+      setDeleteModal(null);
+      setSelected(null);
+      setQuestions([]);
+      setMsg(r.message || 'Assessment deleted.');
+      api.get('/admin/assessments', 'admin').then(res => res.ok && setAssessments(res.data));
+    } else {
+      setDeleteModal(prev => ({ ...prev, error: r.message }));
+    }
   }
 
   async function uploadBulk() {
@@ -191,13 +211,20 @@ export default function QuestionsTab() {
           <div style={{fontWeight:'700',fontSize:'12px',marginBottom:'8px',color:'var(--muted)'}}>ASSESSMENTS</div>
           {assessments.length === 0 && <p style={{fontSize:'12px',color:'var(--muted)'}}>No assessments yet.</p>}
           {assessments.map(a => (
-            <div key={a.assessmentId} onClick={() => { setSelected(a); setShowBulk(false); setMsg(''); }}
-              style={{padding:'10px 12px',borderRadius:'var(--radius-sm)',cursor:'pointer',marginBottom:'4px',background:selected?.assessmentId===a.assessmentId?'var(--accent-soft)':'var(--card)',border:`1px solid ${selected?.assessmentId===a.assessmentId?'var(--accent)':'var(--line)'}`,fontSize:'13px',fontWeight:selected?.assessmentId===a.assessmentId?'700':'400'}}>
-              <div>{a.assessmentName}</div>
-              {a.moduleId
-                ? <div style={{fontSize:'10px',color:'var(--ok)',marginTop:2}}>✓ Linked to module</div>
-                : <div style={{fontSize:'10px',color:'var(--muted)',marginTop:2}}>Not linked to module</div>
-              }
+            <div key={a.assessmentId} style={{marginBottom:'4px'}}>
+              <div onClick={() => { setSelected(a); setShowBulk(false); setMsg(''); }}
+                style={{padding:'10px 12px',borderRadius:'var(--radius-sm)',cursor:'pointer',background:selected?.assessmentId===a.assessmentId?'var(--accent-soft)':'var(--card)',border:`1px solid ${selected?.assessmentId===a.assessmentId?'var(--accent)':'var(--line)'}`,fontSize:'13px',fontWeight:selected?.assessmentId===a.assessmentId?'700':'400', position:'relative'}}>
+                <div style={{paddingRight:24}}>{a.assessmentName}</div>
+                <div style={{fontSize:'10px',marginTop:2,color:a.moduleId?'var(--ok)':'var(--muted)'}}>
+                  {a.moduleId ? '✓ Linked to module' : '⚠ Not linked'}
+                </div>
+                <div style={{fontSize:'10px',color:'var(--muted)',marginTop:1}}>{a._count?.questions || 0} questions</div>
+                <button
+                  onClick={e => { e.stopPropagation(); setDeleteModal({ assessment: a, step: 1, error: '' }); }}
+                  style={{position:'absolute',top:8,right:8,background:'none',border:'none',color:'rgba(248,113,113,.6)',cursor:'pointer',fontSize:13,padding:'2px 4px',borderRadius:4,lineHeight:1}}
+                  title="Delete assessment"
+                >✕</button>
+              </div>
             </div>
           ))}
         </div>
@@ -298,6 +325,83 @@ export default function QuestionsTab() {
                 </tbody>
               </table>
               {questions.length === 0 && <p style={{fontSize:'12px',color:'var(--muted)',padding:'16px 8px'}}>No questions yet. Use Bulk Upload to add questions.</p>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {deleteModal && (
+        <DeleteAssessmentModal
+          assessment={deleteModal.assessment}
+          error={deleteModal.error}
+          onCancel={() => setDeleteModal(null)}
+          onConfirm={() => deleteAssessmentConfirmed(deleteModal.assessment.assessmentId)}
+        />
+      )}
+    </div>
+  );
+}
+
+function DeleteAssessmentModal({ assessment, error, onCancel, onConfirm }) {
+  const [step, setStep] = useState(1);
+  const [confirm, setConfirm] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  async function handle() {
+    if (confirm !== 'DELETE') return;
+    setBusy(true);
+    await onConfirm();
+    setBusy(false);
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box" style={{maxWidth:420}}>
+        <div className="modal-head">
+          <b style={{color:'#f87171'}}>🗑 Delete Assessment</b>
+          <button className="btn small secondary" onClick={onCancel}>✕</button>
+        </div>
+        <div className="modal-body" style={{padding:'20px 24px'}}>
+          {step === 1 && (
+            <div>
+              <div style={{background:'rgba(220,38,38,.12)',border:'1px solid rgba(220,38,38,.3)',borderRadius:12,padding:'14px 16px',marginBottom:18}}>
+                <div style={{fontWeight:700,color:'#f87171',marginBottom:6}}>⚠ This action cannot be undone.</div>
+                <div style={{fontSize:13,color:'var(--ink)',lineHeight:1.6}}>
+                  Deleting <b>{assessment.assessmentName}</b> will permanently remove:
+                  <ul style={{margin:'8px 0 0 16px',padding:0,fontSize:12}}>
+                    <li>All {assessment._count?.questions || 0} questions</li>
+                    <li>All learner attempt history and scores</li>
+                    <li>The module link (learners won't see it anymore)</li>
+                  </ul>
+                </div>
+              </div>
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn secondary" style={{flex:1}} onClick={onCancel}>Cancel</button>
+                <button style={{flex:1,background:'rgba(220,38,38,.85)',color:'#fff',border:'none',borderRadius:'var(--radius)',padding:'9px 16px',fontWeight:700,cursor:'pointer',fontSize:13}} onClick={() => setStep(2)}>
+                  Proceed
+                </button>
+              </div>
+            </div>
+          )}
+          {step === 2 && (
+            <div>
+              <div style={{fontSize:13,color:'var(--ink)',marginBottom:14}}>
+                Type <b>DELETE</b> to permanently delete <b>{assessment.assessmentName}</b>.
+              </div>
+              <div className="field">
+                <input className="input" value={confirm} onChange={e => setConfirm(e.target.value.toUpperCase())} placeholder="DELETE" />
+              </div>
+              {error && <div className="toast bad" style={{marginBottom:10}}>{error}</div>}
+              <div style={{display:'flex',gap:10}}>
+                <button className="btn secondary" style={{flex:1}} onClick={onCancel}>Cancel</button>
+                <button
+                  style={{flex:1,background:confirm==='DELETE'?'rgba(220,38,38,.85)':'rgba(150,150,150,.3)',color:'#fff',border:'none',borderRadius:'var(--radius)',padding:'9px 16px',fontWeight:700,cursor:'pointer',fontSize:13,transition:'background .15s'}}
+                  onClick={handle}
+                  disabled={busy || confirm !== 'DELETE'}
+                >
+                  {busy ? 'Deleting...' : 'Delete Permanently'}
+                </button>
+              </div>
             </div>
           )}
         </div>

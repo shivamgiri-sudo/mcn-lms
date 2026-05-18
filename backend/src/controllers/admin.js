@@ -108,6 +108,49 @@ export async function updateClassroom(req, res) {
   }
 }
 
+export async function deleteClassroom(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const { confirmName } = req.body;
+
+    const cl = await prisma.classroomMaster.findUnique({ where: { classroomId } });
+    if (!cl) return res.status(404).json({ ok: false, message: 'Classroom not found.' });
+    if (confirmName !== cl.classroomName) {
+      return res.status(400).json({ ok: false, message: 'Classroom name does not match. Deletion cancelled.' });
+    }
+
+    // Cascade-delete all related data
+    const modules = await prisma.moduleMaster.findMany({ where: { classroomId }, select: { moduleId: true } });
+    const moduleIds = modules.map(m => m.moduleId);
+    const assessments = await prisma.assessmentMaster.findMany({ where: { classroomId }, select: { assessmentId: true } });
+    const assessmentIds = assessments.map(a => a.assessmentId);
+
+    // Clear assessmentId references from modules before deleting
+    if (moduleIds.length) await prisma.moduleMaster.updateMany({ where: { classroomId }, data: { assessmentId: null } });
+
+    await prisma.$transaction([
+      prisma.contentProgress.deleteMany({ where: { classroomId } }),
+      prisma.videoWatchLog.deleteMany({ where: { classroomId } }),
+      prisma.courseCompletionReport.deleteMany({ where: { classroomId } }),
+      prisma.assessmentResult.deleteMany({ where: { classroomId } }),
+      prisma.assessmentAttempt.deleteMany({ where: { assessmentId: { in: assessmentIds } } }),
+      prisma.questionBank.deleteMany({ where: { assessmentId: { in: assessmentIds } } }),
+      prisma.assessmentMaster.deleteMany({ where: { classroomId } }),
+      prisma.faqMaster.deleteMany({ where: { moduleId: { in: moduleIds } } }),
+      prisma.contentMaster.deleteMany({ where: { moduleId: { in: moduleIds } } }),
+      prisma.moduleMaster.deleteMany({ where: { classroomId } }),
+      prisma.traineeClassroomMap.deleteMany({ where: { classroomId } }),
+      prisma.classroomMaster.delete({ where: { classroomId } }),
+    ]);
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DELETE_CLASSROOM', module: 'Curriculum', referenceId: classroomId, details: cl.classroomName });
+    res.json({ ok: true, message: `Classroom "${cl.classroomName}" deleted permanently.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
 // ── Modules ───────────────────────────────────────────────────────────────────
 export async function listModules(req, res) {
   try {
@@ -391,12 +434,40 @@ export async function updateAssessment(req, res) {
   }
 }
 
+export async function deleteAssessment(req, res) {
+  try {
+    const { assessmentId } = req.params;
+    const { confirm } = req.body;
+    if (confirm !== 'DELETE') {
+      return res.status(400).json({ ok: false, message: 'Confirmation required.' });
+    }
+
+    const a = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
+    if (!a) return res.status(404).json({ ok: false, message: 'Assessment not found.' });
+
+    // Clear the link from any module pointing to this assessment
+    await prisma.moduleMaster.updateMany({ where: { assessmentId }, data: { assessmentId: null } });
+
+    await prisma.$transaction([
+      prisma.assessmentAttempt.deleteMany({ where: { assessmentId } }),
+      prisma.assessmentResult.deleteMany({ where: { assessmentId } }),
+      prisma.questionBank.deleteMany({ where: { assessmentId } }),
+      prisma.assessmentMaster.delete({ where: { assessmentId } }),
+    ]);
+
+    res.json({ ok: true, message: `Assessment "${a.assessmentName}" deleted.` });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
 // ── Questions ─────────────────────────────────────────────────────────────────
 export async function listQuestions(req, res) {
   try {
     const { assessmentId } = req.params;
     const questions = await prisma.questionBank.findMany({
-      where: { assessmentId },
+      where: { assessmentId, active: true },
       orderBy: { createdAt: 'asc' },
     });
     res.json({ ok: true, data: questions });

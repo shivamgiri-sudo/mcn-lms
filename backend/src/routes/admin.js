@@ -2,11 +2,11 @@ import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import {
   getAdminDashboard,
-  listClassrooms, createClassroom, updateClassroom,
+  listClassrooms, createClassroom, updateClassroom, deleteClassroom,
   listModules, createModule, updateModule, deleteModule,
   listContents, createContent, updateContent, deleteContent,
   listFaqs, createFaq, bulkUploadFaqs, updateFaq, deleteFaq,
-  listAssessments, createAssessment, updateAssessment,
+  listAssessments, createAssessment, updateAssessment, deleteAssessment,
   listQuestions, uploadQuestions, updateQuestion, deleteQuestion,
   searchTrainees, resetTraineePassword, unlockTrainee, deleteTraineeAccount,
   listCertificationRules, saveCertificationRule, updateCertificationRule, deleteCertificationRule,
@@ -38,6 +38,7 @@ router.post('/reset-password', ...auth, resetAdminPassword);
 router.get('/classrooms', ...auth, listClassrooms);
 router.post('/classrooms', ...auth, createClassroom);
 router.put('/classrooms/:classroomId', ...auth, updateClassroom);
+router.delete('/classrooms/:classroomId', ...auth, deleteClassroom);
 
 router.get('/classrooms/:classroomId/modules', ...auth, listModules);
 router.post('/classrooms/:classroomId/modules', ...auth, createModule);
@@ -59,6 +60,7 @@ router.delete('/faqs/:faqId', ...auth, deleteFaq);
 router.get('/assessments', ...auth, listAssessments);
 router.post('/assessments', ...auth, createAssessment);
 router.put('/assessments/:assessmentId', ...auth, updateAssessment);
+router.delete('/assessments/:assessmentId', ...auth, deleteAssessment);
 
 router.get('/assessments/:assessmentId/questions', ...auth, listQuestions);
 router.post('/assessments/:assessmentId/questions/upload', ...auth, uploadQuestions);
