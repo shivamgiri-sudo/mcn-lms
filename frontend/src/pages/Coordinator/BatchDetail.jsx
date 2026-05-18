@@ -1,6 +1,29 @@
 import { useState, useEffect } from 'react';
-import { api } from '../../utils/api.js';
+import { api, downloadCsv } from '../../utils/api.js';
 import { formatDate, formatDateTime, pct, riskColor } from '../../utils/format.js';
+
+const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile,DOJ\nEMP1001,John Doe,john@example.com,9876543210,2026-05-01\n';
+
+function parseCsvTrainees(text) {
+  const lines = text.trim().split('\n').filter(Boolean);
+  if (lines.length < 2) return [];
+  const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
+  const empIdx = header.findIndex(h => h.includes('emp') || h.includes('id'));
+  const nameIdx = header.findIndex(h => h.includes('name'));
+  const emailIdx = header.findIndex(h => h.includes('email') || h.includes('mail'));
+  const mobileIdx = header.findIndex(h => h.includes('mobile') || h.includes('phone'));
+  const dojIdx = header.findIndex(h => h.includes('doj') || h.includes('date'));
+  return lines.slice(1).map(line => {
+    const cols = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+    return {
+      employeeId: (empIdx >= 0 ? cols[empIdx] : cols[0]) || '',
+      traineeName: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || '',
+      email: (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
+      mobile: (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
+      doj: (dojIdx >= 0 ? cols[dojIdx] : cols[4]) || '',
+    };
+  }).filter(t => t.employeeId);
+}
 
 export default function BatchDetail({ batchNo, onBack }) {
   const [data, setData] = useState(null);
@@ -12,15 +35,60 @@ export default function BatchDetail({ batchNo, onBack }) {
   const [closureChecks, setClosureChecks] = useState({ allAttended: false, assessmentsDone: false, certComplete: false, handoverDone: false });
   const allChecked = Object.values(closureChecks).every(Boolean);
   const [form, setForm] = useState({ employeeId: '', traineeName: '', email: '', mobile: '', doj: '' });
-  const [bulkText, setBulkText] = useState('');
+  const [csvDragging, setCsvDragging] = useState(false);
+  const [csvPreview, setCsvPreview] = useState(null);
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Search & enroll existing trainee
+  const [searchQ, setSearchQ] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [enrolling, setEnrolling] = useState(null);
 
   useEffect(() => { load(); }, [batchNo]);
 
   async function load() {
     const res = await api.get(`/coordinator/batches/${batchNo}`, 'coordinator');
     if (res.ok) setData(res.data);
+  }
+
+  async function searchTrainees(q) {
+    setSearchQ(q);
+    if (q.trim().length < 2) { setSearchResults([]); return; }
+    setSearchLoading(true);
+    const res = await api.get(`/coordinator/trainees/search?q=${encodeURIComponent(q)}&limit=10`, 'coordinator');
+    setSearchLoading(false);
+    if (res.ok) setSearchResults(res.data || []);
+  }
+
+  async function enrollExisting(trainee) {
+    setEnrolling(trainee.employeeId);
+    const res = await api.post(`/coordinator/batches/${batchNo}/trainees/bulk`, {
+      trainees: [{ employeeId: trainee.employeeId, traineeName: trainee.traineeName, email: trainee.email || '', mobile: trainee.mobile || '' }],
+    }, 'coordinator');
+    setEnrolling(null);
+    if (res.ok) {
+      setMsg(`✓ ${trainee.traineeName || trainee.employeeId} enrolled.`);
+      setSearchQ(''); setSearchResults([]);
+      load();
+    } else {
+      setMsg(res.message || 'Enroll failed.');
+    }
+  }
+
+  async function bulkAddFromCsv() {
+    if (!csvPreview || csvPreview.length === 0) return;
+    setLoading(true);
+    const res = await api.post(`/coordinator/batches/${batchNo}/trainees/bulk`, { trainees: csvPreview }, 'coordinator');
+    setLoading(false);
+    if (res.ok) {
+      setMsg(`✓ ${res.data.success} onboarded, ${res.data.failed} failed.`);
+      setCsvPreview(null);
+      load();
+    } else {
+      setMsg(res.message || 'Failed.');
+    }
   }
 
   async function onboardTrainee(e) {
@@ -32,19 +100,6 @@ export default function BatchDetail({ batchNo, onBack }) {
     else setMsg(res.message || 'Failed.');
   }
 
-  async function bulkOnboard() {
-    const lines = bulkText.trim().split('\n').filter(Boolean);
-    const trainees = lines.map(line => {
-      const [employeeId, traineeName, email, mobile, doj] = line.split(',').map(s => s.trim());
-      return { employeeId, traineeName, email, mobile, doj };
-    });
-    if (trainees.length === 0) return setMsg('No data found.');
-    setLoading(true);
-    const res = await api.post(`/coordinator/batches/${batchNo}/trainees/bulk`, { trainees }, 'coordinator');
-    setLoading(false);
-    if (res.ok) { setMsg(`✓ ${res.data.success} onboarded, ${res.data.failed} failed.`); setShowBulk(false); setBulkText(''); load(); }
-    else setMsg(res.message || 'Failed.');
-  }
 
   if (!data) return <div style={{ paddingTop: 40, textAlign: 'center' }}><div className="spinner" /></div>;
 
@@ -104,10 +159,49 @@ export default function BatchDetail({ batchNo, onBack }) {
         <div>
           <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
             <button className="btn small" onClick={() => setShowOnboard(true)}>+ Add Trainee</button>
-            <button className="btn small secondary" onClick={() => setShowBulk(true)}>Bulk Upload (CSV)</button>
-            <a className="btn small secondary" href={`/api/reports/trainees/export?batchNo=${batchNo}`} download>Export CSV</a>
+            <button className="btn small secondary" onClick={() => setShowBulk(true)}>⬆ Bulk Upload (CSV)</button>
+            <button className="btn small secondary" onClick={() => downloadCsv(`/reports/trainees/export?batchNo=${encodeURIComponent(batchNo)}`, `trainees-${batchNo}.csv`, 'coordinator')}>⬇ Export CSV</button>
           </div>
-          {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 8 }}>{msg}</div>}
+          {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 8 }}>{msg}<button style={{ marginLeft: 8, cursor: 'pointer', border: 0, background: 'transparent', color: 'inherit', fontWeight: 700 }} onClick={() => setMsg('')}>✕</button></div>}
+
+          {/* Search & Enroll Existing Trainee */}
+          <div className="card" style={{ marginBottom: 12, padding: '14px 16px' }}>
+            <b style={{ fontSize: 13, display: 'block', marginBottom: 8 }}>Search & Enroll Existing LMS User</b>
+            <div style={{ position: 'relative' }}>
+              <input
+                className="input"
+                placeholder="Search by name or Employee ID (min 2 chars)..."
+                value={searchQ}
+                onChange={e => searchTrainees(e.target.value)}
+                style={{ width: '100%', paddingRight: 36 }}
+              />
+              {searchLoading && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)' }}>⟳</span>}
+            </div>
+            {searchResults.length > 0 && (
+              <div style={{ marginTop: 8, background: 'var(--surface)', borderRadius: 10, border: '1px solid var(--line)', overflow: 'hidden' }}>
+                {searchResults.map(t => {
+                  const alreadyEnrolled = trainees.some(et => et.employeeId === t.employeeId);
+                  return (
+                    <div key={t.employeeId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderBottom: '1px solid var(--line)' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.traineeName}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t.employeeId}{t.email ? ` · ${t.email}` : ''}{t.batchNo ? ` · Batch: ${t.batchNo}` : ''}</div>
+                      </div>
+                      {alreadyEnrolled
+                        ? <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 700 }}>✓ Enrolled</span>
+                        : <button className="btn small" onClick={() => enrollExisting(t)} disabled={enrolling === t.employeeId}>
+                            {enrolling === t.employeeId ? '...' : '+ Enroll'}
+                          </button>
+                      }
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {searchQ.length >= 2 && !searchLoading && searchResults.length === 0 && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, textAlign: 'center', padding: '10px 0' }}>No trainees found for "{searchQ}"</div>
+            )}
+          </div>
 
           <div className="table-wrap">
             <table>
@@ -194,15 +288,70 @@ export default function BatchDetail({ batchNo, onBack }) {
       {/* Bulk upload */}
       {showBulk && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowBulk(false)}>
-          <div className="modal-box" style={{ maxWidth: 560 }}>
-            <div className="modal-head"><b>Bulk Onboard to {batchNo}</b><button className="btn small secondary" onClick={() => setShowBulk(false)}>Close</button></div>
+          <div className="modal-box" style={{ maxWidth: 580 }}>
+            <div className="modal-head">
+              <b>Bulk Onboard to {batchNo}</b>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="btn small secondary" onClick={() => {
+                  const blob = new Blob([TRAINEE_CSV_TEMPLATE], { type: 'text/csv' });
+                  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Trainee_Upload_Template.csv'; a.click();
+                }}>⬇ Template</button>
+                <button className="btn small secondary" onClick={() => { setShowBulk(false); setCsvPreview(null); }}>Close</button>
+              </div>
+            </div>
             <div className="modal-body">
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 10 }}>Paste CSV (one trainee per line): <b>EmployeeID, Name, Email, Mobile, DOJ</b></p>
-              <textarea className="input" style={{ minHeight: 160, fontFamily: 'monospace', fontSize: 12 }} placeholder="EMP1002,John Doe,john@example.com,9876543210,2026-05-01&#10;EMP1003,Jane Smith,jane@example.com,9876543211,2026-05-01" value={bulkText} onChange={e => setBulkText(e.target.value)} />
-              {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginTop: 8 }}>{msg}</div>}
-              <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
-                <button className="btn" onClick={bulkOnboard} disabled={loading}>{loading ? 'Uploading...' : 'Onboard All'}</button>
-                <button className="btn secondary" onClick={() => setShowBulk(false)}>Cancel</button>
+              <div
+                onDragOver={e => { e.preventDefault(); setCsvDragging(true); }}
+                onDragLeave={() => setCsvDragging(false)}
+                onDrop={e => {
+                  e.preventDefault(); setCsvDragging(false);
+                  const file = e.dataTransfer.files[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => setCsvPreview(parseCsvTrainees(ev.target.result));
+                  reader.readAsText(file);
+                }}
+                onClick={() => document.getElementById(`coord-csv-${batchNo}`).click()}
+                style={{
+                  border: `2px dashed ${csvDragging ? '#2563eb' : 'var(--line)'}`,
+                  borderRadius: 12, padding: '22px 20px', textAlign: 'center',
+                  background: csvDragging ? 'rgba(37,99,235,.12)' : 'var(--surface, rgba(255,255,255,.03))',
+                  cursor: 'pointer', transition: 'all .15s', marginBottom: 10,
+                }}
+              >
+                <input id={`coord-csv-${batchNo}`} type="file" accept=".csv" style={{ display: 'none' }} onChange={e => {
+                  const file = e.target.files[0]; if (!file) return;
+                  const reader = new FileReader();
+                  reader.onload = ev => setCsvPreview(parseCsvTrainees(ev.target.result));
+                  reader.readAsText(file); e.target.value = '';
+                }} />
+                <div style={{ fontSize: 22, marginBottom: 6 }}>📂</div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drop trainee CSV here or click to browse</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Columns: EmployeeID, Name, Email, Mobile, DOJ</div>
+              </div>
+              {csvPreview && csvPreview.length > 0 && (
+                <div style={{ background: 'var(--surface, rgba(255,255,255,.04))', borderRadius: 10, border: '1px solid var(--line)', padding: '12px 16px', marginBottom: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{csvPreview.length} trainees found</span>
+                    <button className="btn small secondary" onClick={() => setCsvPreview(null)}>Discard</button>
+                  </div>
+                  <div style={{ maxHeight: 120, overflowY: 'auto', display: 'grid', gap: 3 }}>
+                    {csvPreview.slice(0, 8).map((t, i) => (
+                      <div key={i} style={{ fontSize: 11, display: 'flex', gap: 10, padding: '3px 0' }}>
+                        <b style={{ color: 'var(--brand)', minWidth: 80 }}>{t.employeeId}</b>
+                        <span style={{ color: 'var(--ink)' }}>{t.traineeName}</span>
+                        {t.email && <span style={{ color: 'var(--muted)' }}>{t.email}</span>}
+                      </div>
+                    ))}
+                    {csvPreview.length > 8 && <div style={{ fontSize: 11, color: 'var(--muted)' }}>...and {csvPreview.length - 8} more</div>}
+                  </div>
+                </div>
+              )}
+              {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
+              <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                <button className="btn" onClick={bulkAddFromCsv} disabled={loading || !csvPreview || csvPreview.length === 0}>
+                  {loading ? 'Uploading...' : csvPreview ? `+ Onboard ${csvPreview.length} Trainees` : 'Select a CSV file first'}
+                </button>
+                <button className="btn secondary" onClick={() => { setShowBulk(false); setCsvPreview(null); }}>Cancel</button>
               </div>
             </div>
           </div>

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api } from '../../utils/api.js';
+import { api, downloadCsv } from '../../utils/api.js';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import { pct, riskColor } from '../../utils/format.js';
 import {
@@ -42,6 +42,9 @@ function StatusPill({ status }) {
 
 export default function MgmtDashboard({ onLogout }) {
   const { theme, toggle: toggleTheme } = useTheme();
+  const chartLabelColor = theme === 'dark' ? '#cbd5e1' : '#374151';
+  const chartGridColor = theme === 'dark' ? 'rgba(255,255,255,.07)' : '#f3f4f6';
+  const chartTickColor = theme === 'dark' ? '#94a3b8' : '#6b7280';
   const [kpis, setKpis] = useState(null);
   const [branches, setBranches] = useState([]);
   const [processes, setProcesses] = useState([]);
@@ -180,10 +183,10 @@ export default function MgmtDashboard({ onLogout }) {
               <b style={{ fontSize: 14 }}>Training Health Overview</b>
               <div style={{ marginTop: 18, display: 'flex', flexDirection: 'column', gap: 18 }}>
                 {[
-                  { label: 'Avg Course Completion', value: kpis.avgCourse, color: '#2563eb', bg: '#eff6ff', threshold: 70 },
-                  { label: 'Avg MCQ Score', value: kpis.avgMcq, color: '#16a34a', bg: '#f0fdf4', threshold: 60 },
-                  { label: 'Avg Attendance', value: kpis.avgAttendance, color: '#d97706', bg: '#fffbeb', threshold: 70 },
-                  { label: 'Certification Rate', value: kpis.certPct, color: '#7c3aed', bg: '#faf5ff', threshold: 60 },
+                  { label: 'Avg Course Completion', value: kpis.avgCourse, color: '#2563eb', bg: theme === 'dark' ? 'rgba(37,99,235,.15)' : '#eff6ff', threshold: 70 },
+                  { label: 'Avg MCQ Score', value: kpis.avgMcq, color: '#16a34a', bg: theme === 'dark' ? 'rgba(22,163,74,.15)' : '#f0fdf4', threshold: 60 },
+                  { label: 'Avg Attendance', value: kpis.avgAttendance, color: '#d97706', bg: theme === 'dark' ? 'rgba(217,119,6,.15)' : '#fffbeb', threshold: 70 },
+                  { label: 'Certification Rate', value: kpis.certPct, color: '#7c3aed', bg: theme === 'dark' ? 'rgba(124,58,237,.15)' : '#faf5ff', threshold: 60 },
                 ].map(m => (
                   <div key={m.label}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
@@ -392,7 +395,7 @@ export default function MgmtDashboard({ onLogout }) {
                               borderWidth: 0,
                             }],
                           }}
-                          options={{ plugins: { legend: { position: 'right', labels: { color: '#374151', font: { size: 12 } } } }, cutout: '60%' }}
+                          options={{ plugins: { legend: { position: 'right', labels: { color: chartLabelColor, font: { size: 12 } } } }, cutout: '60%' }}
                         />
                       </div>
                     </div>
@@ -409,10 +412,10 @@ export default function MgmtDashboard({ onLogout }) {
                           }}
                           options={{
                             responsive: true,
-                            plugins: { legend: { position: 'top', labels: { color: '#374151' } } },
+                            plugins: { legend: { position: 'top', labels: { color: chartLabelColor } } },
                             scales: {
-                              y: { max: 100, grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                              x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
+                              y: { max: 100, grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                              x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
                             },
                           }}
                         />
@@ -501,10 +504,10 @@ export default function MgmtDashboard({ onLogout }) {
                     }}
                     options={{
                       responsive: true,
-                      plugins: { legend: { position: 'top', labels: { color: '#374151' } } },
+                      plugins: { legend: { position: 'top', labels: { color: chartLabelColor } } },
                       scales: {
-                        y: { max: 100, grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                        x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
+                        y: { max: 100, grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                        x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
                       },
                     }}
                   />
@@ -615,10 +618,10 @@ export default function MgmtDashboard({ onLogout }) {
                     }}
                     options={{
                       responsive: true,
-                      plugins: { legend: { position: 'top', labels: { color: '#374151' } } },
+                      plugins: { legend: { position: 'top', labels: { color: chartLabelColor } } },
                       scales: {
-                        y: { max: 100, grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                        x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280', font: { size: 11 } } },
+                        y: { max: 100, grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                        x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor, font: { size: 11 } } },
                       },
                     }}
                   />
@@ -775,10 +778,10 @@ export default function MgmtDashboard({ onLogout }) {
                     }}
                     options={{
                       responsive: true,
-                      plugins: { legend: { labels: { color: '#374151' } } },
+                      plugins: { legend: { labels: { color: chartLabelColor } } },
                       scales: {
-                        y: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                        x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
+                        y: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                        x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
                       },
                     }}
                   />
@@ -797,10 +800,10 @@ export default function MgmtDashboard({ onLogout }) {
                     }}
                     options={{
                       responsive: true,
-                      plugins: { legend: { labels: { color: '#374151' } } },
+                      plugins: { legend: { labels: { color: chartLabelColor } } },
                       scales: {
-                        y: { max: 100, grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                        x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
+                        y: { max: 100, grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                        x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
                       },
                     }}
                   />
@@ -820,10 +823,10 @@ export default function MgmtDashboard({ onLogout }) {
                         }}
                         options={{
                           responsive: true,
-                          plugins: { legend: { labels: { color: '#374151' } } },
+                          plugins: { legend: { labels: { color: chartLabelColor } } },
                           scales: {
-                            y: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                            x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
+                            y: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                            x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
                           },
                         }}
                       />
@@ -840,10 +843,10 @@ export default function MgmtDashboard({ onLogout }) {
                         }}
                         options={{
                           responsive: true,
-                          plugins: { legend: { labels: { color: '#374151' } } },
+                          plugins: { legend: { labels: { color: chartLabelColor } } },
                           scales: {
-                            y: { max: 100, grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
-                            x: { grid: { color: '#f3f4f6' }, ticks: { color: '#6b7280' } },
+                            y: { max: 100, grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
+                            x: { grid: { color: chartGridColor }, ticks: { color: chartTickColor } },
                           },
                         }}
                       />
@@ -919,7 +922,7 @@ export default function MgmtDashboard({ onLogout }) {
                             <td style={{ fontSize: 12 }}>{t.branch || '—'}</td>
                             <td>
                               <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 80 }}>
-                                <div style={{ flex: 1, height: 6, borderRadius: 99, background: '#e5e7eb', overflow: 'hidden' }}>
+                                <div style={{ flex: 1, height: 6, borderRadius: 99, background: theme === 'dark' ? 'rgba(255,255,255,.1)' : '#e5e7eb', overflow: 'hidden' }}>
                                   <div style={{ height: '100%', width: `${t.courseCompletionPct || 0}%`, background: (t.courseCompletionPct || 0) >= 70 ? '#16a34a' : '#f59e0b', borderRadius: 99 }} />
                                 </div>
                                 <span style={{ fontSize: 11, minWidth: 28, textAlign: 'right' }}>{t.courseCompletionPct || 0}%</span>
@@ -949,7 +952,7 @@ export default function MgmtDashboard({ onLogout }) {
         <div style={{ marginTop: 14 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
             {[
-              { title: 'All Trainees Export', desc: 'Full trainee list across all batches — Employee ID, LMS ID, Name, Batch, Branch, Process, Course %, MCQ %, Attendance %, Risk, Certification.', href: '/api/reports/trainees/export', filename: 'all-trainees.csv', icon: '👥' },
+              { title: 'All Trainees Export', desc: 'Full trainee list across all batches — Employee ID, LMS ID, Name, Batch, Branch, Process, Course %, MCQ %, Attendance %, Risk, Certification.', href: null, icon: '👥', key: 'all-trainees' },
               { title: 'Batch Summaries', desc: 'Per-batch summary: Batch No, Process, LOB, Coordinator, Total, Certified %, Attrition %, Throughput %, Status.', href: null, icon: '🏢', key: 'batches' },
               { title: 'Branch Performance', desc: 'Branch-wise breakdown: Total, Certified %, Attrition %, Throughput %, Avg Course/MCQ/Attendance.', href: null, icon: '🌿', key: 'branches' },
               { title: 'Process Performance', desc: 'Process/LOB breakdown with certification, attrition, and health metrics.', href: null, icon: '⚙️', key: 'processes' },
@@ -958,6 +961,7 @@ export default function MgmtDashboard({ onLogout }) {
               { title: 'Historical KPI Trends', desc: 'Month-wise: active trainees, avg completion, cert %, attrition %, throughput %.', href: null, icon: '📈', key: 'historical' },
             ].map(report => {
               const handleClick = async () => {
+                if (report.key === 'all-trainees') { downloadCsv('/reports/trainees/export', 'all-trainees.csv', 'management'); return; }
                 const endpoints = { batches: '/management/batch-summaries', branches: '/management/branch-summaries', processes: '/management/process-summaries', coordinators: '/management/coordinator-performance', risks: '/management/risk-list', historical: '/management/historical-kpis' };
                 const headers = {
                   batches: ['Batch No','Process','LOB','Coordinator','Total','CertPct%','AttritionPct%','ThroughputPct%','Status'],
@@ -990,10 +994,7 @@ export default function MgmtDashboard({ onLogout }) {
                       <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>{report.desc}</p>
                     </div>
                   </div>
-                  {report.href
-                    ? <a className="btn small" href={report.href} download={report.filename} style={{ alignSelf: 'flex-start' }}>⬇ Download CSV</a>
-                    : <button className="btn small" onClick={handleClick} style={{ alignSelf: 'flex-start' }}>⬇ Download CSV</button>
-                  }
+                  <button className="btn small" onClick={handleClick} style={{ alignSelf: 'flex-start' }}>⬇ Download CSV</button>
                 </div>
               );
             })}

@@ -408,17 +408,36 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   const isVideo = content.contentType === 'video';
   const progress = content.progress;
   const [iframeLoading, setIframeLoading] = useState(true);
+  const [iframeError, setIframeError] = useState(false);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [loadTimeout, setLoadTimeout] = useState(false);
+
+  useEffect(() => {
+    setIframeLoading(true);
+    setIframeError(false);
+    setLoadTimeout(false);
+    if (media?.type === 'proxy' || media?.type === 'drive') {
+      const t = setTimeout(() => setLoadTimeout(true), 15000);
+      return () => clearTimeout(t);
+    }
+  }, [content.contentId]);
+
+  const modalStyle = fullscreen
+    ? { position: 'fixed', inset: 0, zIndex: 9999, maxWidth: '100vw', width: '100vw', borderRadius: 0, display: 'flex', flexDirection: 'column' }
+    : { maxWidth: 1080, width: '95vw' };
+
+  const contentHeight = fullscreen ? 'calc(100vh - 70px)' : '72vh';
 
   return (
-    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ maxWidth: 1080, width: '95vw' }}>
-        <div className="modal-head">
-          <div>
+    <div className="modal-overlay" onClick={e => !fullscreen && e.target === e.currentTarget && onClose()} style={fullscreen ? { alignItems: 'stretch', padding: 0 } : {}}>
+      <div className="modal-box" style={modalStyle}>
+        <div className="modal-head" style={{ flexShrink: 0 }}>
+          <div style={{ minWidth: 0, flex: 1 }}>
             <b style={{ fontSize: 15 }}>{content.contentTitle}</b>
             <div className="row" style={{ gap: 8, marginTop: 5 }}>
               <span className="content-type-badge">{content.contentType}</span>
               <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
-                Activity is tracked automatically
+                Activity tracked automatically
               </span>
             </div>
           </div>
@@ -429,23 +448,29 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
                 target="_blank"
                 rel="noopener"
                 className="btn small secondary"
+                title="Open in new tab"
               >
-                Open ↗
+                ↗ Open
               </a>
             )}
+            <button
+              className="btn small secondary"
+              onClick={() => setFullscreen(f => !f)}
+              title={fullscreen ? 'Exit fullscreen' : 'Maximize'}
+            >
+              {fullscreen ? '⊡ Exit Full' : '⊞ Maximize'}
+            </button>
             <button className="btn small secondary" onClick={onClose}>✕ Close</button>
           </div>
         </div>
 
-        <div style={{ padding: '0 0 0 0' }}>
-          {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && (
-            <div className="info-box" style={{ marginBottom: 8, fontSize: 13, borderRadius: 0 }}>
-              Last watched: {formatSeconds(progress.lastPositionSeconds)} — Drive videos resume automatically if still open.
-            </div>
-          )}
-        </div>
+        {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && (
+          <div className="info-box" style={{ fontSize: 13, borderRadius: 0, flexShrink: 0 }}>
+            Last watched: {formatSeconds(progress.lastPositionSeconds)} — content resumes if still open.
+          </div>
+        )}
 
-        <div style={{ height: '72vh', background: '#0f172a', position: 'relative', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}>
+        <div style={{ height: contentHeight, background: '#0f172a', position: 'relative', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)', flex: fullscreen ? 1 : undefined }}>
           {!media && (
             <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', paddingTop: '22vh', fontSize: 14 }}>
               No content URL configured. Contact admin.
@@ -456,7 +481,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
               ref={videoRef}
               src={media.url}
               controls
-              style={{ width: '100%', height: '100%', background: '#000', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+              style={{ width: '100%', height: '100%', background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }}
               onPause={() => onPauseChange(true)}
               onPlay={() => onPauseChange(false)}
               onLoadedMetadata={e => { if (progress?.lastPositionSeconds > 0) e.target.currentTime = progress.lastPositionSeconds; }}
@@ -465,7 +490,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
           {media?.type === 'youtube' && (
             <iframe
               src={media.url}
-              style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+              style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }}
               allowFullScreen
               referrerPolicy="no-referrer-when-downgrade"
               allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -477,12 +502,37 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
               {iframeLoading && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', zIndex: 2, gap: 16 }}>
                   <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,.1)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  <div style={{ color: '#94a3b8', fontSize: 13 }}>Loading content…</div>
+                  <div style={{ color: '#94a3b8', fontSize: 13 }}>
+                    {loadTimeout ? 'Server is warming up — this may take 30–60 seconds on first load…' : 'Loading content…'}
+                  </div>
+                  {loadTimeout && (
+                    <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                      <button
+                        className="btn small secondary"
+                        style={{ fontSize: 12 }}
+                        onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); document.getElementById('lms-content-iframe').src += ''; }}
+                      >
+                        Retry
+                      </button>
+                      {media?.fileId && (
+                        <a
+                          href={`https://drive.google.com/file/d/${media.fileId}/view`}
+                          target="_blank"
+                          rel="noopener"
+                          className="btn small secondary"
+                          style={{ fontSize: 12 }}
+                        >
+                          Open in Drive ↗
+                        </a>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
               <iframe
+                id="lms-content-iframe"
                 src={media.url}
-                style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+                style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }}
                 allowFullScreen
                 title={content.contentTitle}
                 onLoad={() => setIframeLoading(false)}

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import {
   getDashboard, getBatches, createBatch, getBatchDetails,
-  addTrainee, bulkAddTrainees,
+  addTrainee, bulkAddTrainees, searchTrainees,
   getPendingActivities, updatePendingActivity,
   answerQuery, getQueryLog,
   updateRiskAction,
@@ -19,6 +19,7 @@ router.get('/batches', ...auth, getBatches);
 router.post('/batches', ...auth, createBatch);
 router.get('/batches/:batchNo', ...auth, getBatchDetails);
 
+router.get('/trainees/search', ...auth, searchTrainees);
 router.post('/batches/:batchNo/trainees', ...auth, addTrainee);
 router.post('/batches/:batchNo/trainees/bulk', ...auth, bulkAddTrainees);
 

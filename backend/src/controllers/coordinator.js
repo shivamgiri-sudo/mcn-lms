@@ -351,6 +351,29 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
   return { ok: true, data: trainee, message: `${traineeName || normEmpId} onboarded. Temp password: ${tempPassword}` };
 }
 
+// ── Trainee Search ─────────────────────────────────────────────────────────────
+export async function searchTrainees(req, res) {
+  try {
+    const { q, limit = 10 } = req.query;
+    if (!q || q.trim().length < 2) return res.json({ ok: true, data: [] });
+    const trainees = await prisma.traineeMaster.findMany({
+      where: {
+        OR: [
+          { employeeId: { contains: q.trim(), mode: 'insensitive' } },
+          { traineeName: { contains: q.trim(), mode: 'insensitive' } },
+          { email: { contains: q.trim(), mode: 'insensitive' } },
+        ],
+      },
+      take: parseInt(limit) || 10,
+      orderBy: { traineeName: 'asc' },
+      select: { employeeId: true, traineeName: true, email: true, mobile: true, batchNo: true },
+    });
+    res.json({ ok: true, data: trainees });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
 // ── Pending Activities ─────────────────────────────────────────────────────────
 export async function getPendingActivities(req, res) {
   try {
