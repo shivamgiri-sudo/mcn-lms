@@ -272,15 +272,15 @@ model ModuleMaster {
   moduleTitle  String   @map("module_title")
   moduleOrder  Int      @default(0) @map("module_order")
   required     Boolean  @default(true)
-  assessmentId String?  @map("assessment_id")
   active       Boolean  @default(true)
   description  String?
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  classroom ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
-  contents  ContentMaster[]
-  faqs      FaqMaster[]
+  classroom   ClassroomMaster  @relation(fields: [classroomId], references: [classroomId])
+  contents    ContentMaster[]
+  faqs        FaqMaster[]
+  assessments AssessmentMaster[]
 
   @@map("module_master")
 }
@@ -352,6 +352,7 @@ model AssessmentMaster {
   dayNo          Int?     @map("day_no")
   moduleId       String?  @map("module_id")
   assessmentName String   @map("assessment_name")
+  sortOrder      Int      @default(0) @map("sort_order")
   passingPct     Float    @default(60) @map("passing_pct")
   attemptLimit   Int      @default(3) @map("attempt_limit")
   timeLimitMins  Int      @default(30) @map("time_limit_mins")
@@ -365,6 +366,7 @@ model AssessmentMaster {
   results   AssessmentResult[]
 
   classroomRel ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
+  moduleRel    ModuleMaster?   @relation(fields: [moduleId], references: [moduleId])
 
   @@map("assessment_master")
 }

@@ -337,13 +337,21 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
         </div>
       )}
 
-      {/* Assessment */}
-      {mod.assessment && (
-        <AssessmentCard
-          assessment={mod.assessment}
-          result={mod.assessmentResult}
-          onStart={() => onStartAssessment(mod.assessment.assessmentId)}
-        />
+      {/* Assessments — supports multiple MCQs per module */}
+      {mod.assessments?.length > 0 && (
+        <div style={{ marginTop: mod.faqs.length > 0 ? 10 : 0 }}>
+          {mod.assessments.map((assessment, idx) => {
+            const result = mod.assessmentResults?.find(r => r.assessment?.assessmentId === assessment.assessmentId)?.result || null;
+            return (
+              <AssessmentCard
+                key={assessment.assessmentId}
+                assessment={assessment}
+                result={result}
+                onStart={() => onStartAssessment(assessment.assessmentId)}
+              />
+            );
+          })}
+        </div>
       )}
     </div>
   );

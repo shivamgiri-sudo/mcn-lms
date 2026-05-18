@@ -64,8 +64,16 @@ export default function ReportsTab() {
       const params = new URLSearchParams();
       if (selectedBatch) params.set('batchNo', selectedBatch);
       if (selectedClassroom) params.set('classroomId', selectedClassroom);
-      const batchLabel = selectedBatch || 'all-batches';
-      await downloadCsv(`/admin/trainees/export?${params}`, `trainee-report-${batchLabel}-${new Date().toISOString().slice(0,10)}.csv`);
+      const date = new Date().toISOString().slice(0, 10);
+      const batchLabel = selectedBatch || 'all';
+
+      if (type === 'trainee-progress') {
+        await downloadCsv(`/admin/trainees/export?${params}`, `trainee-progress-${batchLabel}-${date}.csv`);
+      } else if (type === 'batch-summary') {
+        await downloadCsv(`/admin/reports/batch-summary`, `batch-summary-${date}.csv`);
+      } else if (type === 'at-risk') {
+        await downloadCsv(`/admin/reports/at-risk?${params}`, `at-risk-trainees-${batchLabel}-${date}.csv`);
+      }
     } catch {
       setMsg('Download failed. Check your connection.');
     }
@@ -193,11 +201,7 @@ export default function ReportsTab() {
           <button
             className="btn"
             style={{ width: '100%', justifyContent: 'center', background: '#16a34a' }}
-            onClick={() => {
-              setSelectedBatch('');
-              setSelectedClassroom('');
-              setTimeout(() => downloadReport('batch-summary'), 100);
-            }}
+            onClick={() => downloadReport('batch-summary')}
           >
             ⬇ Export All Batches CSV
           </button>
@@ -233,7 +237,7 @@ export default function ReportsTab() {
       </div>
 
       <div style={{ marginTop: 20, padding: '14px 18px', background: 'var(--card)', borderRadius: 12, border: '1px solid var(--line)', fontSize: 12, color: 'var(--muted)' }}>
-        <b style={{ color: 'var(--ink)' }}>Note:</b> All exports use the filters selected above. The at-risk export uses the same data with an extra risk status filter applied client-side after download (the backend always returns all records matching batch/classroom filters). For server-side risk filtering, contact the developer to extend the export endpoint.
+        <b style={{ color: 'var(--ink)' }}>Note:</b> Trainee Progress and At-Risk exports respect the batch/classroom filters above. Batch Summary always exports all batches.
       </div>
     </div>
   );

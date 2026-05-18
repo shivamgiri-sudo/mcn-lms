@@ -28,12 +28,12 @@ export async function getLearnerDashboard(req, res) {
       });
     }
 
-    const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, assessmentResults] = await Promise.all([
+    const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults] = await Promise.all([
       prisma.classroomMaster.findUnique({ where: { classroomId } }),
       prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ dayNo: 'asc' }, { moduleOrder: 'asc' }] }),
       prisma.contentMaster.findMany({ where: { module: { classroomId } }, orderBy: { contentOrder: 'asc' } }),
       prisma.faqMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { sortOrder: 'asc' } }),
-      prisma.assessmentMaster.findMany({ where: { classroomId, active: true } }),
+      prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }] }),
       prisma.contentProgress.findMany({ where: { employeeId: empId, classroomId } }),
       prisma.assessmentResult.findMany({ where: { employeeId: empId, classroomId } }),
     ]);
@@ -43,7 +43,7 @@ export async function getLearnerDashboard(req, res) {
     for (const p of progressRows) progressMap[p.contentId] = p;
 
     const resultMap = {};
-    for (const r of assessmentResults) resultMap[r.assessmentId] = r;
+    for (const r of allAttemptResults) resultMap[r.assessmentId] = r;
 
     // Group into days
     const dayMap = {};
@@ -54,13 +54,16 @@ export async function getLearnerDashboard(req, res) {
         progress: progressMap[c.contentId] || null,
       }));
       const faqs = allFaqs.filter(f => f.moduleId === mod.moduleId);
-      // Look up by ModuleMaster.assessmentId first, then fall back to AssessmentMaster.moduleId match
-      const assessment = mod.assessmentId
-        ? allAssessments.find(a => a.assessmentId === mod.assessmentId)
-        : allAssessments.find(a => a.moduleId === mod.moduleId) || null;
-      const assessmentResult = assessment ? resultMap[assessment.assessmentId] : null;
+      // All assessments linked to this module, sorted by sortOrder — supports unlimited MCQs per module
+      const moduleAssessments = allAssessments
+        .filter(a => a.moduleId === mod.moduleId)
+        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0));
+      const moduleAssessmentResults = moduleAssessments.map(a => ({
+        assessment: a,
+        result: resultMap[a.assessmentId] || null,
+      }));
 
-      dayMap[mod.dayNo].modules.push({ ...mod, contents, faqs, assessment, assessmentResult });
+      dayMap[mod.dayNo].modules.push({ ...mod, contents, faqs, assessments: moduleAssessments, assessmentResults: moduleAssessmentResults });
     }
     const days = Object.values(dayMap).sort((a, b) => a.dayNo - b.dayNo);
 
@@ -71,10 +74,10 @@ export async function getLearnerDashboard(req, res) {
     const completionPercent = totalContents > 0 ? Math.round((completedContents / totalContents) * 100) : 0;
     const totalSecondsSpent = progressRows.reduce((s, p) => s + (p.totalSecondsSpent || 0), 0);
     const totalAssessments = allAssessments.length;
-    const attemptedAssessments = assessmentResults.length;
-    const passedAssessments = assessmentResults.filter(r => r.result === 'Pass').length;
+    const attemptedAssessments = allAttemptResults.length;
+    const passedAssessments = allAttemptResults.filter(r => r.result === 'Pass').length;
     const mcqCompletionPercent = totalAssessments > 0 ? Math.round((attemptedAssessments / totalAssessments) * 100) : 0;
-    const bestMcqScore = assessmentResults.length > 0 ? Math.max(...assessmentResults.map(r => r.bestPercentage)) : null;
+    const bestMcqScore = allAttemptResults.length > 0 ? Math.max(...allAttemptResults.map(r => r.bestPercentage)) : null;
     // Overall progress = video/content completion only.
     // MCQ attempt rate is shown separately — blending it inflates the number misleadingly.
     const overallTrainingProgress = completionPercent;

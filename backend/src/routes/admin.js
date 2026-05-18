@@ -26,6 +26,7 @@ import {
   listBranches, getBranchDetail,
   listPortalUsers, createPortalUser, updatePortalUser, deletePortalUser, resetPortalUserPin,
   bulkCreatePortalUsers,
+  exportBatchSummary, exportAtRisk,
   listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -80,6 +81,8 @@ router.delete('/questions/:questionId', ...auth, deleteQuestion);
 // Trainee accounts
 router.get('/trainees/search', ...auth, searchTrainees);
 router.get('/trainees/export', ...auth, exportTrainees);
+router.get('/reports/batch-summary', ...auth, exportBatchSummary);
+router.get('/reports/at-risk', ...auth, exportAtRisk);
 router.post('/trainees/:employeeId/reset-password', ...auth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);
 router.delete('/trainees/:employeeId', ...auth, deleteTraineeAccount);

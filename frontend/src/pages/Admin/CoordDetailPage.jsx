@@ -36,19 +36,45 @@ export default function CoordDetailPage({ loginId, coordinatorName, navigate, on
           <div className="kpi-strip" style={{gridTemplateColumns:'repeat(4,1fr)',marginBottom:'14px'}}>
             <div className="kpi b"><div className="kpi-num">{data.batches.length}</div><div className="kpi-label">Batches</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'60%'}}></div></div></div>
             <div className="kpi g"><div className="kpi-num">{data.answeredQueries}</div><div className="kpi-label">Q&A Answered</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:`${data.qaResponseRate}%`}}></div></div></div>
-            <div className="kpi a"><div className="kpi-num">{data.openQueries}</div><div className="kpi-label">Open Queries</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'40%'}}></div></div></div>
+            <div className="kpi a"><div className="kpi-num">{data.openQueries}</div><div className="kpi-label">Open Queries</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width: data.totalQueries > 0 ? `${Math.round(data.openQueries/data.totalQueries*100)}%` : '0%'}}></div></div></div>
             <div className="kpi p"><div className="kpi-num">{score}%</div><div className="kpi-label">Effectiveness</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:`${score}%`}}></div></div></div>
           </div>
           <div className="glass-panel">
             <div className="panel-title">Effectiveness Breakdown</div>
-            {[['Q&A Response Rate', data.qaResponseRate],['Attendance Marking', 80],['Drive Compliance', 75],['Escalation Handling', 70]].map(([label,val]) => (
+            {[
+              ['Q&A Response Rate', data.qaResponseRate, true],
+              ['Avg Response Speed', data.speedScore, true],
+            ].map(([label, val, real]) => (
               <div key={label} className="rrow">
                 <span className="rlabel">{label}</span>
-                <div className="rbar"><div className="rbar-fill" style={{width:`${val}%`,background:val>=80?'linear-gradient(90deg,#16a34a,#22c55e)':val>=60?'linear-gradient(90deg,#d97706,#f59e0b)':'linear-gradient(90deg,#dc2626,#f97316)'}}></div></div>
-                <span className="rpct">{val}%</span>
+                <div className="rbar">
+                  {real && val !== null && val !== undefined
+                    ? <div className="rbar-fill" style={{width:`${val}%`,background:val>=80?'linear-gradient(90deg,#16a34a,#22c55e)':val>=60?'linear-gradient(90deg,#d97706,#f59e0b)':'linear-gradient(90deg,#dc2626,#f97316)'}}></div>
+                    : <div style={{fontSize:11,color:'var(--muted)',paddingTop:2}}>No data yet</div>
+                  }
+                </div>
+                <span className="rpct">
+                  {label === 'Avg Response Speed' && data.avgTatHours !== null && data.avgTatHours !== undefined
+                    ? `${data.avgTatHours}h avg`
+                    : val !== null && val !== undefined ? `${val}%` : '—'}
+                </span>
               </div>
             ))}
           </div>
+          {data.recentAnswered?.length > 0 && (
+            <div className="glass-panel" style={{marginTop:12}}>
+              <div className="panel-title">Recently Answered Q&amp;A</div>
+              {data.recentAnswered.map(a => (
+                <div key={a.queryId} className="aitem" style={{borderLeft:'3px solid var(--ok)'}}>
+                  <div className="adot" style={{background:'var(--ok)'}}></div>
+                  <div>
+                    <div className="atext">{a.traineeName}: {a.question.slice(0,70)}{a.question.length>70?'...':''}</div>
+                    <div className="atime">{a.batchNo} · Answered in {a.resolutionTatHours ? `${Math.round(a.resolutionTatHours*10)/10}h` : '—'} · {a.answeredAt ? new Date(a.answeredAt).toLocaleDateString('en-IN') : ''}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

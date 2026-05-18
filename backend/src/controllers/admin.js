@@ -369,13 +369,20 @@ export async function deleteFaq(req, res) {
 }
 
 // ── Assessments ───────────────────────────────────────────────────────────────
+function parseAssessmentOrder(name) {
+  const m = name.match(/^(\d+(?:\.\d+)*)[_\s\-\.]/);
+  if (!m) return 9999;
+  const parts = m[1].split('.').map(Number);
+  return parts[0] * 10000 + (parts[1] || 0) * 100 + (parts[2] || 0);
+}
+
 export async function listAssessments(req, res) {
   try {
     const { classroomId } = req.query;
     const where = classroomId ? { classroomId } : {};
     const assessments = await prisma.assessmentMaster.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
       include: { _count: { select: { questions: true } } },
     });
     res.json({ ok: true, data: assessments });
@@ -389,12 +396,16 @@ export async function createAssessment(req, res) {
     const { classroomId, dayNo, moduleId, assessmentName, passingPct, attemptLimit, timeLimitMins, instructions } = req.body;
     if (!classroomId || !assessmentName) return res.status(400).json({ ok: false, message: 'Classroom and name required.' });
 
+    // Extract sort order from numeric prefix in name (e.g. "1_MCQ" → 10000, "2. Quiz" → 20000)
+    const sortOrder = parseAssessmentOrder(assessmentName);
+
     const assessmentId = `ASS-${generateId()}`;
     const a = await prisma.assessmentMaster.create({
       data: {
         assessmentId, classroomId,
         dayNo: dayNo ? parseInt(dayNo) : null,
         moduleId: moduleId || null,
+        sortOrder,
         assessmentName,
         passingPct: parseFloat(passingPct || 60),
         attemptLimit: parseInt(attemptLimit || 3),
@@ -402,14 +413,6 @@ export async function createAssessment(req, res) {
         instructions,
       },
     });
-
-    // If a specific module was selected, link this assessment to it
-    if (moduleId) {
-      await prisma.moduleMaster.update({
-        where: { moduleId },
-        data: { assessmentId },
-      });
-    }
 
     res.json({ ok: true, data: a });
   } catch (err) {
@@ -420,15 +423,17 @@ export async function createAssessment(req, res) {
 export async function updateAssessment(req, res) {
   try {
     const { assessmentId } = req.params;
-    const { moduleId, ...rest } = req.body;
+    const { moduleId, assessmentName, ...rest } = req.body;
+    const sortOrder = assessmentName ? parseAssessmentOrder(assessmentName) : undefined;
     const a = await prisma.assessmentMaster.update({
       where: { assessmentId },
-      data: { ...rest, ...(moduleId !== undefined ? { moduleId: moduleId || null } : {}) },
+      data: {
+        ...rest,
+        ...(assessmentName !== undefined ? { assessmentName } : {}),
+        ...(sortOrder !== undefined ? { sortOrder } : {}),
+        ...(moduleId !== undefined ? { moduleId: moduleId || null } : {}),
+      },
     });
-    // If linking to a module, update ModuleMaster.assessmentId too
-    if (moduleId) {
-      await prisma.moduleMaster.update({ where: { moduleId }, data: { assessmentId } });
-    }
     res.json({ ok: true, data: a });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -445,9 +450,6 @@ export async function deleteAssessment(req, res) {
 
     const a = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
     if (!a) return res.status(404).json({ ok: false, message: 'Assessment not found.' });
-
-    // Clear the link from any module pointing to this assessment
-    await prisma.moduleMaster.updateMany({ where: { assessmentId }, data: { assessmentId: null } });
 
     await prisma.$transaction([
       prisma.assessmentAttempt.deleteMany({ where: { assessmentId } }),
@@ -734,27 +736,73 @@ export async function assignModule(req, res) {
   }
 }
 
-// FIX 5: Export trainees as CSV
+function toCsv(headers, rows) {
+  return [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
+}
+
 export async function exportTrainees(req, res) {
   try {
     const { batchNo, classroomId } = req.query;
-    const where = { status: "Active" };
+    const where = { status: 'Active' };
     if (batchNo) where.batchNo = batchNo;
     if (classroomId) where.classroomId = classroomId;
-
     const trainees = await prisma.traineeMaster.findMany({ where, orderBy: { employeeId: 'asc' } });
-
-    const headers = ['Employee ID', 'Name', 'Batch', 'Branch', 'Process', 'LOB', 'Course %', 'MCQ %', 'Attendance %', 'Risk Status', 'Certification', 'Email', 'Mobile'];
-    const rows = trainees.map(t => [
-      t.employeeId, t.traineeName || '', t.batchNo || '', t.branch || '', t.process || '', t.lob || '',
-      t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0,
-      t.riskStatus || '', t.certificationStatus || '', t.email || '', t.mobile || '',
-    ]);
-
-    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const headers = ['Employee ID', 'Name', 'Batch', 'Branch', 'Process', 'LOB', 'Course %', 'MCQ Pass %', 'Attendance %', 'Risk Status', 'Certification', 'Email', 'Mobile'];
+    const rows = trainees.map(t => [t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob, t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0, t.riskStatus, t.certificationStatus, t.email, t.mobile]);
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="trainees-${batchNo || 'all'}-${Date.now()}.csv"`);
-    res.send(csv);
+    res.setHeader('Content-Disposition', `attachment; filename="trainee-progress-${batchNo || 'all'}-${Date.now()}.csv"`);
+    res.send(toCsv(headers, rows));
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+export async function exportBatchSummary(req, res) {
+  try {
+    const batches = await prisma.batchMaster.findMany({ where: { batchStatus: { not: 'Archived' } }, orderBy: { createdAt: 'desc' } });
+    const batchNos = batches.map(b => b.batchNo);
+    const [stats, riskCounts] = await Promise.all([
+      prisma.traineeMaster.groupBy({
+        by: ['batchNo'],
+        where: { batchNo: { in: batchNos }, status: 'Active' },
+        _count: { employeeId: true },
+        _avg: { courseCompletionPct: true, assessmentPassPct: true, attendancePct: true },
+      }),
+      prisma.traineeMaster.groupBy({
+        by: ['batchNo', 'riskStatus'],
+        where: { batchNo: { in: batchNos }, status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] } },
+        _count: { employeeId: true },
+      }),
+    ]);
+    const statsMap = {};
+    stats.forEach(s => { statsMap[s.batchNo] = { count: s._count.employeeId, avgCourse: Math.round(s._avg.courseCompletionPct || 0), avgMcq: Math.round(s._avg.assessmentPassPct || 0), avgAtt: Math.round(s._avg.attendancePct || 0) }; });
+    const riskMap = {};
+    riskCounts.forEach(r => { riskMap[r.batchNo] = (riskMap[r.batchNo] || 0) + r._count.employeeId; });
+
+    const headers = ['Batch No', 'Batch Name', 'Classroom', 'Coordinator', 'Status', 'Trainees', 'Avg Course %', 'Avg MCQ Pass %', 'Avg Attendance %', 'At-Risk Count', 'Start Date', 'End Date'];
+    const rows = batches.map(b => {
+      const s = statsMap[b.batchNo] || {};
+      return [b.batchNo, b.batchName || '', b.classroomId || '', b.coordinatorName || '', b.batchStatus, s.count || 0, s.avgCourse || 0, s.avgMcq || 0, s.avgAtt || 0, riskMap[b.batchNo] || 0, b.startDate ? new Date(b.startDate).toISOString().slice(0, 10) : '', b.endDate ? new Date(b.endDate).toISOString().slice(0, 10) : ''];
+    });
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="batch-summary-${Date.now()}.csv"`);
+    res.send(toCsv(headers, rows));
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+export async function exportAtRisk(req, res) {
+  try {
+    const { batchNo } = req.query;
+    const where = { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] } };
+    if (batchNo) where.batchNo = batchNo;
+    const trainees = await prisma.traineeMaster.findMany({ where, orderBy: [{ riskStatus: 'asc' }, { courseCompletionPct: 'asc' }] });
+    const headers = ['Employee ID', 'Name', 'Batch', 'Branch', 'Process', 'LOB', 'Risk Level', 'Risk Reason', 'Course %', 'MCQ Pass %', 'Attendance %', 'Certification', 'Email', 'Mobile'];
+    const rows = trainees.map(t => [t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob, t.riskStatus, t.riskReason || '', t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0, t.certificationStatus, t.email, t.mobile]);
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="at-risk-trainees-${batchNo || 'all'}-${Date.now()}.csv"`);
+    res.send(toCsv(headers, rows));
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Export failed.' });
   }
@@ -940,21 +988,46 @@ export async function getCoordinatorDetail(req, res) {
     });
     const batchNos = batches.map(b => b.batchNo);
 
-    const openQueries = await prisma.traineeQueryLog.count({ where: { batchNo: { in: batchNos }, status: 'Open' } });
-    const answeredQueries = await prisma.traineeQueryLog.count({ where: { batchNo: { in: batchNos }, answeredBy: loginId } });
-    const totalQueries = await prisma.traineeQueryLog.count({ where: { batchNo: { in: batchNos } } });
+    const [openQueries, answeredQueries, totalQueries, tatAgg, pendingActions, recentAnswered] = await Promise.all([
+      prisma.traineeQueryLog.count({ where: { batchNo: { in: batchNos }, status: 'Open' } }),
+      prisma.traineeQueryLog.count({ where: { batchNo: { in: batchNos }, answeredBy: loginId } }),
+      prisma.traineeQueryLog.count({ where: { batchNo: { in: batchNos } } }),
+      prisma.traineeQueryLog.aggregate({
+        where: { batchNo: { in: batchNos }, answeredBy: loginId, resolutionTatHours: { not: null } },
+        _avg: { resolutionTatHours: true },
+        _min: { resolutionTatHours: true },
+        _max: { resolutionTatHours: true },
+      }),
+      prisma.traineeQueryLog.findMany({
+        where: { batchNo: { in: batchNos }, status: 'Open' },
+        orderBy: { createdAt: 'asc' },
+        take: 20,
+        select: { id: true, queryId: true, traineeName: true, question: true, createdAt: true, priority: true, batchNo: true },
+      }),
+      prisma.traineeQueryLog.findMany({
+        where: { batchNo: { in: batchNos }, answeredBy: loginId },
+        orderBy: { answeredAt: 'desc' },
+        take: 10,
+        select: { queryId: true, traineeName: true, question: true, coordinatorAnswer: true, answeredAt: true, resolutionTatHours: true, batchNo: true },
+      }),
+    ]);
 
     const qaResponseRate = totalQueries > 0 ? Math.round(answeredQueries / totalQueries * 100) : 100;
-    const effectivenessScore = Math.round((qaResponseRate + 80 + 75 + 70) / 4);
+    const avgTatHours = tatAgg._avg.resolutionTatHours ? Math.round(tatAgg._avg.resolutionTatHours * 10) / 10 : null;
+    // Effectiveness score: response rate weighted 60%, speed bonus 40% (capped at 24h ideal)
+    const speedScore = avgTatHours !== null ? Math.max(0, Math.min(100, Math.round((1 - avgTatHours / 48) * 100))) : null;
+    const effectivenessScore = speedScore !== null
+      ? Math.round(qaResponseRate * 0.6 + speedScore * 0.4)
+      : qaResponseRate;
 
-    const pendingActions = await prisma.traineeQueryLog.findMany({
-      where: { batchNo: { in: batchNos }, status: 'Open' },
-      orderBy: { createdAt: 'asc' },
-      take: 20,
-      select: { queryId: true, traineeName: true, question: true, createdAt: true, priority: true, batchNo: true },
+    res.json({
+      ok: true,
+      data: {
+        loginId, batches, openQueries, answeredQueries, totalQueries, qaResponseRate,
+        avgTatHours, speedScore, effectivenessScore,
+        pendingActions, recentAnswered,
+      },
     });
-
-    res.json({ ok: true, data: { loginId, batches, openQueries, answeredQueries, totalQueries, qaResponseRate, effectivenessScore, pendingActions } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });
