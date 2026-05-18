@@ -985,7 +985,7 @@ export default function CurriculumTab() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '260px 240px 1fr', gap: 14, minHeight: 560, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '300px 280px 1fr', gap: 14, minHeight: 560, alignItems: 'start' }}>
 
         {/* ── Classrooms column ── */}
         <div style={{ minWidth: 0, maxHeight: '80vh', overflowY: 'auto', overflowX: 'visible' }}>
