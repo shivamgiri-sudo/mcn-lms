@@ -262,12 +262,16 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
 
   // Build one unified list sorted by each item's order number so the sequence
   // Video→Video→MCQ→FAQ→Video→FAQ→MCQ→Video is respected exactly as numbered.
+  // assessments use 10000-scale (e.g. "1_MCQ" → 10000, "5.1_MCQ" → 50100)
+  // contents use 1-based contentOrder (1, 2, 3…)
+  // normalize assessments: divide by 10000 then add 0.5 so "1_MCQ" (1.5) falls
+  // after "1_Video" (1) but before "2_Video" (2)
   const unifiedItems = [
-    ...activeContents.map(c => ({ kind: 'content',     order: c.contentOrder  ?? 0, data: c })),
-    ...mod.faqs.map(f =>        ({ kind: 'faq',         order: f.sortOrder     ?? 0, data: f })),
+    ...activeContents.map(c => ({ kind: 'content',    order: c.contentOrder ?? 0,                    data: c })),
+    ...mod.faqs.map(f =>        ({ kind: 'faq',        order: (f.sortOrder ?? 0) + 0.5,               data: f })),
     ...(mod.assessments || []).map(a => {
       const result = mod.assessmentResults?.find(r => r.assessment?.assessmentId === a.assessmentId)?.result || null;
-      return { kind: 'assessment', order: a.sortOrder ?? 0, data: a, result };
+      return { kind: 'assessment', order: (a.sortOrder ?? 0) / 10000 + 0.5, data: a, result };
     }),
   ].sort((a, b) => a.order - b.order || (a.kind === 'content' ? -1 : 1));
 
