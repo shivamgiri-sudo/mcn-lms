@@ -1,0 +1,458 @@
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { api } from '../../utils/api.js';
+import { formatSeconds, pct } from '../../utils/format.js';
+import AssessmentModal from './AssessmentModal.jsx';
+
+export default function LearningTab({ days, onRefresh }) {
+  const [openDays, setOpenDays] = useState({ 0: true });
+  const [viewingContent, setViewingContent] = useState(null);
+  const [assessmentId, setAssessmentId] = useState(null);
+  const heartbeatRef = useRef(null);
+  const lastSentRef = useRef(Date.now());
+  const sessionSecsRef = useRef(0);
+  const videoRef = useRef(null);
+  const isPausedRef = useRef(false);
+
+  const stopHeartbeat = useCallback(async (sendClose = true) => {
+    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    if (sendClose && viewingContent) {
+      const delta = Math.min(Math.round((Date.now() - lastSentRef.current) / 1000), 120);
+      if (delta > 0) {
+        await api.post(`/trainee/content/${viewingContent.contentId}/close`, {
+          secondsDelta: delta,
+          positionSeconds: videoRef.current?.currentTime || 0,
+        }, 'trainee');
+      }
+    }
+    sessionSecsRef.current = 0;
+    lastSentRef.current = Date.now();
+  }, [viewingContent]);
+
+  const startHeartbeat = useCallback((contentId) => {
+    lastSentRef.current = Date.now();
+    heartbeatRef.current = setInterval(async () => {
+      const now = Date.now();
+      const elapsed = Math.round((now - lastSentRef.current) / 1000);
+      const delta = (isPausedRef.current || document.hidden) ? 0 : Math.min(elapsed, 30);
+      lastSentRef.current = now;
+      sessionSecsRef.current += delta;
+      await api.post(`/trainee/content/${contentId}/heartbeat`, {
+        secondsDelta: delta,
+        sessionSeconds: sessionSecsRef.current,
+        positionSeconds: videoRef.current?.currentTime || 0,
+        durationSeconds: videoRef.current?.duration || 0,
+        playerMode: viewingContent?.playerMode || 'Auto',
+      }, 'trainee');
+    }, 30000);
+  }, [viewingContent]);
+
+  const [lockedMsg, setLockedMsg] = useState(null);
+
+  async function openContent(content) {
+    setLockedMsg(null);
+    const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
+    if (openRes.locked) {
+      setLockedMsg(openRes.message || 'Complete the previous content first.');
+      return;
+    }
+    if (viewingContent) await stopHeartbeat(true);
+    setViewingContent(content);
+    lastSentRef.current = Date.now();
+    startHeartbeat(content.contentId);
+  }
+
+  function closeContent() {
+    stopHeartbeat(true);
+    setViewingContent(null);
+    onRefresh();
+  }
+
+  useEffect(() => { return () => { stopHeartbeat(false); }; }, []);
+
+  function getYoutubeEmbedUrl(url) {
+    try {
+      const u = new URL(url);
+      let videoId = null;
+      if (u.hostname === 'youtu.be') videoId = u.pathname.slice(1);
+      else if (u.hostname.includes('youtube.com')) videoId = u.searchParams.get('v') || (u.pathname.startsWith('/shorts/') ? u.pathname.split('/shorts/')[1] : null);
+      if (videoId) return `https://www.youtube.com/embed/${videoId}?rel=0&autoplay=0&origin=${encodeURIComponent(window.location.origin)}`;
+    } catch {}
+    return null;
+  }
+
+  function renderContentUrl(c) {
+    const url = c.directMediaUrl || '';
+    if (url) {
+      const ytEmbed = getYoutubeEmbedUrl(url);
+      if (ytEmbed) return { type: 'youtube', url: ytEmbed };
+      if (!url.includes('drive.google.com')) return { type: 'html5', url };
+    }
+    if (c.driveUrl) return { type: 'drive', url: c.driveUrl };
+    if (c.driveFileId) return { type: 'drive', url: `https://drive.google.com/file/d/${c.driveFileId}/preview` };
+    if (url) return { type: 'drive', url };
+    return null;
+  }
+
+  const totalContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0), 0);
+  const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.progress?.completionStatus === 'Completed').length, 0), 0);
+
+  return (
+    <div>
+      <div className="row between" style={{ margin: '14px 0 10px' }}>
+        <h3 className="section-title" style={{ margin: 0 }}>Day-wise Learning Path</h3>
+        {totalContents > 0 && (
+          <span className="pill info">{doneContents}/{totalContents} completed</span>
+        )}
+      </div>
+
+      {lockedMsg && (
+        <div className="toast warn" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>🔒</span>
+          <span>{lockedMsg}</span>
+          <button onClick={() => setLockedMsg(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: .6 }}>✕</button>
+        </div>
+      )}
+
+      {days.length === 0 && (
+        <div className="empty">
+          No classroom content available yet. Contact your coordinator.
+        </div>
+      )}
+
+      <div style={{ display: 'grid', gap: 10 }}>
+        {days.map((day, di) => {
+          const dayContents = day.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0);
+          const dayDone = day.modules.reduce((a, m) => a + m.contents.filter(c => c.progress?.completionStatus === 'Completed').length, 0);
+          const dayPct = dayContents > 0 ? Math.round((dayDone / dayContents) * 100) : 0;
+          const isOpen = !!openDays[di];
+
+          return (
+            <div key={day.dayNo} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              {/* Day header */}
+              <div
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '13px 18px', cursor: 'pointer',
+                  background: isOpen ? 'var(--brand)' : 'var(--card)',
+                  color: 'var(--ink)',
+                  transition: 'background .15s',
+                }}
+                onClick={() => setOpenDays(prev => ({ ...prev, [di]: !isOpen }))}
+              >
+                <div className="row" style={{ gap: 12 }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 10,
+                    background: isOpen ? 'rgba(255,255,255,.15)' : 'var(--brand)',
+                    color: '#fff', display: 'grid', placeItems: 'center',
+                    fontWeight: 900, fontSize: 13, flexShrink: 0,
+                  }}>
+                    {day.dayNo}
+                  </div>
+                  <div>
+                    <b style={{ fontSize: 14 }}>Day {day.dayNo}</b>
+                    <div style={{ fontSize: 11, opacity: .75, marginTop: 1 }}>
+                      {day.modules.length} module{day.modules.length !== 1 ? 's' : ''} · {dayContents} content{dayContents !== 1 ? 's' : ''}
+                    </div>
+                  </div>
+                </div>
+                <div className="row" style={{ gap: 10 }}>
+                  {dayContents > 0 && (
+                    <span style={{
+                      fontSize: 12, fontWeight: 800,
+                      color: isOpen ? 'rgba(255,255,255,.9)' : (dayPct === 100 ? 'var(--ok)' : 'var(--muted)'),
+                    }}>
+                      {dayPct}%
+                    </span>
+                  )}
+                  <span style={{ opacity: .6, fontSize: 12 }}>{isOpen ? '▲' : '▼'}</span>
+                </div>
+              </div>
+
+              {/* Day content */}
+              {isOpen && (
+                <div style={{ padding: '14px 16px', background: 'var(--card-solid)' }}>
+                  {day.modules.map(mod => (
+                    <ModuleSection
+                      key={mod.moduleId}
+                      mod={mod}
+                      onOpenContent={openContent}
+                      onStartAssessment={id => setAssessmentId(id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {viewingContent && (
+        <ContentViewerModal
+          content={viewingContent}
+          onClose={closeContent}
+          videoRef={videoRef}
+          onPauseChange={p => { isPausedRef.current = p; }}
+          renderContentUrl={renderContentUrl}
+        />
+      )}
+
+      {assessmentId && (
+        <AssessmentModal
+          assessmentId={assessmentId}
+          onClose={() => { setAssessmentId(null); onRefresh(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function isContentSequentiallyLocked(content, allContents) {
+  if (!content.locked || content.contentOrder <= 1) return false;
+  const sorted = [...allContents].filter(c => c.active).sort((a, b) => a.contentOrder - b.contentOrder);
+  const idx = sorted.findIndex(c => c.contentId === content.contentId);
+  if (idx <= 0) return false;
+  const prev = sorted[idx - 1];
+  return prev.progress?.completionStatus !== 'Completed';
+}
+
+function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
+  const activeContents = mod.contents.filter(c => c.active);
+  const done = activeContents.filter(c => c.progress?.completionStatus === 'Completed').length;
+  const total = activeContents.length;
+  const modPct = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  return (
+    <div style={{
+      border: '1.5px solid var(--line)', borderRadius: 14,
+      padding: '12px 14px', marginBottom: 10, background: 'var(--card)',
+    }}>
+      {/* Module header */}
+      <div className="row between" style={{ marginBottom: 10 }}>
+        <div>
+          <b style={{ fontSize: 14 }}>{mod.moduleTitle}</b>
+          {mod.description && <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{mod.description}</p>}
+        </div>
+        {total > 0 && (
+          <span className={`pill ${modPct === 100 ? 'ok' : modPct > 0 ? 'info' : ''}`} style={{ flexShrink: 0 }}>
+            {done}/{total}
+          </span>
+        )}
+      </div>
+
+      {/* Contents */}
+      {activeContents.length > 0 && (
+        <div style={{ display: 'grid', gap: 7, marginBottom: mod.faqs.length > 0 || mod.assessment ? 10 : 0 }}>
+          {activeContents.map(c => {
+            const prog = c.progress;
+            const isDone = prog?.completionStatus === 'Completed';
+            const isInProg = prog?.opened && !isDone;
+            const seqLocked = isContentSequentiallyLocked(c, activeContents);
+            return (
+              <div
+                key={c.contentId}
+                className={`content-item${isDone ? ' done' : ''}${seqLocked ? ' locked' : ''}`}
+                onClick={() => onOpenContent(c)}
+                style={seqLocked ? { opacity: .65, cursor: 'default' } : {}}
+                title={seqLocked ? 'Complete the previous content to unlock' : undefined}
+              >
+                {seqLocked
+                  ? <span style={{ fontSize: 16, flexShrink: 0 }}>🔒</span>
+                  : <span className="content-type-badge">{c.contentType}</span>
+                }
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
+                    <b style={{ fontSize: 13 }}>{c.contentTitle}</b>
+                    {isDone && <span className="pill ok">✓ Done</span>}
+                    {isInProg && <span className="pill info">In Progress</span>}
+                    {seqLocked && <span className="pill warn" style={{ fontSize: 10 }}>Locked</span>}
+                  </div>
+                  {c.description && (
+                    <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' }}>
+                      {c.description}
+                    </p>
+                  )}
+                </div>
+                <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 90 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>
+                    {prog?.totalSecondsSpent ? formatSeconds(prog.totalSecondsSpent) : c.estimatedMins ? `~${c.estimatedMins}m` : ''}
+                  </div>
+                  {prog && (
+                    <div style={{ fontSize: 11, color: prog.completionPct >= 100 ? 'var(--ok)' : 'var(--muted)', fontWeight: 800, marginTop: 2 }}>
+                      {Math.round(prog.completionPct)}%
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* FAQs */}
+      {mod.faqs.length > 0 && (
+        <div style={{ marginBottom: mod.assessment ? 10 : 0 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', margin: '8px 0 6px' }}>
+            FAQs ({mod.faqs.length})
+          </div>
+          {mod.faqs.map(faq => <FaqItem key={faq.faqId} faq={faq} />)}
+        </div>
+      )}
+
+      {/* Assessment */}
+      {mod.assessment && (
+        <AssessmentCard
+          assessment={mod.assessment}
+          result={mod.assessmentResult}
+          onStart={() => onStartAssessment(mod.assessment.assessmentId)}
+        />
+      )}
+    </div>
+  );
+}
+
+function FaqItem({ faq }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      style={{
+        border: '1.5px solid var(--line)', borderRadius: 10,
+        padding: '9px 12px', marginTop: 5, cursor: 'pointer',
+        background: open ? 'rgba(255,255,255,.06)' : 'var(--card)', transition: 'background .15s',
+      }}
+      onClick={() => setOpen(o => !o)}
+    >
+      <div className="row between">
+        <b style={{ fontSize: 12.5 }}>{faq.question}</b>
+        <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </div>
+      {open && (
+        <div style={{ marginTop: 7, fontSize: 13, color: 'var(--ink)', lineHeight: 1.55, borderTop: '1px solid var(--line)', paddingTop: 7 }}>
+          {faq.answer}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssessmentCard({ assessment, result, onStart }) {
+  const passed = result?.result === 'Pass';
+  const attemptsLeft = assessment.attemptLimit - (result?.totalAttempts || 0);
+
+  return (
+    <div style={{
+      border: '1.5px solid #c7d2fe',
+      background: 'linear-gradient(135deg, var(--accent-soft), rgba(255,255,255,.04))',
+      borderRadius: 13, padding: '12px 14px',
+    }}>
+      <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
+        <div>
+          <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+            <span className="pill accent">Assessment</span>
+            <b style={{ fontSize: 13.5 }}>{assessment.assessmentName}</b>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>
+            Pass: {assessment.passingPct}% &nbsp;·&nbsp;
+            {result?.totalAttempts || 0}/{assessment.attemptLimit} attempts used &nbsp;·&nbsp;
+            {assessment.timeLimitMins}m limit
+          </p>
+          {result && (
+            <p style={{ fontSize: 12.5, marginTop: 5, fontWeight: 800, color: passed ? 'var(--ok)' : 'var(--bad)' }}>
+              Best score: {Math.round(result.bestPercentage)}% — {result.result}
+            </p>
+          )}
+        </div>
+        <div className="row" style={{ gap: 8, flexShrink: 0 }}>
+          {passed && <span className="pill ok">✓ Passed</span>}
+          {!passed && attemptsLeft <= 0 && <span className="pill bad">No attempts left</span>}
+          {!passed && attemptsLeft > 0 && (
+            <button className="btn small accent" onClick={onStart}>
+              {(result?.totalAttempts || 0) > 0 ? 'Retry' : 'Start Assessment'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderContentUrl }) {
+  const media = renderContentUrl(content);
+  const isVideo = content.contentType === 'video';
+  const progress = content.progress;
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 1080, width: '95vw' }}>
+        <div className="modal-head">
+          <div>
+            <b style={{ fontSize: 15 }}>{content.contentTitle}</b>
+            <div className="row" style={{ gap: 8, marginTop: 5 }}>
+              <span className="content-type-badge">{content.contentType}</span>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>
+                Activity is tracked automatically
+              </span>
+            </div>
+          </div>
+          <div className="row" style={{ gap: 8 }}>
+            {media && (
+              <a
+                href={media.url.replace('/preview', '/view')}
+                target="_blank"
+                rel="noopener"
+                className="btn small secondary"
+              >
+                Open ↗
+              </a>
+            )}
+            <button className="btn small secondary" onClick={onClose}>✕ Close</button>
+          </div>
+        </div>
+
+        <div style={{ padding: '0 0 0 0' }}>
+          {(media?.type === 'drive' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && (
+            <div className="info-box" style={{ marginBottom: 8, fontSize: 13, borderRadius: 0 }}>
+              Last watched: {formatSeconds(progress.lastPositionSeconds)} — Drive videos resume automatically if still open.
+            </div>
+          )}
+        </div>
+
+        <div style={{ height: '72vh', background: '#0f172a', position: 'relative', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}>
+          {!media && (
+            <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', paddingTop: '22vh', fontSize: 14 }}>
+              No content URL configured. Contact admin.
+            </div>
+          )}
+          {media?.type === 'html5' && isVideo && (
+            <video
+              ref={videoRef}
+              src={media.url}
+              controls
+              style={{ width: '100%', height: '100%', background: '#000', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+              onPause={() => onPauseChange(true)}
+              onPlay={() => onPauseChange(false)}
+              onLoadedMetadata={e => { if (progress?.lastPositionSeconds > 0) e.target.currentTime = progress.lastPositionSeconds; }}
+            />
+          )}
+          {media?.type === 'youtube' && (
+            <iframe
+              src={media.url}
+              style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+              allowFullScreen
+              referrerPolicy="no-referrer-when-downgrade"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+              title={content.contentTitle}
+            />
+          )}
+          {(media?.type === 'drive' || (media?.type === 'html5' && !isVideo)) && (
+            <iframe
+              src={media.url}
+              style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: '0 0 var(--radius-xl) var(--radius-xl)' }}
+              allowFullScreen
+              title={content.contentTitle}
+            />
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}

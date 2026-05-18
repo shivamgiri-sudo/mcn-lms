@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build outputs
+frontend/dist/
+**/dist/
+
+# Environment files — NEVER commit these
+**/.env
+**/.env.*
+!**/.env.example
+
+# Prisma
+backend/prisma/dev.db
+backend/prisma/*.db-journal
+
+# Uploads (user files — not in git)
+backend/uploads/
+
+# OAuth token (persisted on server — not in git)
+backend/drive-token.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp

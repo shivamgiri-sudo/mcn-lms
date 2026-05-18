@@ -1,0 +1,723 @@
+// LMS 2.0 Platform — Prisma Schema
+// Database: Supabase (PostgreSQL)
+// MySQL-migration: change provider to "mysql", remove directUrl
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ─── ROLE & ACCESS ────────────────────────────────────────────────────────────
+
+model RoleAccessMatrix {
+  id                         String    @id @default(uuid())
+  loginId                    String    @unique @map("login_id")
+  pin                        String    @map("pin")
+  name                       String?
+  role                       String    @default("Coordinator")
+  portalAccess               String    @default("Coordinator") @map("portal_access")
+  branch                     String?
+  process                    String?
+  lob                        String?
+  active                     Boolean   @default(true)
+  canCreateBatch             Boolean   @default(false) @map("can_create_batch")
+  canOnboardTrainee          Boolean   @default(false) @map("can_onboard_trainee")
+  canUploadLmsReport         Boolean   @default(false) @map("can_upload_lms_report")
+  canOverrideAttendance      Boolean   @default(false) @map("can_override_attendance")
+  canCloseBatch              Boolean   @default(false) @map("can_close_batch")
+  canViewManagementDashboard Boolean   @default(false) @map("can_view_management_dashboard")
+  failedAttempts             Int       @default(0) @map("failed_attempts")
+  locked                     Boolean   @default(false)
+  lastLogin                  DateTime? @map("last_login")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  @@map("role_access_matrix")
+}
+
+model PortalSession {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String   @map("user_id")
+  userType  String   @map("user_type")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("portal_sessions")
+}
+
+// ─── PROCESS & LOB ────────────────────────────────────────────────────────────
+
+model ProcessLobMaster {
+  id      String  @id @default(uuid())
+  process String
+  lob     String
+  active  Boolean @default(true)
+  notes   String?
+
+  @@unique([process, lob])
+  @@map("process_lob_master")
+}
+
+// ─── BATCH ────────────────────────────────────────────────────────────────────
+
+model BatchMaster {
+  id                   String    @id @default(uuid())
+  batchNo              String    @unique @map("batch_no")
+  batchName            String    @map("batch_name")
+  batchType            String    @default("NHT") @map("batch_type")
+  branch               String?
+  process              String?
+  lob                  String?
+  classroomId          String?   @map("classroom_id")
+  classroomName        String?   @map("classroom_name")
+  classroomAssignedAt  DateTime? @map("classroom_assigned_at")
+  classroomAssignedBy  String?   @map("classroom_assigned_by")
+  coordinatorName      String?   @map("coordinator_name")
+  coordinatorLoginId   String?   @map("coordinator_login_id")
+  batchStatus          String    @default("Active") @map("batch_status")
+  startDate            DateTime? @map("start_date")
+  endDate              DateTime? @map("end_date")
+  expectedTrainees     Int       @default(0) @map("expected_trainees")
+  totalTrainees        Int       @default(0) @map("total_trainees")
+  ojtReady             Int       @default(0) @map("ojt_ready")
+  certified            Int       @default(0) @map("certified")
+  handoverToOps        Int       @default(0) @map("handover_to_ops")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  createdBy            String?   @map("created_by")
+  lastUpdatedAt        DateTime  @updatedAt @map("last_updated_at")
+  remarks              String?
+
+  trainees      TraineeMaster[]
+  classroomMaps BatchClassroomMap[]
+  attendance    AttendanceInference[]
+  onboardingLog OnboardingLog[]
+
+  @@map("batch_master")
+}
+
+model BatchClassroomMap {
+  id            String   @id @default(uuid())
+  batchNo       String   @map("batch_no")
+  batchName     String   @map("batch_name")
+  branch        String?
+  process       String?
+  lob           String?
+  classroomId   String   @map("classroom_id")
+  classroomName String   @map("classroom_name")
+  active        Boolean  @default(true)
+  assignedBy    String?  @map("assigned_by")
+  assignedAt    DateTime @default(now()) @map("assigned_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  remarks       String?
+
+  batch BatchMaster @relation(fields: [batchNo], references: [batchNo])
+
+  @@map("batch_classroom_map")
+}
+
+// ─── TRAINEE ──────────────────────────────────────────────────────────────────
+
+model TraineeMaster {
+  id                  String    @id @default(uuid())
+  employeeId          String    @unique @map("employee_id")
+  lmsId               String?   @unique @map("lms_id")
+  traineeName         String?   @map("trainee_name")
+  email               String?
+  mobile              String?
+  batchNo             String?   @map("batch_no")
+  branch              String?
+  process             String?
+  lob                 String?
+  classroomId         String?   @map("classroom_id")
+  classroomName       String?   @map("classroom_name")
+  status              String    @default("Active")
+  doj                 DateTime? @map("doj")
+  onboardingDate      DateTime? @map("onboarding_date")
+  onboardingStatus    String    @default("Pending") @map("onboarding_status")
+  courseCompletionPct Float     @default(0) @map("course_completion_pct")
+  assessmentAttemptPct Float    @default(0) @map("assessment_attempt_pct")
+  assessmentPassPct   Float     @default(0) @map("assessment_pass_pct")
+  attendancePct       Float     @default(0) @map("attendance_pct")
+  riskStatus          String    @default("HEALTHY") @map("risk_status")
+  riskReason          String?   @map("risk_reason")
+  ojtReady            Boolean   @default(false) @map("ojt_ready")
+  nestingStatus       String?   @map("nesting_status")
+  certificationStatus String    @default("Not Certified") @map("certification_status")
+  handoverToOps       Boolean   @default(false) @map("handover_to_ops")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  createdBy           String?   @map("created_by")
+  lastUpdatedAt       DateTime  @updatedAt @map("last_updated_at")
+  source              String    @default("Manual")
+
+  batch       BatchMaster? @relation(fields: [batchNo], references: [batchNo])
+  userAccount UserMaster?
+
+  @@map("trainee_master")
+}
+
+// ─── AUTH ─────────────────────────────────────────────────────────────────────
+
+model AdminUserMaster {
+  id             String    @id @default(uuid())
+  adminId        String    @unique @map("admin_id")
+  passwordHash   String    @map("password_hash")
+  salt           String
+  adminName      String?   @map("admin_name")
+  role           String    @default("Admin")
+  active         Boolean   @default(true)
+  failedAttempts Int       @default(0) @map("failed_attempts")
+  locked         Boolean   @default(false)
+  lastLogin      DateTime? @map("last_login")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("admin_user_master")
+}
+
+model UserMaster {
+  id                 String    @id @default(uuid())
+  employeeId         String    @unique @map("employee_id")
+  passwordHash       String    @map("password_hash")
+  salt               String
+  traineeName        String?   @map("trainee_name")
+  email              String?
+  mobile             String?
+  branch             String?
+  process            String?
+  lob                String?
+  batchNo            String?   @map("batch_no")
+  classroomId        String?   @map("classroom_id")
+  active             Boolean   @default(true)
+  forcePasswordReset Boolean   @default(true) @map("force_password_reset")
+  failedAttempts     Int       @default(0) @map("failed_attempts")
+  locked             Boolean   @default(false)
+  lastLogin          DateTime? @map("last_login")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  trainee TraineeMaster? @relation(fields: [employeeId], references: [employeeId])
+
+  @@map("user_master")
+}
+
+// ─── CLASSROOM & CURRICULUM ───────────────────────────────────────────────────
+
+model ClassroomMaster {
+  id            String   @id @default(uuid())
+  classroomId   String   @unique @map("classroom_id")
+  classroomName String   @map("classroom_name")
+  process       String?
+  lob           String?
+  active        Boolean  @default(true)
+  description   String?
+  driveFolderId String?  @map("drive_folder_id")
+  driveFolderUrl String? @map("drive_folder_url")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  modules              ModuleMaster[]
+  assessments          AssessmentMaster[]
+  traineeClassroomMaps TraineeClassroomMap[]
+
+  @@map("classroom_master")
+}
+
+model ModuleMaster {
+  id           String   @id @default(uuid())
+  moduleId     String   @unique @map("module_id")
+  classroomId  String   @map("classroom_id")
+  dayNo        Int      @map("day_no")
+  moduleTitle  String   @map("module_title")
+  moduleOrder  Int      @default(0) @map("module_order")
+  required     Boolean  @default(true)
+  assessmentId String?  @map("assessment_id")
+  active       Boolean  @default(true)
+  description  String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  classroom ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
+  contents  ContentMaster[]
+  faqs      FaqMaster[]
+
+  @@map("module_master")
+}
+
+model ContentMaster {
+  id                String   @id @default(uuid())
+  contentId         String   @unique @map("content_id")
+  moduleId          String   @map("module_id")
+  contentType       String   @map("content_type")
+  contentTitle      String   @map("content_title")
+  driveFileId       String?  @map("drive_file_id")
+  driveUrl          String?  @map("drive_url")
+  directMediaUrl    String?  @map("direct_media_url")
+  localFilePath     String?  @map("local_file_path")
+  playerMode        String   @default("Auto") @map("player_mode")
+  contentOrder      Int      @default(0) @map("content_order")
+  required          Boolean  @default(true)
+  active            Boolean  @default(true)
+  estimatedMins     Int      @default(0) @map("estimated_mins")
+  completionRulePct Float    @default(80) @map("completion_rule_pct")
+  description       String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  module ModuleMaster @relation(fields: [moduleId], references: [moduleId])
+
+  @@map("content_master")
+}
+
+model FaqMaster {
+  id        String   @id @default(uuid())
+  faqId     String   @unique @map("faq_id")
+  moduleId  String   @map("module_id")
+  question  String
+  answer    String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0) @map("sort_order")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  module ModuleMaster @relation(fields: [moduleId], references: [moduleId])
+
+  @@map("faq_master")
+}
+
+model TraineeClassroomMap {
+  id           String   @id @default(uuid())
+  employeeId   String   @map("employee_id")
+  classroomId  String   @map("classroom_id")
+  batchNo      String?  @map("batch_no")
+  assignedDate DateTime @default(now()) @map("assigned_date")
+  active       Boolean  @default(true)
+  assignedBy   String?  @map("assigned_by")
+  remarks      String?
+
+  classroom ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
+
+  @@unique([employeeId, classroomId])
+  @@map("trainee_classroom_map")
+}
+
+// ─── ASSESSMENTS ──────────────────────────────────────────────────────────────
+
+model AssessmentMaster {
+  id             String   @id @default(uuid())
+  assessmentId   String   @unique @map("assessment_id")
+  classroomId    String   @map("classroom_id")
+  dayNo          Int?     @map("day_no")
+  moduleId       String?  @map("module_id")
+  assessmentName String   @map("assessment_name")
+  passingPct     Float    @default(60) @map("passing_pct")
+  attemptLimit   Int      @default(3) @map("attempt_limit")
+  timeLimitMins  Int      @default(30) @map("time_limit_mins")
+  active         Boolean  @default(true)
+  instructions   String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  questions QuestionBank[]
+  attempts  AssessmentAttempt[]
+  results   AssessmentResult[]
+
+  classroomRel ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
+
+  @@map("assessment_master")
+}
+
+model QuestionBank {
+  id            String   @id @default(uuid())
+  questionId    String   @unique @map("question_id")
+  assessmentId  String   @map("assessment_id")
+  questionText  String   @map("question_text")
+  optionA       String   @map("option_a")
+  optionB       String   @map("option_b")
+  optionC       String?  @map("option_c")
+  optionD       String?  @map("option_d")
+  correctOption String   @map("correct_option")
+  marks         Float    @default(1)
+  negativeMarks Float    @default(0) @map("negative_marks")
+  difficulty    String   @default("Medium")
+  active        Boolean  @default(true)
+  explanation   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
+
+  @@map("question_bank")
+}
+
+model AssessmentAttempt {
+  id               String    @id @default(uuid())
+  attemptId        String    @unique @map("attempt_id")
+  employeeId       String    @map("employee_id")
+  assessmentId     String    @map("assessment_id")
+  attemptNo        Int       @map("attempt_no")
+  startedAt        DateTime  @map("started_at")
+  submittedAt      DateTime? @map("submitted_at")
+  timeTakenSeconds Int       @default(0) @map("time_taken_seconds")
+  totalQuestions   Int       @default(0) @map("total_questions")
+  correctAnswers   Int       @default(0) @map("correct_answers")
+  wrongAnswers     Int       @default(0) @map("wrong_answers")
+  blankAnswers     Int       @default(0) @map("blank_answers")
+  score            Float     @default(0)
+  percentage       Float     @default(0)
+  result           String    @default("Fail")
+  answerJson       Json?     @map("answer_json")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
+
+  @@map("assessment_attempts")
+}
+
+model AssessmentResult {
+  id             String    @id @default(uuid())
+  employeeId     String    @map("employee_id")
+  batchNo        String?   @map("batch_no")
+  classroomId    String    @map("classroom_id")
+  assessmentId   String    @map("assessment_id")
+  bestScore      Float     @default(0) @map("best_score")
+  bestPercentage Float     @default(0) @map("best_percentage")
+  result         String    @default("Fail")
+  totalAttempts  Int       @default(0) @map("total_attempts")
+  lastAttemptAt  DateTime? @map("last_attempt_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
+
+  @@unique([employeeId, assessmentId])
+  @@map("assessment_results")
+}
+
+// ─── CONTENT TRACKING ─────────────────────────────────────────────────────────
+
+model ContentProgress {
+  id                   String    @id @default(uuid())
+  employeeId           String    @map("employee_id")
+  classroomId          String    @map("classroom_id")
+  dayNo                Int       @map("day_no")
+  moduleId             String    @map("module_id")
+  contentId            String    @map("content_id")
+  opened               Boolean   @default(false)
+  openCount            Int       @default(0) @map("open_count")
+  firstOpenedAt        DateTime? @map("first_opened_at")
+  lastOpenedAt         DateTime? @map("last_opened_at")
+  totalSecondsSpent    Int       @default(0) @map("total_seconds_spent")
+  lastPositionSeconds  Int       @default(0) @map("last_position_seconds")
+  mediaDurationSeconds Int       @default(0) @map("media_duration_seconds")
+  requiredSeconds      Int       @default(0) @map("required_seconds")
+  completionPct        Float     @default(0) @map("completion_pct")
+  completionStatus     String    @default("Not Started") @map("completion_status")
+  completedAt          DateTime? @map("completed_at")
+  playerMode           String    @default("Auto") @map("player_mode")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@unique([employeeId, contentId])
+  @@map("content_progress")
+}
+
+model VideoWatchLog {
+  id              String   @id @default(uuid())
+  employeeId      String   @map("employee_id")
+  batchNo         String?  @map("batch_no")
+  classroomId     String   @map("classroom_id")
+  dayNo           Int      @map("day_no")
+  moduleId        String   @map("module_id")
+  contentId       String   @map("content_id")
+  event           String
+  secondsDelta    Int      @default(0) @map("seconds_delta")
+  positionSeconds Int      @default(0) @map("position_seconds")
+  durationSeconds Int      @default(0) @map("duration_seconds")
+  completionPct   Float    @default(0) @map("completion_pct")
+  playerMode      String   @default("Auto") @map("player_mode")
+  details         String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@map("video_watch_log")
+}
+
+// ─── Q&A ──────────────────────────────────────────────────────────────────────
+
+model TraineeQueryLog {
+  id                 String    @id @default(uuid())
+  queryId            String    @unique @map("query_id")
+  employeeId         String    @map("employee_id")
+  traineeName        String?   @map("trainee_name")
+  batchNo            String?   @map("batch_no")
+  classroomId        String?   @map("classroom_id")
+  dayNo              Int?      @map("day_no")
+  moduleId           String?   @map("module_id")
+  category           String    @default("Process Doubt")
+  question           String
+  status             String    @default("Open")
+  priority           String    @default("Normal")
+  coordinatorAnswer  String?   @map("coordinator_answer")
+  answeredBy         String?   @map("answered_by")
+  answeredAt         DateTime? @map("answered_at")
+  closedAt           DateTime? @map("closed_at")
+  resolutionTatHours Float?    @map("resolution_tat_hours")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@map("trainee_query_log")
+}
+
+// ─── ATTENDANCE ───────────────────────────────────────────────────────────────
+
+model AttendanceInference {
+  id               String   @id @default(uuid())
+  date             DateTime
+  batchNo          String   @map("batch_no")
+  employeeId       String   @map("employee_id")
+  traineeName      String?  @map("trainee_name")
+  branch           String?
+  process          String?
+  lob              String?
+  courseActivity   Boolean  @default(false) @map("course_activity")
+  mcqActivity      Boolean  @default(false) @map("mcq_activity")
+  finalAttendance  String   @default("Absent") @map("final_attendance")
+  attendanceSource String   @default("Inferred") @map("attendance_source")
+  remarks          String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  batch BatchMaster @relation(fields: [batchNo], references: [batchNo])
+
+  @@unique([date, batchNo, employeeId])
+  @@map("attendance_inference")
+}
+
+// ─── RISK & PENDING ACTIVITIES ────────────────────────────────────────────────
+
+model TrainingRiskLog {
+  id            String    @id @default(uuid())
+  riskKey       String    @unique @map("risk_key")
+  employeeId    String    @map("employee_id")
+  traineeName   String?   @map("trainee_name")
+  batchNo       String?   @map("batch_no")
+  branch        String?
+  process       String?
+  lob           String?
+  classroomId   String?   @map("classroom_id")
+  riskType      String    @map("risk_type")
+  riskTitle     String    @map("risk_title")
+  severity      String    @default("WATCH")
+  currentValue  Float?    @map("current_value")
+  expectedValue Float?    @map("expected_value")
+  referenceId   String?   @map("reference_id")
+  source        String    @default("Auto")
+  details       String?
+  status        String    @default("Open")
+  actionTaken   String?   @map("action_taken")
+  actionBy      String?   @map("action_by")
+  actionAt      DateTime? @map("action_at")
+  followUpDate  DateTime? @map("follow_up_date")
+  closureRemarks String?  @map("closure_remarks")
+  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
+  lastUpdatedAt DateTime  @updatedAt @map("last_updated_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("training_risk_log")
+}
+
+model PendingActivityLog {
+  id             String    @id @default(uuid())
+  activityKey    String    @unique @map("activity_key")
+  activityType   String    @map("activity_type")
+  activityTitle  String    @map("activity_title")
+  severity       String    @default("WATCH")
+  dueDate        DateTime? @map("due_date")
+  employeeId     String?   @map("employee_id")
+  traineeName    String?   @map("trainee_name")
+  batchNo        String?   @map("batch_no")
+  branch         String?
+  process        String?
+  lob            String?
+  referenceId    String?   @map("reference_id")
+  source         String    @default("Auto")
+  details        String?
+  status         String    @default("Open")
+  actionTaken    String?   @map("action_taken")
+  actionBy       String?   @map("action_by")
+  actionAt       DateTime? @map("action_at")
+  followUpDate   DateTime? @map("follow_up_date")
+  closureRemarks String?   @map("closure_remarks")
+  closedAt       DateTime? @map("closed_at")
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
+  lastUpdatedAt  DateTime  @updatedAt @map("last_updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("pending_activity_log")
+}
+
+// ─── CERTIFICATION ────────────────────────────────────────────────────────────
+
+model CertificationRuleMaster {
+  id                   String   @id @default(uuid())
+  ruleId               String   @unique @map("rule_id")
+  process              String
+  lob                  String
+  courseCompletionMin  Float    @default(80) @map("course_completion_min")
+  mcqPassPctMin        Float    @default(60) @map("mcq_pass_pct_min")
+  attendancePctMin     Float    @default(70) @map("attendance_pct_min")
+  mockCallRequired     Boolean  @default(false) @map("mock_call_required")
+  mockCallPassPct      Float    @default(60) @map("mock_call_pass_pct")
+  internalCertRequired Boolean  @default(false) @map("internal_cert_required")
+  internalCertPassPct  Float    @default(60) @map("internal_cert_pass_pct")
+  externalCertRequired Boolean  @default(false) @map("external_cert_required")
+  externalCertPassPct  Float    @default(60) @map("external_cert_pass_pct")
+  active               Boolean  @default(true)
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @updatedAt @map("updated_at")
+
+  @@unique([process, lob])
+  @@map("certification_rule_master")
+}
+
+model CertificationEvidence {
+  id           String    @id @default(uuid())
+  employeeId   String    @map("employee_id")
+  batchNo      String?   @map("batch_no")
+  evidenceType String    @map("evidence_type")
+  result       String
+  scorePct     Float     @default(0) @map("score_pct")
+  conductedBy  String?   @map("conducted_by")
+  conductedAt  DateTime? @map("conducted_at")
+  remarks      String?
+  createdBy    String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@map("certification_evidence")
+}
+
+// ─── ONBOARDING LOG ───────────────────────────────────────────────────────────
+
+model OnboardingLog {
+  id                 String   @id @default(uuid())
+  batchNo            String   @map("batch_no")
+  employeeId         String   @map("employee_id")
+  lmsId              String?  @map("lms_id")
+  traineeName        String?  @map("trainee_name")
+  mobile             String?
+  email              String?
+  coordinatorLoginId String?  @map("coordinator_login_id")
+  coordinatorName    String?  @map("coordinator_name")
+  status             String   @default("Success")
+  remarks            String?
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  batch BatchMaster @relation(fields: [batchNo], references: [batchNo])
+
+  @@map("onboarding_log")
+}
+
+// ─── ASSIGNED MODULES ─────────────────────────────────────────────────────────
+
+model AssignedModule {
+  id             String    @id @default(uuid())
+  moduleId       String    @map("module_id")
+  moduleName     String    @map("module_name")
+  assignedTo     String    @map("assigned_to")
+  assignedToType String    @map("assigned_to_type")
+  assignmentType String    @default("Optional") @map("assignment_type")
+  message        String?
+  assignedBy     String?   @map("assigned_by")
+  dueDate        DateTime? @map("due_date")
+  active         Boolean   @default(true)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@map("assigned_modules")
+}
+
+// ─── AUDIT & LOGS ─────────────────────────────────────────────────────────────
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  userIdentity String   @map("user_identity")
+  userRole     String   @map("user_role")
+  action       String
+  module       String?
+  referenceId  String?  @map("reference_id")
+  oldValue     String?  @map("old_value")
+  newValue     String?  @map("new_value")
+  status       String   @default("Success")
+  errorDetails String?  @map("error_details")
+  source       String   @default("Portal")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@map("audit_log")
+}
+
+model LoginSessionLog {
+  id        String   @id @default(uuid())
+  userType  String   @map("user_type")
+  userId    String   @map("user_id")
+  action    String
+  status    String   @default("Success")
+  message   String?
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("login_session_log")
+}
+
+model CourseCompletionReport {
+  id                String   @id @default(uuid())
+  employeeId        String   @map("employee_id")
+  batchNo           String?  @map("batch_no")
+  classroomId       String   @map("classroom_id")
+  totalContents     Int      @default(0) @map("total_contents")
+  openedContents    Int      @default(0) @map("opened_contents")
+  completionPct     Float    @default(0) @map("completion_pct")
+  totalSecondsSpent Int      @default(0) @map("total_seconds_spent")
+  status            String   @default("In Progress")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  @@unique([employeeId, classroomId])
+  @@map("course_completion_report")
+}
+
+// ─── HISTORICAL METRICS ───────────────────────────────────────────────────────
+
+model HistoricalTrainingKpi {
+  id               String   @id @default(uuid())
+  period           String
+  branch           String?
+  process          String?
+  lob              String?
+  activeBatches    Int      @default(0) @map("active_batches")
+  totalTrainees    Int      @default(0) @map("total_trainees")
+  avgCoursePct     Float    @default(0) @map("avg_course_pct")
+  avgMcqPct        Float    @default(0) @map("avg_mcq_pct")
+  avgAttendancePct Float    @default(0) @map("avg_attendance_pct")
+  certifiedCount   Int      @default(0) @map("certified_count")
+  certificationPct Float    @default(0) @map("certification_pct")
+  criticalRisks    Int      @default(0) @map("critical_risks")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@unique([period, branch, process, lob])
+  @@map("historical_training_kpi")
+}
+
+model DriveFile {
+  id            String   @id @default(uuid())
+  driveFileId   String   @unique @map("drive_file_id")
+  driveFolderId String?  @map("drive_folder_id")
+  fileName      String   @map("file_name")
+  mimeType      String   @map("mime_type")
+  driveUrl      String   @map("drive_url")
+  thumbnailUrl  String?  @map("thumbnail_url")
+  size          BigInt?
+  createdAt     DateTime @default(now()) @map("created_at")
+  syncedAt      DateTime @default(now()) @map("synced_at")
+
+  @@map("drive_files")
+}
