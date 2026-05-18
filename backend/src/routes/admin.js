@@ -56,7 +56,12 @@ router.delete('/contents/:contentId', ...auth, deleteContent);
 
 router.get('/modules/:moduleId/faqs', ...auth, listFaqs);
 router.post('/modules/:moduleId/faqs', ...auth, createFaq);
-router.post('/modules/:moduleId/faqs/bulk-upload', ...auth, contentUpload.array('files', 20), bulkUploadFaqs);
+router.post('/modules/:moduleId/faqs/bulk-upload', ...auth, (req, res, next) => {
+  contentUpload.array('files', 20)(req, res, err => {
+    if (err) return res.status(400).json({ ok: false, message: err.message || 'File upload error' });
+    next();
+  });
+}, bulkUploadFaqs);
 router.put('/faqs/:faqId', ...auth, updateFaq);
 router.delete('/faqs/:faqId', ...auth, deleteFaq);
 

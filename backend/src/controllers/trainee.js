@@ -75,9 +75,9 @@ export async function getLearnerDashboard(req, res) {
     const passedAssessments = assessmentResults.filter(r => r.result === 'Pass').length;
     const mcqCompletionPercent = totalAssessments > 0 ? Math.round((attemptedAssessments / totalAssessments) * 100) : 0;
     const bestMcqScore = assessmentResults.length > 0 ? Math.max(...assessmentResults.map(r => r.bestPercentage)) : null;
-    const overallTrainingProgress = totalAssessments > 0
-      ? Math.round((completionPercent + mcqCompletionPercent) / 2)
-      : completionPercent;
+    // Overall progress = video/content completion only.
+    // MCQ attempt rate is shown separately — blending it inflates the number misleadingly.
+    const overallTrainingProgress = completionPercent;
 
     const totalDays = days.length;
     const totalModules = modules.length;

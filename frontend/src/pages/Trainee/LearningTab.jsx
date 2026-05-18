@@ -57,15 +57,18 @@ export default function LearningTab({ days, onRefresh }) {
 
   async function openContent(content) {
     setLockedMsg(null);
-    const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
-    if (openRes.locked) {
-      setLockedMsg(openRes.message || 'Complete the previous content first.');
-      return;
-    }
+    // Show viewer immediately — don't wait for the API round-trip
     if (viewingContent) await stopHeartbeat(true);
     setViewingContent(content);
     lastSentRef.current = Date.now();
     startHeartbeat(content.contentId);
+    // Log open in background; if locked, close viewer and show message
+    const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
+    if (openRes.locked) {
+      stopHeartbeat(false);
+      setViewingContent(null);
+      setLockedMsg(openRes.message || 'Complete the previous content first.');
+    }
   }
 
   function closeContent() {
@@ -87,6 +90,18 @@ export default function LearningTab({ days, onRefresh }) {
     return null;
   }
 
+  const DOC_TYPES = new Set(['pdf', 'doc', 'ppt', 'pptx', 'docx', 'xls', 'xlsx']);
+
+  function wrapForViewer(proxyUrl, fileId, contentType) {
+    // Videos play natively via proxy; documents need Google Docs Viewer to prevent download
+    if (contentType === 'video') return { type: 'proxy', url: proxyUrl, fileId };
+    // PDF renders natively in Chrome/Firefox iframes — keep as proxy
+    if (contentType === 'pdf') return { type: 'proxy', url: proxyUrl, fileId };
+    // Office formats (ppt, doc, xls, etc.) — use Google Docs Viewer so they render in-browser
+    const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(proxyUrl)}&embedded=true`;
+    return { type: 'proxy', url: viewerUrl, fileId };
+  }
+
   function renderContentUrl(c) {
     const url = c.directMediaUrl || '';
     if (url) {
@@ -94,26 +109,22 @@ export default function LearningTab({ days, onRefresh }) {
       if (ytEmbed) return { type: 'youtube', url: ytEmbed };
       if (!url.includes('drive.google.com')) return { type: 'html5', url };
     }
-    // Use backend proxy for Drive files — avoids Google sign-in requirement
-    // All Drive files use 'proxy' type (iframe) — video tag requires range requests
-    // which the Drive API doesn't support cleanly
     if (c.driveFileId) {
       const proxyUrl = getDriveProxyUrl(c.driveFileId);
-      return { type: 'proxy', url: proxyUrl, fileId: c.driveFileId };
+      return wrapForViewer(proxyUrl, c.driveFileId, c.contentType);
     }
     if (url && url.includes('drive.google.com')) {
       const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
       if (match) {
         const proxyUrl = getDriveProxyUrl(match[1]);
-        return { type: 'proxy', url: proxyUrl, fileId: match[1] };
+        return wrapForViewer(proxyUrl, match[1], c.contentType);
       }
     }
-    // Fallback: extract fileId from driveUrl for older content records
     if (c.driveUrl) {
       const m = c.driveUrl.match(/\/d\/([a-zA-Z0-9_-]+)/);
       if (m) {
         const proxyUrl = getDriveProxyUrl(m[1]);
-        return { type: 'proxy', url: proxyUrl, fileId: m[1] };
+        return wrapForViewer(proxyUrl, m[1], c.contentType);
       }
       return { type: 'drive', url: c.driveUrl };
     }

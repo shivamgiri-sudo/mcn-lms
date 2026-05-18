@@ -22,21 +22,28 @@ const storage = multer.diskStorage({
   },
 });
 
+const ALLOWED_MIMES = new Set([
+  'video/mp4', 'video/webm', 'video/ogg',
+  'application/pdf',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'image/jpeg', 'image/png', 'image/gif',
+  'application/octet-stream', // fallback when OS doesn't detect MIME
+]);
+
+const ALLOWED_EXTS = new Set(['.mp4', '.webm', '.ogg', '.pdf', '.ppt', '.pptx', '.doc', '.docx', '.xls', '.xlsx', '.jpg', '.jpeg', '.png', '.gif']);
+
 export const contentUpload = multer({
   storage,
   limits: { fileSize: MAX_MB * 1024 * 1024 },
   fileFilter(_req, file, cb) {
-    const allowed = [
-      'video/mp4', 'video/webm', 'video/ogg',
-      'application/pdf',
-      'application/vnd.ms-powerpoint',
-      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'image/jpeg', 'image/png', 'image/gif',
-    ];
-    if (allowed.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('File type not allowed'));
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ALLOWED_MIMES.has(file.mimetype) || ALLOWED_EXTS.has(ext)) return cb(null, true);
+    cb(new Error(`File type not allowed: ${file.mimetype} (${ext})`));
   },
 });
 
