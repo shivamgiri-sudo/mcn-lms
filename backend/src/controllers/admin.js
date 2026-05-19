@@ -862,6 +862,21 @@ export async function syncHistoricalKpi(req, res) {
   }
 }
 
+// Returns distinct branch + process values from active trainees — used by Broadcast page
+export async function getBroadcastTargets(req, res) {
+  try {
+    const trainees = await prisma.traineeMaster.findMany({
+      where: { status: 'Active' },
+      select: { branch: true, process: true, lob: true },
+    });
+    const branches = [...new Set(trainees.map(t => t.branch).filter(Boolean))].sort();
+    const processes = [...new Set(trainees.map(t => t.process).filter(Boolean))].sort();
+    res.json({ ok: true, data: { branches, processes } });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
 export async function getProcessLobList(req, res) {
   try {
     const list = await prisma.processLobMaster.findMany({ orderBy: [{ process: 'asc' }, { lob: 'asc' }] });

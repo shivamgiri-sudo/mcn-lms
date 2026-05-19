@@ -2,19 +2,19 @@ import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
 const SCOPE_OPTIONS = [
-  { value: 'company',  label: 'Entire Company',      desc: 'All active trainees across all branches and processes' },
-  { value: 'branch',   label: 'Branch',               desc: 'All trainees in a specific branch' },
-  { value: 'process',  label: 'Process',              desc: 'All trainees in a specific process' },
-  { value: 'batch',    label: 'Batch',                desc: 'All trainees in a specific batch' },
-  { value: 'individual', label: 'Individual Trainee', desc: 'A single trainee by Employee ID' },
+  { value: 'company',    label: 'Entire Company',      desc: 'All active trainees across all branches and processes' },
+  { value: 'branch',     label: 'Branch',               desc: 'All trainees in a specific branch' },
+  { value: 'process',    label: 'Process',              desc: 'All trainees in a specific process' },
+  { value: 'batch',      label: 'Batch',                desc: 'All trainees in a specific batch' },
+  { value: 'individual', label: 'Individual Trainee',   desc: 'A single trainee by Employee ID' },
 ];
 
 export default function BroadcastTab() {
   const [classrooms, setClassrooms] = useState([]);
   const [modules, setModules] = useState([]);
   const [batches, setBatches] = useState([]);
-  const [processList, setProcessList] = useState([]);
-  const [branchList, setBranchList] = useState([]);
+  const [branches, setBranches] = useState([]);
+  const [processes, setProcesses] = useState([]);
 
   const [form, setForm] = useState({
     scope: 'company',
@@ -27,24 +27,26 @@ export default function BroadcastTab() {
     dueDate: '',
   });
   const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState(null); // { type: 'ok'|'bad', text }
+  const [msg, setMsg] = useState(null);
 
   useEffect(() => {
     api.get('/admin/classrooms', 'admin').then(r => r.ok && setClassrooms(r.data));
     api.get('/admin/batches', 'admin').then(r => r.ok && setBatches(r.data));
-    api.get('/admin/process-lob', 'admin').then(r => {
+    // Load distinct branch + process values from live trainee data
+    api.get('/admin/broadcast-targets', 'admin').then(r => {
       if (r.ok) {
-        const procs = [...new Set(r.data.map(p => p.process))].sort();
-        setProcessList(procs);
+        setBranches(r.data.branches || []);
+        setProcesses(r.data.processes || []);
       }
-    });
-    api.get('/admin/org/branches', 'admin').then(r => {
-      if (r.ok) setBranchList(r.data.filter(b => b.active));
     });
   }, []);
 
   useEffect(() => {
-    if (!form.classroomId) { setModules([]); setForm(f => ({ ...f, moduleId: '', moduleName: '' })); return; }
+    if (!form.classroomId) {
+      setModules([]);
+      setForm(f => ({ ...f, moduleId: '', moduleName: '' }));
+      return;
+    }
     api.get(`/admin/classrooms/${form.classroomId}/modules`, 'admin').then(r => {
       if (r.ok) setModules(r.data);
     });
@@ -52,17 +54,23 @@ export default function BroadcastTab() {
 
   function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
+  function changeScope(scopeVal) {
+    setForm(f => ({ ...f, scope: scopeVal, scopeValue: '' }));
+  }
+
   async function submit(e) {
     e.preventDefault();
     if (!form.moduleId) return setMsg({ type: 'bad', text: 'Select a module.' });
-    if (form.scope !== 'company' && !form.scopeValue) return setMsg({ type: 'bad', text: 'Select a target for the chosen scope.' });
+    if (form.scope !== 'company' && !form.scopeValue.trim()) {
+      return setMsg({ type: 'bad', text: 'Select a target for the chosen scope.' });
+    }
     setLoading(true); setMsg(null);
 
     const res = await api.post('/admin/broadcast-module', {
       moduleId: form.moduleId,
       moduleName: form.moduleName,
       scope: form.scope,
-      scopeValue: form.scope === 'company' ? 'ALL' : form.scopeValue,
+      scopeValue: form.scope === 'company' ? 'ALL' : form.scopeValue.trim(),
       assignmentType: form.assignmentType,
       message: form.message || null,
       dueDate: form.dueDate || null,
@@ -70,7 +78,8 @@ export default function BroadcastTab() {
 
     setLoading(false);
     if (res.ok) {
-      setMsg({ type: 'ok', text: `Module assigned successfully to ${SCOPE_OPTIONS.find(s => s.value === form.scope)?.label}.` });
+      const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
+      setMsg({ type: 'ok', text: `Module "${form.moduleName}" assigned to ${scopeLabel}.` });
       setForm(f => ({ ...f, scopeValue: '', message: '', dueDate: '' }));
     } else {
       setMsg({ type: 'bad', text: res.message || 'Failed to broadcast.' });
@@ -96,19 +105,19 @@ export default function BroadcastTab() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 20, alignItems: 'start' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 320px', gap: 20, alignItems: 'start' }}>
         {/* Main form */}
         <div style={{ background: 'var(--card-solid)', borderRadius: 16, border: '1.5px solid var(--line)', padding: '24px 26px', boxShadow: 'var(--shadow-sm)' }}>
           <form onSubmit={submit}>
 
-            {/* Scope selector */}
-            <div className="field" style={{ marginBottom: 20 }}>
-              <label style={{ fontWeight: 700, fontSize: 13 }}>Target Audience</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(160px,1fr))', gap: 8, marginTop: 6 }}>
+            {/* Step 1: Scope selector */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step 1 — Select Target Audience</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
                 {SCOPE_OPTIONS.map(opt => (
                   <div
                     key={opt.value}
-                    onClick={() => { set('scope', opt.value); set('scopeValue', ''); }}
+                    onClick={() => changeScope(opt.value)}
                     style={{
                       border: `2px solid ${form.scope === opt.value ? 'var(--brand)' : 'var(--line)'}`,
                       borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
@@ -116,91 +125,134 @@ export default function BroadcastTab() {
                       transition: 'all .15s',
                     }}
                   >
-                    <div style={{ fontSize: 13, fontWeight: 700, color: form.scope === opt.value ? 'var(--brand)' : 'var(--ink)' }}>{opt.label}</div>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: form.scope === opt.value ? 'var(--brand)' : 'var(--ink)' }}>{opt.label}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{opt.desc}</div>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Scope value picker */}
-            {form.scope === 'branch' && (
-              <div className="field">
-                <label>Branch</label>
-                <select className="select" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required>
-                  <option value="">Select branch…</option>
-                  {branchList.map(b => <option key={b.id} value={b.branchName}>{b.branchName}{b.city ? ` (${b.city})` : ''}</option>)}
-                </select>
-              </div>
-            )}
-            {form.scope === 'process' && (
-              <div className="field">
-                <label>Process</label>
-                <select className="select" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required>
-                  <option value="">Select process…</option>
-                  {processList.map(p => <option key={p} value={p}>{p}</option>)}
-                </select>
-              </div>
-            )}
-            {form.scope === 'batch' && (
-              <div className="field">
-                <label>Batch</label>
-                <select className="select" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required>
-                  <option value="">Select batch…</option>
-                  {batches.map(b => <option key={b.batchNo} value={b.batchNo}>{b.batchNo}{b.batchName ? ` — ${b.batchName}` : ''}</option>)}
-                </select>
-              </div>
-            )}
-            {form.scope === 'individual' && (
-              <div className="field">
-                <label>Employee ID</label>
-                <input className="input" type="text" placeholder="e.g. emp1001" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required />
+            {/* Step 2: Scope value */}
+            {form.scope !== 'company' && (
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step 2 — Pick Specific Target</div>
+
+                {form.scope === 'branch' && (
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Branch</label>
+                    {branches.length > 0 ? (
+                      <select className="select" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required>
+                        <option value="">Select branch…</option>
+                        {branches.map(b => <option key={b} value={b}>{b}</option>)}
+                      </select>
+                    ) : (
+                      <input className="input" type="text" placeholder="Type branch name (e.g. Trapezoid)" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required />
+                    )}
+                  </div>
+                )}
+
+                {form.scope === 'process' && (
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Process</label>
+                    {processes.length > 0 ? (
+                      <select className="select" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required>
+                        <option value="">Select process…</option>
+                        {processes.map(p => <option key={p} value={p}>{p}</option>)}
+                      </select>
+                    ) : (
+                      <input className="input" type="text" placeholder="Type process name (e.g. Sales)" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required />
+                    )}
+                  </div>
+                )}
+
+                {form.scope === 'batch' && (
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Batch</label>
+                    <select className="select" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required>
+                      <option value="">Select batch…</option>
+                      {batches.map(b => (
+                        <option key={b.batchNo} value={b.batchNo}>
+                          {b.batchNo}{b.batchName ? ` — ${b.batchName}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {form.scope === 'individual' && (
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Employee ID</label>
+                    <input className="input" type="text" placeholder="e.g. emp1001" value={form.scopeValue} onChange={e => set('scopeValue', e.target.value)} required />
+                  </div>
+                )}
               </div>
             )}
 
-            {/* Module picker */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field">
-                <label>Classroom</label>
-                <select className="select" value={form.classroomId} onChange={e => set('classroomId', e.target.value)} required>
-                  <option value="">Select classroom…</option>
-                  {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
-                </select>
+            {/* Step 3: Module */}
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
+                Step {form.scope === 'company' ? 2 : 3} — Select Module to Assign
               </div>
-              <div className="field">
-                <label>Module</label>
-                <select className="select" value={form.moduleId} onChange={e => {
-                  const m = modules.find(m => m.moduleId === e.target.value);
-                  set('moduleId', e.target.value);
-                  set('moduleName', m ? m.moduleTitle : '');
-                }} required disabled={!form.classroomId}>
-                  <option value="">Select module…</option>
-                  {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} — {m.moduleTitle}</option>)}
-                </select>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Classroom</label>
+                  <select className="select" value={form.classroomId} onChange={e => set('classroomId', e.target.value)} required>
+                    <option value="">Select classroom…</option>
+                    {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+                  </select>
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Module</label>
+                  <select
+                    className="select"
+                    value={form.moduleId}
+                    onChange={e => {
+                      const m = modules.find(m => m.moduleId === e.target.value);
+                      set('moduleId', e.target.value);
+                      set('moduleName', m ? m.moduleTitle : '');
+                    }}
+                    required
+                    disabled={!form.classroomId}
+                  >
+                    <option value="">{form.classroomId ? 'Select module…' : 'Select classroom first'}</option>
+                    {modules.map(m => (
+                      <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} — {m.moduleTitle}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Assignment details */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              <div className="field">
-                <label>Assignment Type</label>
-                <select className="select" value={form.assignmentType} onChange={e => set('assignmentType', e.target.value)}>
-                  <option value="Mandatory">Mandatory</option>
-                  <option value="Optional">Optional</option>
-                </select>
+            {/* Step 4: Options */}
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
+                Step {form.scope === 'company' ? 3 : 4} — Assignment Details
               </div>
-              <div className="field">
-                <label>Due Date (optional)</label>
-                <input className="input" type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} />
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Assignment Type</label>
+                  <select className="select" value={form.assignmentType} onChange={e => set('assignmentType', e.target.value)}>
+                    <option value="Mandatory">Mandatory</option>
+                    <option value="Optional">Optional</option>
+                  </select>
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Due Date (optional)</label>
+                  <input className="input" type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} />
+                </div>
+              </div>
+              <div className="field" style={{ margin: 0 }}>
+                <label>Message to trainees (optional)</label>
+                <input className="input" type="text" placeholder="e.g. Refresher required before certification" value={form.message} onChange={e => set('message', e.target.value)} />
               </div>
             </div>
 
-            <div className="field">
-              <label>Message to trainees (optional)</label>
-              <input className="input" type="text" placeholder="e.g. Refresher required before certification" value={form.message} onChange={e => set('message', e.target.value)} />
-            </div>
-
-            <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center', marginTop: 8 }} disabled={loading}>
+            <button
+              type="submit"
+              className="btn"
+              style={{ width: '100%', justifyContent: 'center', marginTop: 20 }}
+              disabled={loading}
+            >
               {loading ? 'Broadcasting…' : `📢 Broadcast to ${scopeInfo?.label}`}
             </button>
           </form>
@@ -209,29 +261,28 @@ export default function BroadcastTab() {
         {/* Info sidebar */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ background: 'var(--card-solid)', borderRadius: 14, border: '1.5px solid var(--line)', padding: '18px 20px', boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>How it works</div>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 12 }}>Scope Guide</div>
             {[
-              ['📢', 'Entire Company', 'Every active trainee sees the module in their Assigned tab.'],
-              ['🌿', 'Branch', 'All trainees whose Branch matches the selected value.'],
-              ['⚙️', 'Process', 'All trainees enrolled in the selected process.'],
-              ['🏢', 'Batch', 'All trainees in a specific batch, current or upcoming.'],
-              ['👤', 'Individual', 'Single trainee identified by Employee ID.'],
+              ['📢', 'Entire Company', 'Every active trainee sees it.'],
+              ['🌿', 'Branch', 'Trainees whose Branch matches.'],
+              ['⚙️', 'Process', 'Trainees enrolled in that process.'],
+              ['🏢', 'Batch', 'All trainees in the selected batch.'],
+              ['👤', 'Individual', 'One trainee by Employee ID.'],
             ].map(([icon, title, desc]) => (
-              <div key={title} style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-                <span style={{ fontSize: 18, flexShrink: 0 }}>{icon}</span>
+              <div key={title} style={{ display: 'flex', gap: 10, marginBottom: 10, alignItems: 'flex-start' }}>
+                <span style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>{icon}</span>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{title}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.5 }}>{desc}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, lineHeight: 1.5 }}>{desc}</div>
                 </div>
               </div>
             ))}
           </div>
 
-          <div style={{ background: 'rgba(29,78,216,.06)', borderRadius: 14, border: '1px solid rgba(29,78,216,.15)', padding: '14px 16px' }}>
+          <div style={{ background: 'rgba(29,78,216,.06)', borderRadius: 12, border: '1px solid rgba(29,78,216,.15)', padding: '14px 16px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', marginBottom: 6 }}>Note</div>
             <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
-              Assignments appear instantly in the trainee's <b style={{ color: 'var(--ink)' }}>Assigned</b> tab.
-              Trainees do not get a push notification — you may need to inform them via other channels.
+              Assignments are visible <b style={{ color: 'var(--ink)' }}>immediately</b> in the trainee's Assigned tab after next refresh. Trainees are not notified automatically.
             </p>
           </div>
         </div>

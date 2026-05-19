@@ -11,7 +11,7 @@ import {
   searchTrainees, resetTraineePassword, unlockTrainee, deleteTraineeAccount,
   listCertificationRules, saveCertificationRule, updateCertificationRule, deleteCertificationRule,
   syncClassroomFromDrive,
-  assignModule, broadcastModule,
+  assignModule, broadcastModule, getBroadcastTargets,
   getProcessLobList, saveProcessLob, updateProcessLob, deleteProcessLob,
   exportTrainees,
   syncHistoricalKpi,
@@ -102,6 +102,7 @@ router.post('/classrooms/:classroomId/sync-drive', ...auth, syncClassroomFromDri
 // Assigned modules
 router.post('/assign-module', ...auth, assignModule);
 router.post('/broadcast-module', ...auth, broadcastModule);
+router.get('/broadcast-targets', ...auth, getBroadcastTargets);
 
 // Process/LOB
 router.get('/process-lob', ...auth, getProcessLobList);
