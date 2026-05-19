@@ -89,11 +89,15 @@ export async function getLearnerDashboard(req, res) {
     const directAssignments = await prisma.assignedModule.findMany({
       where: {
         OR: [
-          { assignedTo: empId, assignedToType: 'trainee' },
+          { assignedTo: empId, assignedToType: 'individual' },
           { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
+          { assignedTo: trainee.process || '', assignedToType: 'process' },
+          { assignedTo: trainee.branch || '', assignedToType: 'branch' },
+          { assignedToType: 'company' },
         ],
         active: true,
       },
+      orderBy: { createdAt: 'desc' },
     });
 
     res.json({

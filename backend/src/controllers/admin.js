@@ -736,6 +736,33 @@ export async function assignModule(req, res) {
   }
 }
 
+// Broadcast a module to a group: process, branch, company, or multiple batches
+export async function broadcastModule(req, res) {
+  try {
+    const { moduleId, moduleName, scope, scopeValue, assignmentType, message, dueDate } = req.body;
+    // scope: 'process' | 'branch' | 'company' | 'batch'
+    // scopeValue: process name, branch name, 'ALL' for company, batchNo for batch
+    if (!moduleId || !moduleName || !scope) {
+      return res.status(400).json({ ok: false, message: 'moduleId, moduleName and scope are required.' });
+    }
+    const data = {
+      moduleId,
+      moduleName,
+      assignedTo: scopeValue || scope,
+      assignedToType: scope,
+      assignmentType: assignmentType || 'Mandatory',
+      message: message || null,
+      dueDate: dueDate ? new Date(dueDate) : null,
+      assignedBy: req.userId,
+    };
+    const assignment = await prisma.assignedModule.create({ data });
+    res.json({ ok: true, data: assignment });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
 function toCsv(headers, rows) {
   return [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 }
@@ -962,14 +989,26 @@ export async function getBatchAnalytics(req, res) {
 // ── Coordinator list + detail ─────────────────────────────────────────────────
 export async function listCoordinators(req, res) {
   try {
-    const batches = await prisma.batchMaster.findMany({
-      where: { batchStatus: 'Active', coordinatorLoginId: { not: null } },
-      select: { coordinatorLoginId: true, coordinatorName: true, batchNo: true, batchName: true, totalTrainees: true },
-    });
+    const [batches, roleRows] = await Promise.all([
+      prisma.batchMaster.findMany({
+        where: { batchStatus: 'Active', coordinatorLoginId: { not: null } },
+        select: { coordinatorLoginId: true, coordinatorName: true, batchNo: true, batchName: true, totalTrainees: true },
+      }),
+      prisma.roleAccessMatrix.findMany({
+        where: { role: { in: ['coordinator', 'Coordinator'] } },
+        select: { loginId: true, name: true },
+      }),
+    ]);
+    // Build loginId → name lookup from RoleAccessMatrix (source of truth for names)
+    const nameMap = {};
+    roleRows.forEach(r => { nameMap[r.loginId] = r.name; });
+
     const coordMap = {};
     batches.forEach(b => {
       const id = b.coordinatorLoginId;
-      if (!coordMap[id]) coordMap[id] = { coordinatorLoginId: id, coordinatorName: b.coordinatorName, batches: [] };
+      // Prefer RoleAccessMatrix name, fall back to batch-stored name, then loginId
+      const name = nameMap[id] || b.coordinatorName || id;
+      if (!coordMap[id]) coordMap[id] = { coordinatorLoginId: id, coordinatorName: name, batches: [] };
       coordMap[id].batches.push({ batchNo: b.batchNo, batchName: b.batchName, totalTrainees: b.totalTrainees });
     });
     res.json({ ok: true, data: Object.values(coordMap) });

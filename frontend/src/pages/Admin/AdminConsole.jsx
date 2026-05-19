@@ -19,12 +19,14 @@ import ReportsTab from './ReportsTab.jsx';
 import BranchTab from './BranchTab.jsx';
 import UsersTab from './UsersTab.jsx';
 import OrgTab from './OrgTab.jsx';
+import BroadcastTab from './BroadcastTab.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
   { section: 'Training', items: [
     { id: 'curriculum', label: 'Curriculum', icon: '📋' },
     { id: 'questions', label: 'Questions & MCQ', icon: '❓' },
+    { id: 'broadcast', label: 'Broadcast / Assign', icon: '📢' },
     { id: 'drive', label: 'Drive Sync', icon: '☁️' },
   ]},
   { section: 'People', items: [
@@ -138,6 +140,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'branches' && <BranchTab />}
           {activeId === 'users' && <UsersTab />}
           {activeId === 'org' && <OrgTab />}
+          {activeId === 'broadcast' && <BroadcastTab />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}
