@@ -19,8 +19,8 @@ export default function PasswordResetBox({ onDone }) {
   }
 
   return (
-    <div style={{ border: '1px solid #fbbf24', background: '#fffbeb', borderRadius: 18, padding: 16, marginBottom: 14 }}>
-      <b>Password reset required</b>
+    <div style={{ border: '1px solid var(--warn)', background: 'var(--warn-soft)', borderRadius: 18, padding: 16, marginBottom: 14 }}>
+      <b style={{ color: 'var(--ink)' }}>Password reset required</b>
       <p style={{ color: 'var(--muted)', fontSize: 13, margin: '6px 0 12px' }}>First login detected. Use your temporary password, then create a new password to continue.</p>
       <form onSubmit={change} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'flex-end' }}>
         <div className="field" style={{ margin: 0 }}>
