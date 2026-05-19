@@ -1,10 +1,117 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
+function AssignModuleModal({ empId, traineeName, onClose }) {
+  const [classrooms, setClassrooms] = useState([]);
+  const [modules, setModules] = useState([]);
+  const [form, setForm] = useState({
+    classroomId: '', moduleId: '', moduleName: '',
+    assignmentType: 'Mandatory', message: '', dueDate: '',
+  });
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    api.get('/admin/classrooms', 'admin').then(r => r.ok && setClassrooms(r.data));
+  }, []);
+
+  useEffect(() => {
+    if (!form.classroomId) { setModules([]); return; }
+    api.get(`/admin/classrooms/${form.classroomId}/modules`, 'admin').then(r => {
+      if (r.ok) setModules(r.data);
+    });
+  }, [form.classroomId]);
+
+  function set(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!form.moduleId) return setMsg('Select a module.');
+    setLoading(true); setMsg('');
+    const res = await api.post('/admin/assign-module', {
+      moduleId: form.moduleId,
+      moduleName: form.moduleName,
+      assignedTo: empId,
+      assignedToType: 'individual',
+      assignmentType: form.assignmentType,
+      message: form.message || null,
+      dueDate: form.dueDate || null,
+    }, 'admin');
+    setLoading(false);
+    if (res.ok) onClose(true);
+    else setMsg(res.message || 'Failed to assign.');
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+      onClick={e => e.target === e.currentTarget && onClose(false)}>
+      <div style={{ background: 'var(--card-solid)', borderRadius: 18, padding: '28px 28px 24px', width: 480, maxWidth: '94vw', border: '1.5px solid var(--line)', boxShadow: 'var(--shadow)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 16, fontWeight: 900, color: 'var(--ink)' }}>Assign Module</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>to {traineeName || empId}</div>
+          </div>
+          <button onClick={() => onClose(false)} style={{ background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>✕</button>
+        </div>
+
+        <form onSubmit={submit}>
+          <div className="field">
+            <label>Classroom</label>
+            <select className="select" value={form.classroomId} onChange={e => { set('classroomId', e.target.value); set('moduleId', ''); set('moduleName', ''); }} required>
+              <option value="">Select classroom…</option>
+              {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+            </select>
+          </div>
+
+          <div className="field">
+            <label>Module</label>
+            <select className="select" value={form.moduleId} onChange={e => {
+              const m = modules.find(m => m.moduleId === e.target.value);
+              set('moduleId', e.target.value);
+              set('moduleName', m ? m.moduleTitle : '');
+            }} required disabled={!form.classroomId}>
+              <option value="">Select module…</option>
+              {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} — {m.moduleTitle}</option>)}
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+            <div className="field">
+              <label>Type</label>
+              <select className="select" value={form.assignmentType} onChange={e => set('assignmentType', e.target.value)}>
+                <option value="Mandatory">Mandatory</option>
+                <option value="Optional">Optional</option>
+              </select>
+            </div>
+            <div className="field">
+              <label>Due Date (optional)</label>
+              <input className="input" type="date" value={form.dueDate} onChange={e => set('dueDate', e.target.value)} />
+            </div>
+          </div>
+
+          <div className="field">
+            <label>Message to trainee (optional)</label>
+            <input className="input" type="text" placeholder="e.g. Please complete before Friday" value={form.message} onChange={e => set('message', e.target.value)} />
+          </div>
+
+          {msg && <div className="toast bad" style={{ marginBottom: 12 }}>{msg}</div>}
+
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+            <button type="button" className="btn secondary" onClick={() => onClose(false)}>Cancel</button>
+            <button type="submit" className="btn" disabled={loading}>{loading ? 'Assigning…' : 'Assign Module'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export default function TraineeDetailPage({ empId, context, navigate }) {
   const [data, setData] = useState(null);
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
+  const [showAssign, setShowAssign] = useState(false);
+  const [assignMsg, setAssignMsg] = useState('');
 
   useEffect(() => {
     api.get(`/admin/trainees/${empId}/detail`, 'admin').then(r => { if (r.ok) setData(r.data); setLoading(false); });
@@ -23,14 +130,33 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
 
   return (
     <div>
+      {showAssign && (
+        <AssignModuleModal
+          empId={empId}
+          traineeName={trainee.traineeName}
+          onClose={ok => {
+            setShowAssign(false);
+            if (ok) setAssignMsg('Module assigned successfully.');
+          }}
+        />
+      )}
+
       <button className="back-btn" onClick={goBack}>← {context?.from || 'Dashboard'}</button>
-      <div style={{marginBottom:'20px',display:'flex',alignItems:'center',gap:'12px'}}>
-        <div>
+      <div style={{marginBottom:'20px',display:'flex',alignItems:'center',gap:'12px',flexWrap:'wrap'}}>
+        <div style={{flex:1}}>
           <h2 style={{fontSize:'20px',fontWeight:'900',color:'var(--ink)'}}>{trainee.traineeName || empId}</h2>
           <p style={{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}>{empId} · Batch: {trainee.batchNo || '—'}</p>
         </div>
         <span className={`pill ${trainee.riskStatus==='CRITICAL'?'crit':trainee.riskStatus==='HIGH'?'bad':trainee.riskStatus==='MEDIUM'?'warn':'ok'}`}>{trainee.riskStatus}</span>
+        <button className="btn small" onClick={() => { setAssignMsg(''); setShowAssign(true); }}>+ Assign Module</button>
       </div>
+
+      {assignMsg && (
+        <div className="toast ok" style={{marginBottom:14}}>
+          {assignMsg}
+          <button style={{marginLeft:10,border:0,background:'transparent',cursor:'pointer',color:'inherit'}} onClick={() => setAssignMsg('')}>✕</button>
+        </div>
+      )}
 
       <div className="inner-tabs">
         {tabs.map(t => <button key={t} className={`itab${tab===t?' active':''}`} onClick={() => setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
