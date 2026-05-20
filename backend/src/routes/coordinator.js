@@ -8,6 +8,7 @@ import {
   updateRiskAction,
   getCertificationData, saveCertificationEvidence, certifyTrainee, handoverTrainee, updateTraineeFinalStatus,
   getProcessLobList, getClassrooms, closeBatchByCoordinator,
+  coordExportTrainees, coordExportAtRisk, coordExportQAActivity,
 } from '../controllers/coordinator.js';
 
 const auth = [requireSession, requireRole('coordinator')];
@@ -40,5 +41,10 @@ router.patch('/batches/:batchNo/trainees/:employeeId/final-status', ...auth, upd
 router.get('/process-lob', ...auth, getProcessLobList);
 router.get('/classrooms', ...auth, getClassrooms);
 router.post('/batches/:batchNo/close', ...auth, closeBatchByCoordinator);
+
+// Reports (coordinator-scoped)
+router.get('/reports/trainee-progress', ...auth, coordExportTrainees);
+router.get('/reports/at-risk', ...auth, coordExportAtRisk);
+router.get('/reports/qa-activity', ...auth, coordExportQAActivity);
 
 export default router;

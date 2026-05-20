@@ -27,6 +27,8 @@ import {
   listPortalUsers, createPortalUser, updatePortalUser, deletePortalUser, resetPortalUserPin,
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
+  exportModuleCompletion, exportAssessmentResults, exportAttendanceLog,
+  exportCertificationEvidence, exportBroadcastAssignments, exportQAActivity,
   listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -83,6 +85,12 @@ router.get('/trainees/search', ...auth, searchTrainees);
 router.get('/trainees/export', ...auth, exportTrainees);
 router.get('/reports/batch-summary', ...auth, exportBatchSummary);
 router.get('/reports/at-risk', ...auth, exportAtRisk);
+router.get('/reports/module-completion', ...auth, exportModuleCompletion);
+router.get('/reports/assessment-results', ...auth, exportAssessmentResults);
+router.get('/reports/attendance-log', ...auth, exportAttendanceLog);
+router.get('/reports/certification-evidence', ...auth, exportCertificationEvidence);
+router.get('/reports/broadcast-assignments', ...auth, exportBroadcastAssignments);
+router.get('/reports/qa-activity', ...auth, exportQAActivity);
 router.post('/trainees/:employeeId/reset-password', ...auth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);
 router.delete('/trainees/:employeeId', ...auth, deleteTraineeAccount);

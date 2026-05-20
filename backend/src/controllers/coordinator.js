@@ -713,3 +713,166 @@ export async function closeBatchByCoordinator(req, res) {
     res.status(500).json({ ok: false, message: err.message });
   }
 }
+
+// ── Report Exports (coordinator-scoped) ────────────────────────────────────────
+
+function fmtDt(v) { if (!v) return ''; return new Date(v).toISOString().replace('T', ' ').slice(0, 19); }
+function fmtDate(v) { if (!v) return ''; return new Date(v).toISOString().slice(0, 10); }
+
+function toCsv(headers, rows) {
+  const esc = v => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  return [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\r\n');
+}
+
+function csvRes(res, filename, headers, rows) {
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(toCsv(headers, rows));
+}
+
+// ── Coord Export 1: Trainee Progress ──────────────────────────────────────────
+export async function coordExportTrainees(req, res) {
+  try {
+    const { batchNo } = req.query;
+    const coordId = req.userId;
+    const batchWhere = { coordinatorLoginId: coordId };
+    if (batchNo) batchWhere.batchNo = batchNo;
+
+    const batches = await prisma.batchMaster.findMany({ where: batchWhere });
+    const batchNos = batches.map(b => b.batchNo);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const trainees = await prisma.traineeMaster.findMany({
+      where: { batchNo: { in: batchNos } },
+      orderBy: [{ batchNo: 'asc' }, { employeeId: 'asc' }],
+    });
+
+    const headers = [
+      'Employee ID', 'Name', 'Email', 'Mobile',
+      'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date',
+      'Onboarding Date', 'Last Updated At',
+      'Course Completion %', 'MCQ Pass %', 'Attendance %',
+      'Risk Status', 'Risk Reason',
+      'OJT Ready', 'Certification Status',
+      'Status', 'Export Generated At',
+    ];
+    const genAt = fmtDt(new Date());
+    const rows = trainees.map(t => {
+      const b = batchMap[t.batchNo] || {};
+      return [
+        t.employeeId, t.traineeName, t.email, t.mobile,
+        t.batchNo, t.branch, t.process, t.lob,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        fmtDate(t.onboardingDate), fmtDt(t.lastUpdatedAt),
+        t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0,
+        t.riskStatus, t.riskReason || '',
+        t.ojtReady ? 'Yes' : 'No', t.certificationStatus,
+        t.status, genAt,
+      ];
+    });
+    csvRes(res, `trainee-progress-${batchNo || 'my-batches'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── Coord Export 2: At-Risk Trainees ──────────────────────────────────────────
+export async function coordExportAtRisk(req, res) {
+  try {
+    const { batchNo } = req.query;
+    const coordId = req.userId;
+    const batchWhere = { coordinatorLoginId: coordId };
+    if (batchNo) batchWhere.batchNo = batchNo;
+
+    const batches = await prisma.batchMaster.findMany({ where: batchWhere, select: { batchNo: true, startDate: true, endDate: true } });
+    const batchNos = batches.map(b => b.batchNo);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const traineeWhere = { batchNo: { in: batchNos }, riskStatus: { in: ['CRITICAL', 'HIGH', 'WATCH'] } };
+    const [trainees, risks] = await Promise.all([
+      prisma.traineeMaster.findMany({ where: traineeWhere, orderBy: [{ riskStatus: 'asc' }, { courseCompletionPct: 'asc' }] }),
+      prisma.trainingRiskLog.findMany({ where: { status: 'Open', batchNo: { in: batchNos } }, orderBy: { createdAt: 'desc' } }),
+    ]);
+    const riskMap = {};
+    risks.forEach(r => { if (!riskMap[r.employeeId]) riskMap[r.employeeId] = []; riskMap[r.employeeId].push(r); });
+
+    const headers = [
+      'Employee ID', 'Name', 'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date',
+      'Risk Level', 'Risk Reason',
+      'Risk Type', 'Risk Flagged At',
+      'Course %', 'MCQ Pass %', 'Attendance %',
+      'Certification Status', 'Email', 'Mobile',
+    ];
+    const rows = trainees.map(t => {
+      const b = batchMap[t.batchNo] || {};
+      const r = (riskMap[t.employeeId] || [])[0] || {};
+      return [
+        t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        t.riskStatus, t.riskReason || '',
+        r.riskType || '', fmtDt(r.createdAt),
+        t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0,
+        t.certificationStatus, t.email, t.mobile,
+      ];
+    });
+    csvRes(res, `at-risk-${batchNo || 'my-batches'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── Coord Export 3: Q&A Activity ──────────────────────────────────────────────
+export async function coordExportQAActivity(req, res) {
+  try {
+    const { batchNo } = req.query;
+    const coordId = req.userId;
+    const batchWhere = { coordinatorLoginId: coordId };
+    if (batchNo) batchWhere.batchNo = batchNo;
+
+    const batches = await prisma.batchMaster.findMany({ where: batchWhere, select: { batchNo: true } });
+    const batchNos = batches.map(b => b.batchNo);
+
+    const queries = await prisma.traineeQueryLog.findMany({
+      where: { batchNo: { in: batchNos }, ...(batchNo ? { batchNo } : {}) },
+      orderBy: { raisedAt: 'desc' },
+    });
+
+    const headers = [
+      'Query ID', 'Employee ID', 'Batch No',
+      'Module', 'Query Text',
+      'Status', 'Priority',
+      'Raised At', 'Answered At', 'Closed At',
+      'TAT (hours)', 'Answer',
+    ];
+    const rows = queries.map(q => {
+      const raisedAt = q.raisedAt ? new Date(q.raisedAt) : null;
+      const answeredAt = q.answeredAt ? new Date(q.answeredAt) : null;
+      const closedAt = q.closedAt ? new Date(q.closedAt) : null;
+      const endTime = closedAt || answeredAt;
+      const tatHours = raisedAt && endTime ? Math.round((endTime - raisedAt) / 3600000 * 10) / 10 : '';
+      return [
+        q.queryId, q.employeeId, q.batchNo,
+        q.moduleTitle || q.moduleId || '',
+        q.queryText,
+        q.status, q.priority || '',
+        fmtDt(q.raisedAt), fmtDt(q.answeredAt), fmtDt(q.closedAt),
+        tatHours, q.answer || '',
+      ];
+    });
+    csvRes(res, `qa-activity-${batchNo || 'my-batches'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}

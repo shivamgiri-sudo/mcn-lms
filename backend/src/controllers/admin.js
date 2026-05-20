@@ -767,70 +767,456 @@ function toCsv(headers, rows) {
   return [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 }
 
+function fmtDt(v) {
+  if (!v) return '';
+  return new Date(v).toISOString().replace('T', ' ').slice(0, 19);
+}
+
+function fmtDate(v) {
+  if (!v) return '';
+  return new Date(v).toISOString().slice(0, 10);
+}
+
+function csvRes(res, filename, headers, rows) {
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(toCsv(headers, rows));
+}
+
+// ── 1. Trainee Progress ────────────────────────────────────────────────────────
 export async function exportTrainees(req, res) {
   try {
     const { batchNo, classroomId } = req.query;
-    const where = { status: 'Active' };
+    const where = {};
     if (batchNo) where.batchNo = batchNo;
     if (classroomId) where.classroomId = classroomId;
-    const trainees = await prisma.traineeMaster.findMany({ where, orderBy: { employeeId: 'asc' } });
-    const headers = ['Employee ID', 'Name', 'Batch', 'Branch', 'Process', 'LOB', 'Course %', 'MCQ Pass %', 'Attendance %', 'Risk Status', 'Certification', 'Email', 'Mobile'];
-    const rows = trainees.map(t => [t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob, t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0, t.riskStatus, t.certificationStatus, t.email, t.mobile]);
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="trainee-progress-${batchNo || 'all'}-${Date.now()}.csv"`);
-    res.send(toCsv(headers, rows));
+
+    const [trainees, batches] = await Promise.all([
+      prisma.traineeMaster.findMany({ where, orderBy: [{ batchNo: 'asc' }, { employeeId: 'asc' }] }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true, createdAt: true, lastUpdatedAt: true } }),
+    ]);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const headers = [
+      'Employee ID', 'Name', 'Email', 'Mobile',
+      'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date',
+      'Onboarding Date', 'Last Updated At',
+      'Course Completion %', 'MCQ Pass %', 'Attendance %',
+      'Risk Status', 'Risk Reason',
+      'OJT Ready', 'Certification Status',
+      'Status', 'Source', 'Export Generated At',
+    ];
+    const genAt = fmtDt(new Date());
+    const rows = trainees.map(t => {
+      const b = batchMap[t.batchNo] || {};
+      return [
+        t.employeeId, t.traineeName, t.email, t.mobile,
+        t.batchNo, t.branch, t.process, t.lob,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        fmtDate(t.onboardingDate), fmtDt(t.lastUpdatedAt),
+        t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0,
+        t.riskStatus, t.riskReason || '',
+        t.ojtReady ? 'Yes' : 'No', t.certificationStatus,
+        t.status, t.source, genAt,
+      ];
+    });
+    csvRes(res, `trainee-progress-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ ok: false, message: 'Export failed.' });
   }
 }
 
+// ── 2. Batch Summary ───────────────────────────────────────────────────────────
 export async function exportBatchSummary(req, res) {
   try {
-    const batches = await prisma.batchMaster.findMany({ where: { batchStatus: { not: 'Archived' } }, orderBy: { createdAt: 'desc' } });
+    const batches = await prisma.batchMaster.findMany({ orderBy: { createdAt: 'desc' } });
     const batchNos = batches.map(b => b.batchNo);
-    const [stats, riskCounts] = await Promise.all([
+    const [stats, riskCounts, certCounts] = await Promise.all([
       prisma.traineeMaster.groupBy({
         by: ['batchNo'],
-        where: { batchNo: { in: batchNos }, status: 'Active' },
+        where: { batchNo: { in: batchNos } },
         _count: { employeeId: true },
         _avg: { courseCompletionPct: true, assessmentPassPct: true, attendancePct: true },
       }),
       prisma.traineeMaster.groupBy({
-        by: ['batchNo', 'riskStatus'],
-        where: { batchNo: { in: batchNos }, status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] } },
+        by: ['batchNo'],
+        where: { batchNo: { in: batchNos }, riskStatus: { in: ['CRITICAL', 'HIGH'] } },
+        _count: { employeeId: true },
+      }),
+      prisma.traineeMaster.groupBy({
+        by: ['batchNo'],
+        where: { batchNo: { in: batchNos }, certificationStatus: 'Certified' },
         _count: { employeeId: true },
       }),
     ]);
-    const statsMap = {};
-    stats.forEach(s => { statsMap[s.batchNo] = { count: s._count.employeeId, avgCourse: Math.round(s._avg.courseCompletionPct || 0), avgMcq: Math.round(s._avg.assessmentPassPct || 0), avgAtt: Math.round(s._avg.attendancePct || 0) }; });
+    const sMap = {};
+    stats.forEach(s => { sMap[s.batchNo] = { count: s._count.employeeId, avgCourse: Math.round(s._avg.courseCompletionPct || 0), avgMcq: Math.round(s._avg.assessmentPassPct || 0), avgAtt: Math.round(s._avg.attendancePct || 0) }; });
     const riskMap = {};
-    riskCounts.forEach(r => { riskMap[r.batchNo] = (riskMap[r.batchNo] || 0) + r._count.employeeId; });
+    riskCounts.forEach(r => { riskMap[r.batchNo] = r._count.employeeId; });
+    const certMap = {};
+    certCounts.forEach(c => { certMap[c.batchNo] = c._count.employeeId; });
 
-    const headers = ['Batch No', 'Batch Name', 'Classroom', 'Coordinator', 'Status', 'Trainees', 'Avg Course %', 'Avg MCQ Pass %', 'Avg Attendance %', 'At-Risk Count', 'Start Date', 'End Date'];
+    const headers = [
+      'Batch No', 'Batch Name', 'Batch Type', 'Branch', 'Process', 'LOB',
+      'Classroom', 'Coordinator', 'Status',
+      'Batch Start Date', 'Batch End Date', 'Created At', 'Last Updated At',
+      'Total Trainees', 'Avg Course %', 'Avg MCQ Pass %', 'Avg Attendance %',
+      'At-Risk Count', 'Certified Count', 'Remarks',
+    ];
     const rows = batches.map(b => {
-      const s = statsMap[b.batchNo] || {};
-      return [b.batchNo, b.batchName || '', b.classroomId || '', b.coordinatorName || '', b.batchStatus, s.count || 0, s.avgCourse || 0, s.avgMcq || 0, s.avgAtt || 0, riskMap[b.batchNo] || 0, b.startDate ? new Date(b.startDate).toISOString().slice(0, 10) : '', b.endDate ? new Date(b.endDate).toISOString().slice(0, 10) : ''];
+      const s = sMap[b.batchNo] || {};
+      return [
+        b.batchNo, b.batchName, b.batchType, b.branch, b.process, b.lob,
+        b.classroomName || b.classroomId || '', b.coordinatorName || '', b.batchStatus,
+        fmtDate(b.startDate), fmtDate(b.endDate), fmtDt(b.createdAt), fmtDt(b.lastUpdatedAt),
+        s.count || 0, s.avgCourse || 0, s.avgMcq || 0, s.avgAtt || 0,
+        riskMap[b.batchNo] || 0, certMap[b.batchNo] || 0, b.remarks || '',
+      ];
     });
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="batch-summary-${Date.now()}.csv"`);
-    res.send(toCsv(headers, rows));
+    csvRes(res, `batch-summary-${fmtDate(new Date())}.csv`, headers, rows);
   } catch (err) {
+    console.error(err);
     res.status(500).json({ ok: false, message: 'Export failed.' });
   }
 }
 
+// ── 3. At-Risk Trainees ────────────────────────────────────────────────────────
 export async function exportAtRisk(req, res) {
   try {
     const { batchNo } = req.query;
-    const where = { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] } };
+    const where = { riskStatus: { in: ['CRITICAL', 'HIGH', 'WATCH'] } };
     if (batchNo) where.batchNo = batchNo;
-    const trainees = await prisma.traineeMaster.findMany({ where, orderBy: [{ riskStatus: 'asc' }, { courseCompletionPct: 'asc' }] });
-    const headers = ['Employee ID', 'Name', 'Batch', 'Branch', 'Process', 'LOB', 'Risk Level', 'Risk Reason', 'Course %', 'MCQ Pass %', 'Attendance %', 'Certification', 'Email', 'Mobile'];
-    const rows = trainees.map(t => [t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob, t.riskStatus, t.riskReason || '', t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0, t.certificationStatus, t.email, t.mobile]);
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="at-risk-trainees-${batchNo || 'all'}-${Date.now()}.csv"`);
-    res.send(toCsv(headers, rows));
+
+    const [trainees, batches, risks] = await Promise.all([
+      prisma.traineeMaster.findMany({ where, orderBy: [{ riskStatus: 'asc' }, { courseCompletionPct: 'asc' }] }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+      prisma.trainingRiskLog.findMany({
+        where: { status: 'Open', ...(batchNo ? { batchNo } : {}) },
+        orderBy: { createdAt: 'desc' },
+      }),
+    ]);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+    const riskMap = {};
+    risks.forEach(r => {
+      if (!riskMap[r.employeeId]) riskMap[r.employeeId] = [];
+      riskMap[r.employeeId].push(r);
+    });
+
+    const headers = [
+      'Employee ID', 'Name', 'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date',
+      'Risk Level', 'Risk Reason',
+      'Risk Type', 'Risk Flagged At', 'Risk Last Updated At',
+      'Course %', 'MCQ Pass %', 'Attendance %',
+      'Certification Status', 'Email', 'Mobile',
+    ];
+    const rows = trainees.map(t => {
+      const b = batchMap[t.batchNo] || {};
+      const r = (riskMap[t.employeeId] || [])[0] || {};
+      return [
+        t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        t.riskStatus, t.riskReason || '',
+        r.riskType || '', fmtDt(r.createdAt), fmtDt(r.lastUpdatedAt),
+        t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0,
+        t.certificationStatus, t.email, t.mobile,
+      ];
+    });
+    csvRes(res, `at-risk-trainees-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
   } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── 4. Module Completion Detail ────────────────────────────────────────────────
+export async function exportModuleCompletion(req, res) {
+  try {
+    const { batchNo, classroomId } = req.query;
+    const traineeWhere = {};
+    if (batchNo) traineeWhere.batchNo = batchNo;
+    if (classroomId) traineeWhere.classroomId = classroomId;
+
+    const [trainees, batches] = await Promise.all([
+      prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+    ]);
+    const empIds = trainees.map(t => t.employeeId);
+    const traineeMap = {};
+    trainees.forEach(t => { traineeMap[t.employeeId] = t; });
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const [progress, modules, contents] = await Promise.all([
+      prisma.contentProgress.findMany({
+        where: { employeeId: { in: empIds }, ...(classroomId ? { classroomId } : {}) },
+        orderBy: [{ employeeId: 'asc' }, { dayNo: 'asc' }],
+      }),
+      prisma.moduleMaster.findMany({
+        where: classroomId ? { classroomId } : {},
+        select: { moduleId: true, moduleTitle: true, dayNo: true, classroomId: true },
+      }),
+      prisma.contentMaster.findMany({
+        where: classroomId ? { module: { classroomId } } : {},
+        select: { contentId: true, contentTitle: true, contentType: true, moduleId: true, estimatedMins: true },
+      }),
+    ]);
+    const moduleMap = {};
+    modules.forEach(m => { moduleMap[m.moduleId] = m; });
+    const contentMap = {};
+    contents.forEach(c => { contentMap[c.contentId] = c; });
+
+    const headers = [
+      'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
+      'Batch Start Date', 'Batch End Date',
+      'Classroom ID', 'Day No', 'Module Name',
+      'Content Title', 'Content Type',
+      'Status', 'Completion %',
+      'First Opened At', 'Last Opened At', 'Completed At',
+      'Total Time Spent (mins)', 'Estimated Mins',
+      'Open Count',
+    ];
+    const rows = progress.map(p => {
+      const t = traineeMap[p.employeeId] || {};
+      const b = batchMap[t.batchNo] || {};
+      const mod = moduleMap[p.moduleId] || {};
+      const con = contentMap[p.contentId] || {};
+      return [
+        p.employeeId, t.traineeName, t.batchNo, t.branch, t.process,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        p.classroomId, p.dayNo, mod.moduleTitle || '',
+        con.contentTitle || p.contentId, con.contentType || '',
+        p.completionStatus, Math.round(p.completionPct || 0),
+        fmtDt(p.firstOpenedAt), fmtDt(p.lastOpenedAt), fmtDt(p.completedAt),
+        Math.round((p.totalSecondsSpent || 0) / 60), con.estimatedMins || '',
+        p.openCount || 0,
+      ];
+    });
+    csvRes(res, `module-completion-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── 5. Assessment Results ──────────────────────────────────────────────────────
+export async function exportAssessmentResults(req, res) {
+  try {
+    const { batchNo, classroomId, assessmentId } = req.query;
+    const traineeWhere = {};
+    if (batchNo) traineeWhere.batchNo = batchNo;
+    if (classroomId) traineeWhere.classroomId = classroomId;
+
+    const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } });
+    const empIds = trainees.map(t => t.employeeId);
+    const traineeMap = {};
+    trainees.forEach(t => { traineeMap[t.employeeId] = t; });
+
+    const attemptWhere = { employeeId: { in: empIds } };
+    if (assessmentId) attemptWhere.assessmentId = assessmentId;
+
+    const [attempts, assessments, batches] = await Promise.all([
+      prisma.assessmentAttempt.findMany({
+        where: attemptWhere,
+        orderBy: [{ employeeId: 'asc' }, { assessmentId: 'asc' }, { attemptNo: 'asc' }],
+      }),
+      prisma.assessmentMaster.findMany({ select: { assessmentId: true, assessmentName: true, passingPct: true, timeLimitMins: true, dayNo: true } }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+    ]);
+    const assessMap = {};
+    assessments.forEach(a => { assessMap[a.assessmentId] = a; });
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const headers = [
+      'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
+      'Batch Start Date', 'Batch End Date',
+      'Assessment Name', 'Day No',
+      'Attempt No', 'Attempt Started At', 'Attempt Submitted At',
+      'Time Taken (mins)', 'Time Limit (mins)',
+      'Total Questions', 'Correct', 'Wrong', 'Blank',
+      'Score %', 'Passing %', 'Result (Pass/Fail)',
+    ];
+    const rows = attempts.map(a => {
+      const t = traineeMap[a.employeeId] || {};
+      const b = batchMap[t.batchNo] || {};
+      const as = assessMap[a.assessmentId] || {};
+      return [
+        a.employeeId, t.traineeName, t.batchNo, t.branch, t.process,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        as.assessmentName || a.assessmentId, as.dayNo || '',
+        a.attemptNo, fmtDt(a.startedAt), fmtDt(a.submittedAt),
+        Math.round((a.timeTakenSeconds || 0) / 60), as.timeLimitMins || '',
+        a.totalQuestions, a.correctAnswers, a.wrongAnswers, a.blankAnswers,
+        Math.round(a.percentage || 0), as.passingPct || '', a.result,
+      ];
+    });
+    csvRes(res, `assessment-results-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── 6. Attendance Log ──────────────────────────────────────────────────────────
+export async function exportAttendanceLog(req, res) {
+  try {
+    const { batchNo, dateFrom, dateTo } = req.query;
+    const where = {};
+    if (batchNo) where.batchNo = batchNo;
+    if (dateFrom || dateTo) {
+      where.date = {};
+      if (dateFrom) where.date.gte = new Date(dateFrom);
+      if (dateTo) where.date.lte = new Date(dateTo + 'T23:59:59Z');
+    }
+
+    const [records, batches] = await Promise.all([
+      prisma.attendanceInference.findMany({ where, orderBy: [{ batchNo: 'asc' }, { employeeId: 'asc' }, { date: 'asc' }] }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+    ]);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const headers = [
+      'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date',
+      'Date', 'Final Attendance', 'Attendance Source',
+      'Course Activity', 'MCQ Activity',
+      'Remarks', 'Record Created At',
+    ];
+    const rows = records.map(r => {
+      const b = batchMap[r.batchNo] || {};
+      return [
+        r.employeeId, r.traineeName, r.batchNo, r.branch, r.process, r.lob,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        fmtDate(r.date), r.finalAttendance, r.attendanceSource,
+        r.courseActivity ? 'Yes' : 'No', r.mcqActivity ? 'Yes' : 'No',
+        r.remarks || '', fmtDt(r.createdAt),
+      ];
+    });
+    csvRes(res, `attendance-log-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── 7. Certification Evidence ──────────────────────────────────────────────────
+export async function exportCertificationEvidence(req, res) {
+  try {
+    const { batchNo } = req.query;
+    const traineeWhere = {};
+    if (batchNo) traineeWhere.batchNo = batchNo;
+
+    const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true, certificationStatus: true } });
+    const empIds = trainees.map(t => t.employeeId);
+    const traineeMap = {};
+    trainees.forEach(t => { traineeMap[t.employeeId] = t; });
+
+    const [evidence, batches] = await Promise.all([
+      prisma.certificationEvidence.findMany({
+        where: { employeeId: { in: empIds } },
+        orderBy: [{ employeeId: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+    ]);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const headers = [
+      'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
+      'Batch Start Date', 'Batch End Date',
+      'Overall Cert Status',
+      'Evidence Type', 'Result', 'Score %',
+      'Conducted By', 'Conducted At', 'Created By', 'Created At',
+      'Remarks',
+    ];
+    const rows = evidence.map(e => {
+      const t = traineeMap[e.employeeId] || {};
+      const b = batchMap[t.batchNo] || {};
+      return [
+        e.employeeId, t.traineeName, t.batchNo, t.branch, t.process,
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        t.certificationStatus,
+        e.evidenceType, e.result, e.scorePct || 0,
+        e.conductedBy || '', fmtDt(e.conductedAt), e.createdBy || '', fmtDt(e.createdAt),
+        e.remarks || '',
+      ];
+    });
+    csvRes(res, `certification-evidence-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── 8. Broadcast Assignments ───────────────────────────────────────────────────
+export async function exportBroadcastAssignments(req, res) {
+  try {
+    const { scopeType } = req.query;
+    const where = scopeType ? { assignedToType: scopeType } : {};
+    const assignments = await prisma.assignedModule.findMany({ where, orderBy: { createdAt: 'desc' } });
+
+    const headers = [
+      'Module Name', 'Scope Type', 'Scope Value (Target)',
+      'Assignment Type', 'Status (Active)',
+      'Assigned By', 'Assigned At', 'Due Date',
+      'Message',
+    ];
+    const rows = assignments.map(a => [
+      a.moduleName, a.assignedToType, a.assignedTo,
+      a.assignmentType, a.active ? 'Active' : 'Inactive',
+      a.assignedBy || '', fmtDt(a.createdAt), fmtDate(a.dueDate),
+      a.message || '',
+    ]);
+    csvRes(res, `broadcast-assignments-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── 9. Q&A Activity ────────────────────────────────────────────────────────────
+export async function exportQAActivity(req, res) {
+  try {
+    const { batchNo, status } = req.query;
+    const where = {};
+    if (batchNo) where.batchNo = batchNo;
+    if (status) where.status = status;
+
+    const [queries, batches] = await Promise.all([
+      prisma.traineeQueryLog.findMany({ where, orderBy: [{ batchNo: 'asc' }, { createdAt: 'asc' }] }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+    ]);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const headers = [
+      'Query ID', 'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date',
+      'Category', 'Priority', 'Question',
+      'Status', 'Coordinator Answer',
+      'Answered By', 'Raised At', 'Answered At', 'Closed At',
+      'TAT (Hours)',
+    ];
+    const rows = queries.map(q => {
+      const b = batchMap[q.batchNo] || {};
+      return [
+        q.queryId, q.employeeId, q.traineeName, q.batchNo, '', q.classroomId || '', '',
+        fmtDate(b.startDate), fmtDate(b.endDate),
+        q.category, q.priority, q.question,
+        q.status, q.coordinatorAnswer || '',
+        q.answeredBy || '', fmtDt(q.createdAt), fmtDt(q.answeredAt), fmtDt(q.closedAt),
+        q.resolutionTatHours != null ? Math.round(q.resolutionTatHours * 10) / 10 : '',
+      ];
+    });
+    csvRes(res, `qa-activity-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ ok: false, message: 'Export failed.' });
   }
 }

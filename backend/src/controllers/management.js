@@ -365,3 +365,159 @@ export async function getBatchTrainees(req, res) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
+
+// ── Management Report Exports ──────────────────────────────────────────────────
+
+function fmtDt(v) { if (!v) return ''; return new Date(v).toISOString().replace('T', ' ').slice(0, 19); }
+function fmtDate(v) { if (!v) return ''; return new Date(v).toISOString().slice(0, 10); }
+
+function toCsv(headers, rows) {
+  const esc = v => {
+    if (v === null || v === undefined) return '';
+    const s = String(v);
+    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  return [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\r\n');
+}
+
+function csvRes(res, filename, headers, rows) {
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(toCsv(headers, rows));
+}
+
+// ── Mgmt Export 1: Full Trainee Progress (all batches) ────────────────────────
+export async function mgmtExportTrainees(req, res) {
+  try {
+    const { branch, process: proc } = req.query;
+    const where = {};
+    if (branch) where.branch = branch;
+    if (proc) where.process = proc;
+
+    const [trainees, batches] = await Promise.all([
+      prisma.traineeMaster.findMany({ where, orderBy: [{ batchNo: 'asc' }, { employeeId: 'asc' }] }),
+      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true, coordinatorLoginId: true } }),
+    ]);
+    const batchMap = {};
+    batches.forEach(b => { batchMap[b.batchNo] = b; });
+
+    const headers = [
+      'Employee ID', 'Name', 'Batch No', 'Branch', 'Process', 'LOB',
+      'Batch Start Date', 'Batch End Date', 'Coordinator',
+      'Onboarding Date', 'Last Updated At',
+      'Course Completion %', 'MCQ Pass %', 'Attendance %',
+      'Risk Status', 'OJT Ready', 'Certification Status', 'Status',
+      'Export Generated At',
+    ];
+    const genAt = fmtDt(new Date());
+    const rows = trainees.map(t => {
+      const b = batchMap[t.batchNo] || {};
+      return [
+        t.employeeId, t.traineeName, t.batchNo, t.branch, t.process, t.lob,
+        fmtDate(b.startDate), fmtDate(b.endDate), b.coordinatorLoginId || '',
+        fmtDate(t.onboardingDate), fmtDt(t.lastUpdatedAt),
+        t.courseCompletionPct || 0, t.assessmentPassPct || 0, t.attendancePct || 0,
+        t.riskStatus, t.ojtReady ? 'Yes' : 'No', t.certificationStatus, t.status,
+        genAt,
+      ];
+    });
+    csvRes(res, `all-trainees-${branch || proc || 'company'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── Mgmt Export 2: Batch KPI Summary ──────────────────────────────────────────
+export async function mgmtExportBatchKpi(req, res) {
+  try {
+    const batches = await prisma.batchMaster.findMany({ orderBy: { createdAt: 'desc' } });
+    const batchNos = batches.map(b => b.batchNo);
+    const [stats, certCounts, riskCounts] = await Promise.all([
+      prisma.traineeMaster.groupBy({
+        by: ['batchNo'],
+        where: { batchNo: { in: batchNos } },
+        _count: { employeeId: true },
+        _avg: { courseCompletionPct: true, assessmentPassPct: true, attendancePct: true },
+      }),
+      prisma.traineeMaster.groupBy({
+        by: ['batchNo'],
+        where: { batchNo: { in: batchNos }, certificationStatus: 'Certified' },
+        _count: { employeeId: true },
+      }),
+      prisma.traineeMaster.groupBy({
+        by: ['batchNo'],
+        where: { batchNo: { in: batchNos }, riskStatus: { in: ['CRITICAL', 'HIGH'] } },
+        _count: { employeeId: true },
+      }),
+    ]);
+    const sMap = {};
+    stats.forEach(s => { sMap[s.batchNo] = { count: s._count.employeeId, avgCourse: Math.round(s._avg.courseCompletionPct || 0), avgMcq: Math.round(s._avg.assessmentPassPct || 0), avgAtt: Math.round(s._avg.attendancePct || 0) }; });
+    const certMap = {};
+    certCounts.forEach(c => { certMap[c.batchNo] = c._count.employeeId; });
+    const riskMap = {};
+    riskCounts.forEach(r => { riskMap[r.batchNo] = r._count.employeeId; });
+
+    const headers = [
+      'Batch No', 'Batch Name', 'Branch', 'Process', 'LOB', 'Coordinator',
+      'Status', 'Batch Start Date', 'Batch End Date', 'Created At',
+      'Total Trainees', 'Avg Course %', 'Avg MCQ %', 'Avg Attendance %',
+      'Certified Count', 'At-Risk Count', 'Certification Rate %',
+    ];
+    const rows = batches.map(b => {
+      const s = sMap[b.batchNo] || {};
+      const certCount = certMap[b.batchNo] || 0;
+      const total = s.count || 0;
+      const certRate = total > 0 ? Math.round((certCount / total) * 1000) / 10 : 0;
+      return [
+        b.batchNo, b.batchName || '', b.branch, b.process, b.lob || '', b.coordinatorLoginId || '',
+        b.batchStatus, fmtDate(b.startDate), fmtDate(b.endDate), fmtDt(b.createdAt),
+        total, s.avgCourse || 0, s.avgMcq || 0, s.avgAtt || 0,
+        certCount, riskMap[b.batchNo] || 0, certRate,
+      ];
+    });
+    csvRes(res, `batch-kpi-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// ── Mgmt Export 3: Certification Evidence Audit ───────────────────────────────
+export async function mgmtExportCertEvidence(req, res) {
+  try {
+    const { branch, process: proc } = req.query;
+    const traineeWhere = {};
+    if (branch) traineeWhere.branch = branch;
+    if (proc) traineeWhere.process = proc;
+
+    const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } });
+    const empIds = trainees.map(t => t.employeeId);
+    const traineeMap = {};
+    trainees.forEach(t => { traineeMap[t.employeeId] = t; });
+
+    const evidence = await prisma.certificationEvidence.findMany({
+      where: { employeeId: { in: empIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const headers = [
+      'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
+      'Evidence Type', 'Score / Result', 'Conducted At',
+      'Assessor', 'Remarks', 'Created At',
+    ];
+    const rows = evidence.map(e => {
+      const t = traineeMap[e.employeeId] || {};
+      return [
+        e.employeeId, t.traineeName || '', t.batchNo || '', t.branch || '', t.process || '',
+        e.evidenceType, e.score || '', fmtDt(e.conductedAt),
+        e.assessorName || '', e.remarks || '', fmtDt(e.createdAt),
+      ];
+    });
+    csvRes(res, `cert-evidence-${branch || proc || 'company'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}

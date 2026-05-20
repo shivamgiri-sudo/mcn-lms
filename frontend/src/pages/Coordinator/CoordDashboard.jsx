@@ -5,6 +5,7 @@ import BatchList from './BatchList.jsx';
 import BatchDetail from './BatchDetail.jsx';
 import PendingActivities from './PendingActivities.jsx';
 import QueryLog from './QueryLog.jsx';
+import CoordReportsTab from './CoordReportsTab.jsx';
 
 export default function CoordDashboard({ user, onLogout }) {
   const { theme, toggle: toggleTheme } = useTheme();
@@ -23,6 +24,7 @@ export default function CoordDashboard({ user, onLogout }) {
     { id: 'batches', label: '📋 Batches' },
     { id: 'pending', label: '⏳ Pending Activities' },
     { id: 'queries', label: '💬 Trainee Q&A' },
+    { id: 'reports', label: '📥 Reports' },
   ];
 
   return (
@@ -68,6 +70,7 @@ export default function CoordDashboard({ user, onLogout }) {
           {activeTab === 'batches' && <BatchList onSelectBatch={setSelectedBatch} user={user} />}
           {activeTab === 'pending' && <PendingActivities />}
           {activeTab === 'queries' && <QueryLog />}
+          {activeTab === 'reports' && <CoordReportsTab />}
         </>
       )}
     </div>

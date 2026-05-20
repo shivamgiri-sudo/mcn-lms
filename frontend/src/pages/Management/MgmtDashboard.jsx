@@ -64,6 +64,12 @@ export default function MgmtDashboard({ onLogout }) {
   // Batch filter
   const [batchFilter, setBatchFilter] = useState('ALL');
 
+  // Reports tab filters
+  const [reportBranch, setReportBranch] = useState('');
+  const [reportProc, setReportProc] = useState('');
+  const [expLoading, setExpLoading] = useState({});
+  const [expMsg, setExpMsg] = useState(null);
+
   // Batch drill-down modal
   const [drillBatch, setDrillBatch] = useState(null);
   const [drillTrainees, setDrillTrainees] = useState([]);
@@ -948,59 +954,105 @@ export default function MgmtDashboard({ onLogout }) {
         </div>
       )}
 
-      {activeTab === 'reports' && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
-            {[
-              { title: 'All Trainees Export', desc: 'Full trainee list across all batches — Employee ID, LMS ID, Name, Batch, Branch, Process, Course %, MCQ %, Attendance %, Risk, Certification.', href: null, icon: '👥', key: 'all-trainees' },
-              { title: 'Batch Summaries', desc: 'Per-batch summary: Batch No, Process, LOB, Coordinator, Total, Certified %, Attrition %, Throughput %, Status.', href: null, icon: '🏢', key: 'batches' },
-              { title: 'Branch Performance', desc: 'Branch-wise breakdown: Total, Certified %, Attrition %, Throughput %, Avg Course/MCQ/Attendance.', href: null, icon: '🌿', key: 'branches' },
-              { title: 'Process Performance', desc: 'Process/LOB breakdown with certification, attrition, and health metrics.', href: null, icon: '⚙️', key: 'processes' },
-              { title: 'Coordinator Performance', desc: 'Per-coordinator: Batches handled, trainees, Cert %, Attrition %, Throughput %.', href: null, icon: '🧑‍💼', key: 'coordinators' },
-              { title: 'At-Risk Trainees', desc: 'All trainees with CRITICAL/HIGH/MEDIUM risk — includes risk reason, batch, branch.', href: null, icon: '⚠️', key: 'risks' },
-              { title: 'Historical KPI Trends', desc: 'Month-wise: active trainees, avg completion, cert %, attrition %, throughput %.', href: null, icon: '📈', key: 'historical' },
-            ].map(report => {
-              const handleClick = async () => {
-                if (report.key === 'all-trainees') { downloadCsv('/reports/trainees/export', 'all-trainees.csv', 'management'); return; }
-                const endpoints = { batches: '/management/batch-summaries', branches: '/management/branch-summaries', processes: '/management/process-summaries', coordinators: '/management/coordinator-performance', risks: '/management/risk-list', historical: '/management/historical-kpis' };
-                const headers = {
-                  batches: ['Batch No','Process','LOB','Coordinator','Total','CertPct%','AttritionPct%','ThroughputPct%','Status'],
-                  branches: ['Branch','Total','Certified','Attrition','HandedOver','CertPct%','AttritionPct%','ThroughputPct%','AvgCourse%','AvgMCQ%','AvgAttendance%'],
-                  processes: ['Process','LOB','Total','CertPct%','AttritionPct%','ThroughputPct%','AvgCourse%','AvgMCQ%','AvgAttendance%'],
-                  coordinators: ['Coordinator','Login ID','Batches','Total','Certified','Attrition','HandedOver','CertPct%','AttritionPct%','ThroughputPct%'],
-                  risks: ['Employee ID','Name','Batch','Branch','Process','Severity','Risk Reason','Course%','MCQ%','Attendance%'],
-                  historical: ['Period','Branch','Process','Total Trainees','AvgCourse%','AvgMCQ%','AvgAttendance%','CertPct%','AttritionPct%','ThroughputPct%'],
-                };
-                const rowMap = {
-                  batches: d => [d.batchNo,d.process,d.lob,d.coordinatorName,d.totalTrainees,d.certPct,d.attritionPct,d.throughputPct,d.batchStatus],
-                  branches: d => [d.branch,d.total,d.certified,d.attrition,d.handedOver,d.certPct,d.attritionPct,d.throughputPct,d.avgCourse,d.avgMcq,d.avgAttendance],
-                  processes: d => [d.process,d.lob,d.total,d.certPct,d.attritionPct,d.throughputPct,d.avgCourse,d.avgMcq,d.avgAttendance],
-                  coordinators: d => [d.coordinatorName,d.loginId,d.batches,d.totalTrainees,d.certified,d.attrition,d.handedOver,d.certPct,d.attritionPct,d.throughputPct],
-                  risks: d => [d.employeeId,d.traineeName,d.batchNo,d.branch,d.process,d.severity,d.riskReason,d.courseCompletionPct,d.assessmentPassPct,d.attendancePct],
-                  historical: d => [d.period,d.branch||'All',d.process||'All',d.totalTrainees,d.avgCoursePct,d.avgMcqPct,d.avgAttendancePct,d.certPct,d.attritionPct,d.throughputPct],
-                };
-                const res = await api.get(endpoints[report.key], 'management');
-                if (!res.ok) return alert('Failed to fetch data');
-                const rows = [headers[report.key], ...(res.data || []).map(rowMap[report.key])];
-                const csv = rows.map(r => r.map(v => `"${v ?? ''}"`).join(',')).join('\n');
-                const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); a.download = `${report.key}-report.csv`; a.click();
-              };
-              return (
-                <div key={report.title} className="card" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-                    <span style={{ fontSize: 24 }}>{report.icon}</span>
+      {activeTab === 'reports' && (() => {
+        const d = new Date().toISOString().slice(0, 10);
+
+        async function doExport(key, url, filename) {
+          setExpLoading(s => ({ ...s, [key]: true }));
+          setExpMsg(null);
+          try { await downloadCsv(url, filename, 'management'); }
+          catch { setExpMsg('Download failed. Check your connection.'); }
+          setExpLoading(s => ({ ...s, [key]: false }));
+        }
+
+        const p = new URLSearchParams();
+        if (reportBranch) p.set('branch', reportBranch);
+        if (reportProc) p.set('process', reportProc);
+        const scope = reportBranch || reportProc || 'company';
+
+        const reports = [
+          {
+            key: 'trainee-progress', icon: '👥', color: '#1d4ed8',
+            title: 'Full Trainee Progress',
+            desc: 'All trainees across all batches with KPI metrics and certification status.',
+            cols: 'Employee ID, Name, Batch No, Branch, Process, LOB, Batch Start/End, Coordinator, Onboarding Date, Last Updated, Course %, MCQ %, Attendance %, Risk, OJT Ready, Cert Status',
+            url: `/management/reports/trainee-progress?${p}`, filename: `all-trainees-${scope}-${d}.csv`,
+          },
+          {
+            key: 'batch-kpi', icon: '🏢', color: '#16a34a',
+            title: 'Batch KPI Summary',
+            desc: 'One row per batch with KPI averages, certification and attrition counts, and timestamps.',
+            cols: 'Batch No, Name, Branch, Process, LOB, Coordinator, Status, Start Date, End Date, Created At, Total Trainees, Avg Course %, Avg MCQ %, Avg Attendance %, Certified, At-Risk, Cert Rate %',
+            url: `/management/reports/batch-kpi`, filename: `batch-kpi-${d}.csv`,
+          },
+          {
+            key: 'cert-evidence', icon: '🏆', color: '#059669',
+            title: 'Certification Evidence Audit',
+            desc: 'All mock call, internal, and external certification records with conducted and created timestamps.',
+            cols: 'Employee ID, Trainee Name, Batch No, Branch, Process, Evidence Type, Score/Result, Conducted At, Assessor, Remarks, Created At',
+            url: `/management/reports/cert-evidence?${p}`, filename: `cert-evidence-${scope}-${d}.csv`,
+          },
+        ];
+
+        return (
+          <div style={{ marginTop: 14 }}>
+            <div style={{ background: 'var(--card-solid)', borderRadius: 14, border: '1.5px solid var(--line)', padding: '16px 20px', marginBottom: 20 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)', marginBottom: 12 }}>Scope Filters (optional)</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 12, alignItems: 'end' }}>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Branch</label>
+                  <select className="select" value={reportBranch} onChange={e => setReportBranch(e.target.value)}>
+                    <option value="">All Branches</option>
+                    {branchNames.map(b => <option key={b} value={b}>{b}</option>)}
+                  </select>
+                </div>
+                <div className="field" style={{ margin: 0 }}>
+                  <label>Process</label>
+                  <select className="select" value={reportProc} onChange={e => setReportProc(e.target.value)}>
+                    <option value="">All Processes</option>
+                    {processNames.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </div>
+                {(reportBranch || reportProc) && (
+                  <button className="btn" style={{ background: 'var(--line)', color: 'var(--ink)', fontSize: 12, padding: '8px 14px', height: 38 }}
+                    onClick={() => { setReportBranch(''); setReportProc(''); }}>Clear</button>
+                )}
+              </div>
+              {expMsg && <div style={{ marginTop: 10, fontSize: 12, color: 'var(--bad)' }}>{expMsg}</div>}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+              {reports.map(r => (
+                <div key={r.key} style={{
+                  background: 'var(--card-solid)', borderRadius: 14, border: '1.5px solid var(--line)',
+                  padding: '18px 20px', boxShadow: 'var(--shadow-sm)', display: 'flex', flexDirection: 'column', gap: 10,
+                }}>
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    <div style={{ width: 42, height: 42, borderRadius: 10, background: `${r.color}22`, display: 'grid', placeItems: 'center', fontSize: 20, flexShrink: 0 }}>{r.icon}</div>
                     <div>
-                      <b style={{ fontSize: 14, color: 'var(--ink)' }}>{report.title}</b>
-                      <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>{report.desc}</p>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>{r.title}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.5 }}>{r.desc}</div>
                     </div>
                   </div>
-                  <button className="btn small" onClick={handleClick} style={{ alignSelf: 'flex-start' }}>⬇ Download CSV</button>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', background: 'var(--card)', borderRadius: 8, padding: '5px 10px', lineHeight: 1.6 }}>
+                    <b style={{ color: 'var(--ink)' }}>Columns:</b> {r.cols}
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                    <button className="btn" style={{ background: r.color, padding: '7px 16px', fontSize: 12 }}
+                      onClick={() => doExport(r.key, r.url, r.filename)} disabled={!!expLoading[r.key]}>
+                      {expLoading[r.key] ? 'Exporting…' : '⬇ Export CSV'}
+                    </button>
+                  </div>
                 </div>
-              );
-            })}
+              ))}
+            </div>
+
+            <div style={{ marginTop: 18, padding: '12px 16px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12, color: 'var(--muted)' }}>
+              <b style={{ color: 'var(--ink)' }}>Note:</b> Trainee Progress and Certification Evidence respect Branch/Process filters. Batch KPI exports all batches. All CSVs include complete date/time audit trail.
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
