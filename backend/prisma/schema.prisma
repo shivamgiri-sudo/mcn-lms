@@ -190,6 +190,9 @@ model TraineeMaster {
   createdBy           String?   @map("created_by")
   lastUpdatedAt       DateTime  @updatedAt @map("last_updated_at")
   source              String    @default("Manual")
+  empIdType           String    @default("PERMANENT") @map("emp_id_type")
+  permanentEmpId      String?   @unique @map("permanent_emp_id")
+  empIdMappedAt       DateTime? @map("emp_id_mapped_at")
 
   batch       BatchMaster? @relation(fields: [batchNo], references: [batchNo])
   userAccount UserMaster?
@@ -759,4 +762,11 @@ model DriveFile {
   syncedAt      DateTime @default(now()) @map("synced_at")
 
   @@map("drive_files")
+}
+
+model SequenceCounter {
+  key   String @id
+  value Int    @default(0)
+
+  @@map("sequence_counter")
 }
