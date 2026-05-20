@@ -801,6 +801,7 @@ export async function exportTrainees(req, res) {
 
     const headers = [
       'Employee ID', 'Name', 'Email', 'Mobile',
+      'ID Type', 'Permanent Emp ID',
       'Batch No', 'Branch', 'Process', 'LOB',
       'Batch Start Date', 'Batch End Date',
       'Onboarding Date', 'Last Updated At',
@@ -814,6 +815,7 @@ export async function exportTrainees(req, res) {
       const b = batchMap[t.batchNo] || {};
       return [
         t.employeeId, t.traineeName, t.email, t.mobile,
+        t.empIdType || 'PERMANENT', t.permanentEmpId || '',
         t.batchNo, t.branch, t.process, t.lob,
         fmtDate(b.startDate), fmtDate(b.endDate),
         fmtDate(t.onboardingDate), fmtDt(t.lastUpdatedAt),
