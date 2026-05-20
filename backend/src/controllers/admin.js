@@ -2,6 +2,7 @@ import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { listDriveFolderAny } from '../services/drive.js';
+import { generateTempEmpId } from '../utils/empIdMapping.js';
 import path from 'path';
 
 export async function getAdminDashboard(req, res) {
@@ -1773,9 +1774,18 @@ export async function adminBulkAddTrainees(req, res) {
     const results = [];
     for (const t of trainees) {
       const { employeeId, traineeName, email, mobile } = t;
-      if (!employeeId) { results.push({ ok: false, message: 'Employee ID required.' }); continue; }
+      let normEmpId;
+      let isTemp = false;
 
-      const normEmpId = employeeId.trim().toUpperCase();
+      if (!employeeId) {
+        const cleanMob = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
+        if (!cleanMob) { results.push({ ok: false, message: 'Mobile required when Employee ID is absent.' }); continue; }
+        normEmpId = await generateTempEmpId();
+        isTemp = true;
+      } else {
+        normEmpId = employeeId.trim().toUpperCase();
+      }
+
       const existing = await prisma.traineeMaster.findFirst({
         where: { OR: [{ employeeId: normEmpId }, ...(email ? [{ email: email.trim().toLowerCase() }] : [])].filter(Boolean) },
       });
@@ -1805,6 +1815,7 @@ export async function adminBulkAddTrainees(req, res) {
             classroomId: batch.classroomId,
             classroomName: batch.classroomName,
             certificationStatus: 'Not Certified',
+            empIdType: isTemp ? 'TEMP' : 'PERMANENT',
           },
         });
         await tx.userMaster.create({
