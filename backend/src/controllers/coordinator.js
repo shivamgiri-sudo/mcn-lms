@@ -289,45 +289,54 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
   const passwordHash = await hashPassword(tempPassword, salt);
   const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
 
-  const trainee = await prisma.traineeMaster.create({
-    data: {
-      employeeId: normEmpId,
-      lmsId,
-      traineeName,
-      email: email ? normalize(email) : null,
-      mobile: cleanMobile,
-      batchNo: batch.batchNo,
-      branch: batch.branch,
-      process: batch.process,
-      lob: batch.lob,
-      classroomId: batch.classroomId,
-      classroomName: batch.classroomName,
-      status: 'Active',
-      doj: doj ? new Date(doj) : null,
-      onboardingDate: new Date(),
-      onboardingStatus: 'Active',
-      createdBy: coordinatorLoginId,
-      source: 'Coordinator Portal',
-      empIdType: employeeId ? 'PERMANENT' : 'TEMP',
-    },
-  });
-
-  await prisma.userMaster.create({
-    data: {
-      employeeId: normEmpId,
-      passwordHash,
-      salt,
-      traineeName,
-      email: trainee.email,
-      mobile: cleanMobile,
-      branch: batch.branch,
-      process: batch.process,
-      lob: batch.lob,
-      batchNo: batch.batchNo,
-      classroomId: batch.classroomId,
-      forcePasswordReset: true,
-    },
-  });
+  let trainee;
+  try {
+    const result = await prisma.$transaction(async (tx) => {
+      const t = await tx.traineeMaster.create({
+        data: {
+          employeeId: normEmpId,
+          lmsId,
+          traineeName,
+          email: email ? normalize(email) : null,
+          mobile: cleanMobile,
+          batchNo: batch.batchNo,
+          branch: batch.branch,
+          process: batch.process,
+          lob: batch.lob,
+          classroomId: batch.classroomId,
+          classroomName: batch.classroomName,
+          status: 'Active',
+          doj: doj ? new Date(doj) : null,
+          onboardingDate: new Date(),
+          onboardingStatus: 'Active',
+          createdBy: coordinatorLoginId,
+          source: 'Coordinator Portal',
+          empIdType: employeeId ? 'PERMANENT' : 'TEMP',
+        },
+      });
+      await tx.userMaster.create({
+        data: {
+          employeeId: normEmpId,
+          passwordHash,
+          salt,
+          traineeName,
+          email: t.email,
+          mobile: cleanMobile,
+          branch: batch.branch,
+          process: batch.process,
+          lob: batch.lob,
+          batchNo: batch.batchNo,
+          classroomId: batch.classroomId,
+          forcePasswordReset: true,
+        },
+      });
+      return t;
+    });
+    trainee = result;
+  } catch (err) {
+    if (err.code === 'P2002') return { ok: false, message: `Employee ID ${normEmpId} already exists.` };
+    throw err;
+  }
 
   if (batch.classroomId) {
     await prisma.traineeClassroomMap.upsert({

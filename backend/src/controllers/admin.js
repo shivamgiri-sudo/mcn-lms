@@ -532,14 +532,17 @@ export async function deleteQuestion(req, res) {
 export async function searchTrainees(req, res) {
   try {
     const { q } = req.query;
-    const where = q ? {
-      OR: [
-        { employeeId: { contains: q, mode: 'insensitive' } },
-        { traineeName: { contains: q, mode: 'insensitive' } },
-        { email: { contains: q, mode: 'insensitive' } },
-        { batchNo: { contains: q, mode: 'insensitive' } },
-      ],
-    } : {};
+    const where = {
+      status: { not: 'Deleted' },
+      ...(q ? {
+        OR: [
+          { employeeId: { contains: q, mode: 'insensitive' } },
+          { traineeName: { contains: q, mode: 'insensitive' } },
+          { email: { contains: q, mode: 'insensitive' } },
+          { batchNo: { contains: q, mode: 'insensitive' } },
+        ],
+      } : {}),
+    };
     const trainees = await prisma.traineeMaster.findMany({ where, take: 50, orderBy: { createdAt: 'desc' } });
     res.json({ ok: true, data: trainees });
   } catch (err) {

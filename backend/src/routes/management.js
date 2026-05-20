@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireSession } from '../middleware/auth.js';
+import { requireSession, requireRole } from '../middleware/auth.js';
 import {
   getManagementDashboard, getBranchSummaries, getProcessSummaries,
   getHistoricalKpis, getTraineeRiskList, getRiskStats,
@@ -9,7 +9,7 @@ import {
 
 const router = Router();
 
-const auth = [requireSession];
+const auth = [requireSession, requireRole('management')];
 
 router.get('/dashboard', ...auth, getManagementDashboard);
 router.get('/branch-summaries', ...auth, getBranchSummaries);

@@ -203,7 +203,7 @@ export async function getCoordinatorPerformance(req, res) {
 export async function getBranchSummaries(req, res) {
   try {
     const trainees = await prisma.traineeMaster.findMany({
-      where: {},
+      where: { status: { not: 'Deleted' } },
       select: {
         branch: true, status: true,
         courseCompletionPct: true, assessmentPassPct: true, attendancePct: true,
@@ -253,7 +253,7 @@ export async function getBranchSummaries(req, res) {
 export async function getProcessSummaries(req, res) {
   try {
     const trainees = await prisma.traineeMaster.findMany({
-      where: {},
+      where: { status: { not: 'Deleted' } },
       select: {
         process: true, lob: true, status: true,
         courseCompletionPct: true, assessmentPassPct: true, attendancePct: true,
@@ -391,7 +391,7 @@ function csvRes(res, filename, headers, rows) {
 export async function mgmtExportTrainees(req, res) {
   try {
     const { branch, process: proc } = req.query;
-    const where = {};
+    const where = { status: { not: 'Deleted' } };
     if (branch) where.branch = branch;
     if (proc) where.process = proc;
 
@@ -488,7 +488,7 @@ export async function mgmtExportBatchKpi(req, res) {
 export async function mgmtExportCertEvidence(req, res) {
   try {
     const { branch, process: proc } = req.query;
-    const traineeWhere = {};
+    const traineeWhere = { status: { not: 'Deleted' } };
     if (branch) traineeWhere.branch = branch;
     if (proc) traineeWhere.process = proc;
 

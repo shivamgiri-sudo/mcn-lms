@@ -134,7 +134,7 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
     if (!permId.trim()) return;
     setMappingLoading(true);
     setMappingMsg(null);
-    const res = await api.post(`/admin/trainees/${trainee.employeeId}/map-emp-id`, { permanentEmpId: permId.trim() }, 'admin');
+    const res = await api.post(`/admin/trainees/${data.trainee.employeeId}/map-emp-id`, { permanentEmpId: permId.trim() }, 'admin');
     setMappingLoading(false);
     if (res.ok) {
       setMappingMsg({ type: 'ok', text: `Successfully mapped to permanent ID: ${permId.trim()}` });
