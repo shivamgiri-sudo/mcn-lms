@@ -3,6 +3,7 @@ import { generateBatchNo } from '../utils/batchNaming.js';
 import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
+import { generateTempEmpId } from '../utils/empIdMapping.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -258,9 +259,15 @@ export async function bulkAddTrainees(req, res) {
 
 async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
   const { employeeId, traineeName, email, mobile, doj } = data;
-  if (!employeeId) return { ok: false, message: 'Employee ID required.' };
+  let normEmpId;
 
-  const normEmpId = normalize(employeeId);
+  if (!employeeId) {
+    const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
+    if (!cleanMobile) return { ok: false, message: 'Mobile number required when Employee ID is not provided.' };
+    normEmpId = await generateTempEmpId();
+  } else {
+    normEmpId = normalize(employeeId);
+  }
 
   // Duplicate check
   const existing = await prisma.traineeMaster.findFirst({
@@ -301,6 +308,7 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
       onboardingStatus: 'Active',
       createdBy: coordinatorLoginId,
       source: 'Coordinator Portal',
+      empIdType: employeeId ? 'PERMANENT' : 'TEMP',
     },
   });
 
