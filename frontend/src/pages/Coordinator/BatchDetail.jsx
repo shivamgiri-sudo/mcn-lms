@@ -40,6 +40,12 @@ export default function BatchDetail({ batchNo, onBack }) {
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Permanent ID mapping
+  const [mappingTrainee, setMappingTrainee] = useState(null);
+  const [permId, setPermId] = useState('');
+  const [mappingLoading, setMappingLoading] = useState(false);
+  const [mappingMsg, setMappingMsg] = useState(null);
+
   // Search & enroll existing trainee
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -100,6 +106,22 @@ export default function BatchDetail({ batchNo, onBack }) {
     else setMsg(res.message || 'Failed.');
   }
 
+  async function handleMapPermId(e) {
+    e.preventDefault();
+    if (!permId.trim()) return;
+    setMappingLoading(true);
+    setMappingMsg(null);
+    const res = await api.post(`/coordinator/trainees/${mappingTrainee.employeeId}/map-emp-id`, { permanentEmpId: permId.trim() }, 'coordinator');
+    setMappingLoading(false);
+    if (res.ok) {
+      setMappingMsg({ type: 'ok', text: `Mapped to ${permId.trim()} successfully.` });
+      setPermId('');
+      setMappingTrainee(null);
+      load();
+    } else {
+      setMappingMsg({ type: 'bad', text: res.message || res.error || 'Mapping failed.' });
+    }
+  }
 
   if (!data) return <div style={{ paddingTop: 40, textAlign: 'center' }}><div className="spinner" /></div>;
 
@@ -205,11 +227,14 @@ export default function BatchDetail({ batchNo, onBack }) {
 
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Employee ID</th><th>Name</th><th>Mobile</th><th>Course %</th><th>MCQ %</th><th>Attendance %</th><th>Risk</th><th>Status</th></tr></thead>
+              <thead><tr><th>Employee ID</th><th>Name</th><th>Mobile</th><th>Course %</th><th>MCQ %</th><th>Attendance %</th><th>Risk</th><th>Status</th><th>Perm. ID</th></tr></thead>
               <tbody>
                 {trainees.map(t => (
                   <tr key={t.id}>
-                    <td><b>{t.employeeId}</b></td>
+                    <td>
+                      <b>{t.employeeId}</b>
+                      {t.empIdType === 'TEMP' && <span className="pill warn" style={{ marginLeft: 6, fontSize: 10 }}>TEMP</span>}
+                    </td>
                     <td>{t.traineeName || '—'}</td>
                     <td>{t.mobile || '—'}</td>
                     <td>{pct(t.courseCompletionPct)}</td>
@@ -217,6 +242,12 @@ export default function BatchDetail({ batchNo, onBack }) {
                     <td>{pct(t.attendancePct)}</td>
                     <td><span className={`pill ${riskColor(t.riskStatus)}`}>{t.riskStatus}</span></td>
                     <td>{t.certificationStatus}</td>
+                    <td>
+                      {t.empIdType === 'TEMP'
+                        ? <button className="btn small secondary" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => { setMappingTrainee(t); setPermId(''); setMappingMsg(null); }}>Assign Perm. ID</button>
+                        : <span style={{ fontSize: 11, color: 'var(--muted)' }}>—</span>
+                      }
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -353,6 +384,48 @@ export default function BatchDetail({ batchNo, onBack }) {
                 </button>
                 <button className="btn secondary" onClick={() => { setShowBulk(false); setCsvPreview(null); }}>Cancel</button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Assign Permanent ID Modal */}
+      {mappingTrainee && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setMappingTrainee(null)}>
+          <div className="modal-box" style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <b>Assign Permanent Employee ID</b>
+              <button className="btn small secondary" onClick={() => setMappingTrainee(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 12 }}>
+                Trainee: <b style={{ color: 'var(--ink)' }}>{mappingTrainee.traineeName || mappingTrainee.employeeId}</b><br />
+                Current Temp ID: <b style={{ color: 'var(--ink)' }}>{mappingTrainee.employeeId}</b>
+              </p>
+              <form onSubmit={handleMapPermId}>
+                <div className="field">
+                  <label>Permanent Employee ID *</label>
+                  <input
+                    className="input"
+                    placeholder="e.g. EMP20001"
+                    value={permId}
+                    onChange={e => setPermId(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                <p style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                  This will replace the temporary ID across all trainee records. This action cannot be undone.
+                </p>
+                {mappingMsg && (
+                  <div className={`toast ${mappingMsg.type}`} style={{ margin: '10px 0 0' }}>{mappingMsg.text}</div>
+                )}
+                <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
+                  <button className="btn" type="submit" disabled={mappingLoading || !permId.trim()}>
+                    {mappingLoading ? 'Mapping...' : 'Confirm Map'}
+                  </button>
+                  <button className="btn secondary" type="button" onClick={() => setMappingTrainee(null)}>Cancel</button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

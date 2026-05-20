@@ -3,7 +3,7 @@ import { generateBatchNo } from '../utils/batchNaming.js';
 import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
-import { generateTempEmpId } from '../utils/empIdMapping.js';
+import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -719,6 +719,32 @@ export async function closeBatchByCoordinator(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+// ── Coordinator: Map Permanent Employee ID ────────────────────────────────────
+export async function coordMapEmpId(req, res) {
+  try {
+    const { employeeId } = req.params;
+    const { permanentEmpId } = req.body;
+    if (!permanentEmpId?.trim()) return res.status(400).json({ ok: false, message: 'permanentEmpId is required.' });
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+    if (!trainee.mobile) return res.status(400).json({ ok: false, message: 'Trainee has no mobile — cannot map.' });
+
+    const result = await mapEmployeeId({
+      mobile: trainee.mobile,
+      permanentEmpId: permanentEmpId.trim(),
+      triggeredBy: req.userId,
+      triggeredByRole: 'Coordinator',
+    });
+
+    if (!result.ok) return res.status(400).json({ ok: false, message: result.error });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
 
