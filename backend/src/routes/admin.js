@@ -32,6 +32,7 @@ import {
   listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
+  adminMapSingleEmpId, adminBulkMapEmpIds, getTempTrainees,
 } from '../controllers/admin.js';
 import { contentUpload } from '../utils/upload.js';
 
@@ -97,6 +98,11 @@ router.delete('/trainees/:employeeId', ...auth, deleteTraineeAccount);
 
 // Trainee detail
 router.get('/trainees/:empId/detail', ...auth, getTraineeDetail);
+
+// Emp ID lifecycle mapping
+router.get('/emp-mapping/temp-trainees', ...auth, getTempTrainees);
+router.post('/trainees/:employeeId/map-emp-id', ...auth, adminMapSingleEmpId);
+router.post('/emp-mapping/bulk', ...auth, adminBulkMapEmpIds);
 
 // Cert rules
 router.get('/cert-rules', ...auth, listCertificationRules);
