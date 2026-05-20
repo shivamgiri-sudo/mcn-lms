@@ -66,7 +66,12 @@ export default function AccountsTab() {
             <tbody>
               {trainees.map(t => (
                 <tr key={t.id}>
-                  <td><b>{t.employeeId}</b></td>
+                  <td>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12 }}><b>{t.employeeId}</b></span>
+                    {t.empIdType === 'TEMP' && (
+                      <span style={{ marginLeft: 6, background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>
+                    )}
+                  </td>
                   <td>{t.traineeName || '—'}</td>
                   <td>{t.batchNo || '—'}</td>
                   <td>{t.branch} / {t.process}</td>

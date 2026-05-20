@@ -159,7 +159,13 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
                     <div key={t.employeeId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.traineeName}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t.employeeId}{t.email ? ` · ${t.email}` : ''}{t.batchNo ? ` · Batch: ${t.batchNo}` : ''}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          <span style={{ fontFamily: 'monospace' }}>{t.employeeId}</span>
+                          {t.empIdType === 'TEMP' && (
+                            <span style={{ marginLeft: 5, background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>
+                          )}
+                          {t.email ? ` · ${t.email}` : ''}{t.batchNo ? ` · Batch: ${t.batchNo}` : ''}
+                        </div>
                       </div>
                       {alreadyEnrolled
                         ? <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 700 }}>✓ Enrolled</span>
@@ -250,7 +256,12 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
               <tbody>
                 {trainees.map(t => (
                   <tr key={t.employeeId} className="clickable" onClick={() => navigate('trainee-detail', { empId: t.employeeId, from: batch.batchName || batchNo, fromId: 'batch-detail', batchNo })}>
-                    <td>{t.employeeId}</td>
+                    <td>
+                      <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{t.employeeId}</span>
+                      {t.empIdType === 'TEMP' && (
+                        <span style={{ marginLeft: 6, background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>
+                      )}
+                    </td>
                     <td style={{fontWeight:'600'}}>{t.traineeName}</td>
                     <td>{Math.round(t.courseCompletionPct)}%</td>
                     <td>{Math.round(t.attendancePct)}%</td>

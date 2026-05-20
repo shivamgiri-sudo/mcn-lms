@@ -128,7 +128,12 @@ export default function DashboardPage({ navigate }) {
             <tbody>
               {data.atRiskTrainees.map(t => (
                 <tr key={t.employeeId} className="clickable" onClick={() => navigate('trainee-detail', { empId: t.employeeId, from: 'Dashboard', fromId: 'dashboard' })}>
-                  <td>{t.employeeId}</td>
+                  <td>
+                    <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{t.employeeId}</span>
+                    {t.empIdType === 'TEMP' && (
+                      <span style={{ marginLeft: 6, background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>
+                    )}
+                  </td>
                   <td>{t.traineeName}</td>
                   <td>{t.batchNo}</td>
                   <td>{Math.round(t.attendancePct)}%</td>

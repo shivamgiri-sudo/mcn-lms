@@ -231,7 +231,12 @@ export default function BranchTab() {
                         <tbody>
                           {detail.trainees.map(t => (
                             <tr key={t.employeeId}>
-                              <td><b style={{ fontSize: 12 }}>{t.employeeId}</b></td>
+                              <td>
+                                <span style={{ fontFamily: 'monospace', fontSize: 12 }}><b>{t.employeeId}</b></span>
+                                {t.empIdType === 'TEMP' && (
+                                  <span style={{ marginLeft: 6, background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>
+                                )}
+                              </td>
                               <td style={{ fontSize: 12 }}>{t.traineeName}</td>
                               <td style={{ fontSize: 12 }}>{t.batchNo || '—'}</td>
                               <td style={{ fontSize: 12 }}>{t.process || '—'}</td>
