@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { prisma } from './utils/db.js';
 
 import authRoutes from './routes/auth.js';
+import bridgeRoutes from './routes/bridge.js';
 import coordinatorRoutes from './routes/coordinator.js';
 import traineeRoutes from './routes/trainee.js';
 import adminRoutes from './routes/admin.js';
@@ -16,6 +17,7 @@ import managementRoutes from './routes/management.js';
 import driveRoutes from './routes/drive.js';
 import uploadRoutes from './routes/upload.js';
 import reportRoutes from './routes/reports.js';
+import empMappingRoutes from './routes/empMapping.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -43,6 +45,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/auth/bridge', bridgeRoutes);
 app.use('/api/coordinator', coordinatorRoutes);
 app.use('/api/trainee', traineeRoutes);
 app.use('/api/admin', adminRoutes);
@@ -50,6 +53,7 @@ app.use('/api/management', managementRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/emp-mapping', empMappingRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({
