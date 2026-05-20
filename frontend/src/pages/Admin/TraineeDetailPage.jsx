@@ -112,14 +112,37 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
   const [loading, setLoading] = useState(true);
   const [showAssign, setShowAssign] = useState(false);
   const [assignMsg, setAssignMsg] = useState('');
+  const [permId, setPermId] = useState('');
+  const [mappingLoading, setMappingLoading] = useState(false);
+  const [mappingMsg, setMappingMsg] = useState(null);
+
+  function loadTrainee() {
+    api.get(`/admin/trainees/${empId}/detail`, 'admin').then(r => { if (r.ok) setData(r.data); setLoading(false); });
+  }
 
   useEffect(() => {
-    api.get(`/admin/trainees/${empId}/detail`, 'admin').then(r => { if (r.ok) setData(r.data); setLoading(false); });
+    loadTrainee();
   }, [empId]);
 
   function goBack() {
     if (context?.fromId) navigate(context.fromId, context);
     else navigate('dashboard');
+  }
+
+  async function handleMapPermId(e) {
+    e.preventDefault();
+    if (!permId.trim()) return;
+    setMappingLoading(true);
+    setMappingMsg(null);
+    const res = await api.post(`/admin/trainees/${trainee.employeeId}/map-emp-id`, { permanentEmpId: permId.trim() }, 'admin');
+    setMappingLoading(false);
+    if (res.ok) {
+      setMappingMsg({ type: 'ok', text: `Successfully mapped to permanent ID: ${permId.trim()}` });
+      setPermId('');
+      loadTrainee();
+    } else {
+      setMappingMsg({ type: 'bad', text: res.message || res.error || 'Mapping failed.' });
+    }
   }
 
   if (loading) return <div style={{color:'var(--muted)',padding:'40px',textAlign:'center'}}>Loading trainee...</div>;
@@ -191,6 +214,39 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
               </div>
             )}
           </div>
+
+          {trainee.empIdType === 'TEMP' && (
+            <div style={{
+              marginTop: 20, background: 'rgba(217,119,6,.08)', border: '1.5px solid rgba(217,119,6,.3)',
+              borderRadius: 14, padding: '18px 20px',
+            }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ background: '#d97706', color: '#fff', borderRadius: 6, fontSize: 10, fontWeight: 700, padding: '2px 7px' }}>TEMP ID</span>
+                <b style={{ fontSize: 14, color: 'var(--ink)' }}>Assign Permanent Employee ID</b>
+              </div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+                Current temp code: <b style={{ fontFamily: 'monospace', color: 'var(--ink)' }}>{trainee.employeeId}</b>.
+                Enter the permanent HRMS code to replace it across all records.
+              </p>
+              {mappingMsg && (
+                <div className={`toast ${mappingMsg.type}`} style={{ marginBottom: 12 }}>
+                  {mappingMsg.text}
+                  <button style={{ marginLeft: 10, border: 0, background: 'transparent', cursor: 'pointer', color: 'inherit' }} onClick={() => setMappingMsg(null)}>✕</button>
+                </div>
+              )}
+              <form onSubmit={handleMapPermId} style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
+                <div className="field" style={{ margin: 0, flex: 1 }}>
+                  <label>Permanent Employee Code</label>
+                  <input className="input" type="text" placeholder="e.g. EMP-10042"
+                    value={permId} onChange={e => setPermId(e.target.value)} required />
+                </div>
+                <button className="btn" type="submit" style={{ marginBottom: 0, flexShrink: 0 }}
+                  disabled={mappingLoading}>
+                  {mappingLoading ? 'Mapping…' : 'Map ID'}
+                </button>
+              </form>
+            </div>
+          )}
         </div>
       )}
 
