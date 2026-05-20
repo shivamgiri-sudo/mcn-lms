@@ -2,7 +2,7 @@ import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { listDriveFolderAny } from '../services/drive.js';
-import { generateTempEmpId } from '../utils/empIdMapping.js';
+import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import path from 'path';
 
 export async function getAdminDashboard(req, res) {
@@ -2254,4 +2254,81 @@ export async function deleteDepartment(req, res) {
     await prisma.departmentMaster.update({ where: { id }, data: { active: false } });
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ ok: false, message: err.message }); }
+}
+
+// ── Admin: Map single trainee's emp ID ─────────────────────────────────────
+export async function adminMapSingleEmpId(req, res) {
+  try {
+    const { employeeId } = req.params;
+    const { permanentEmpId } = req.body;
+    if (!permanentEmpId?.trim()) return res.status(400).json({ ok: false, message: 'permanentEmpId is required.' });
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+    if (!trainee.mobile) return res.status(400).json({ ok: false, message: 'Trainee has no mobile number — cannot map without bridge key.' });
+
+    const result = await mapEmployeeId({
+      mobile: trainee.mobile,
+      permanentEmpId: permanentEmpId.trim(),
+      triggeredBy: req.userId,
+      triggeredByRole: 'Admin',
+    });
+
+    if (!result.ok) return res.status(400).json({ ok: false, message: result.error });
+    res.json({ ok: true, data: result });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Admin: Bulk map emp IDs from CSV upload ────────────────────────────────
+export async function adminBulkMapEmpIds(req, res) {
+  try {
+    const { mappings } = req.body;
+    if (!Array.isArray(mappings) || mappings.length === 0) {
+      return res.status(400).json({ ok: false, message: 'No mappings provided.' });
+    }
+
+    const results = [];
+    for (const m of mappings) {
+      const result = await mapEmployeeId({
+        mobile: m.mobile,
+        permanentEmpId: m.permanentEmpId,
+        triggeredBy: req.userId,
+        triggeredByRole: 'Admin',
+      });
+      results.push({ mobile: m.mobile, permanentEmpId: m.permanentEmpId, ...result });
+    }
+
+    const mapped = results.filter(r => r.ok).length;
+    const errors = results.filter(r => !r.ok);
+    res.json({ ok: true, data: { mapped, errors: errors.length, results } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Admin: List trainees with TEMP emp IDs ─────────────────────────────────
+export async function getTempTrainees(req, res) {
+  try {
+    const { batchNo } = req.query;
+    const where = { empIdType: 'TEMP' };
+    if (batchNo) where.batchNo = batchNo;
+
+    const trainees = await prisma.traineeMaster.findMany({
+      where,
+      orderBy: [{ batchNo: 'asc' }, { employeeId: 'asc' }],
+      select: {
+        employeeId: true, traineeName: true, mobile: true,
+        batchNo: true, branch: true, process: true,
+        empIdType: true, permanentEmpId: true, empIdMappedAt: true,
+      },
+    });
+    res.json({ ok: true, data: trainees });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
 }
