@@ -20,6 +20,7 @@ import BranchTab from './BranchTab.jsx';
 import UsersTab from './UsersTab.jsx';
 import OrgTab from './OrgTab.jsx';
 import BroadcastTab from './BroadcastTab.jsx';
+import EmpIdMappingUpload from './EmpIdMappingUpload.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -33,6 +34,7 @@ const NAV = [
     { id: 'batches', label: 'Batches', icon: '🏢' },
     { id: 'branches', label: 'Branches', icon: '🌿' },
     { id: 'accounts', label: 'Trainee Accounts', icon: '👤' },
+    { id: 'emp-mapping', label: 'Map Perm. Emp IDs', icon: '🔗' },
     { id: 'coordinators', label: 'Coordinators', icon: '🧑‍💼' },
     { id: 'users', label: 'Portal Users', icon: '🔑' },
   ]},
@@ -141,6 +143,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'users' && <UsersTab />}
           {activeId === 'org' && <OrgTab />}
           {activeId === 'broadcast' && <BroadcastTab />}
+          {activeId === 'emp-mapping' && <EmpIdMappingUpload />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}
