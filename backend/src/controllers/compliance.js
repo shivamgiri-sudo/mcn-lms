@@ -34,6 +34,13 @@ export async function previewCompliance(req, res) {
   try {
     const { dateFrom, dateTo, branch, process: proc } = req.query;
 
+    if (dateFrom && isNaN(new Date(dateFrom))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
+    }
+    if (dateTo && isNaN(new Date(dateTo))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateTo — expected ISO date e.g. 2026-01-15' });
+    }
+
     const traineeWhere = {};
     if (branch) traineeWhere.branch = branch;
     if (proc) traineeWhere.process = proc;
@@ -140,6 +147,13 @@ export async function exportAttendanceLogin(req, res) {
   try {
     const { dateFrom, dateTo, branch, process: proc } = req.query;
 
+    if (dateFrom && isNaN(new Date(dateFrom))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
+    }
+    if (dateTo && isNaN(new Date(dateTo))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateTo — expected ISO date e.g. 2026-01-15' });
+    }
+
     const traineeWhere = {};
     if (branch) traineeWhere.branch = branch;
     if (proc) traineeWhere.process = proc;
@@ -195,6 +209,13 @@ export async function exportAttendanceLogin(req, res) {
 export async function exportLearning(req, res) {
   try {
     const { dateFrom, dateTo, branch, process: proc } = req.query;
+
+    if (dateFrom && isNaN(new Date(dateFrom))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
+    }
+    if (dateTo && isNaN(new Date(dateTo))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateTo — expected ISO date e.g. 2026-01-15' });
+    }
 
     const traineeWhere = {};
     if (branch) traineeWhere.branch = branch;
@@ -254,6 +275,13 @@ export async function exportLearning(req, res) {
 export async function exportRiskEscalation(req, res) {
   try {
     const { dateFrom, dateTo, branch, process: proc } = req.query;
+
+    if (dateFrom && isNaN(new Date(dateFrom))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
+    }
+    if (dateTo && isNaN(new Date(dateTo))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateTo — expected ISO date e.g. 2026-01-15' });
+    }
 
     const traineeWhere = {};
     if (branch) traineeWhere.branch = branch;
@@ -318,6 +346,13 @@ export async function exportRiskEscalation(req, res) {
 export async function exportCertification(req, res) {
   try {
     const { dateFrom, dateTo, branch, process: proc } = req.query;
+
+    if (dateFrom && isNaN(new Date(dateFrom))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
+    }
+    if (dateTo && isNaN(new Date(dateTo))) {
+      return res.status(400).json({ ok: false, message: 'Invalid dateTo — expected ISO date e.g. 2026-01-15' });
+    }
 
     const traineeWhere = {};
     if (branch) traineeWhere.branch = branch;
