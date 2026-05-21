@@ -666,6 +666,7 @@ model AssignedModule {
   id             String    @id @default(uuid())
   moduleId       String    @map("module_id")
   moduleName     String    @map("module_name")
+  broadcastTitle String?   @map("broadcast_title")
   assignedTo     String    @map("assigned_to")
   assignedToType String    @map("assigned_to_type")
   assignmentType String    @default("Optional") @map("assignment_type")
