@@ -18,6 +18,7 @@ import driveRoutes from './routes/drive.js';
 import uploadRoutes from './routes/upload.js';
 import reportRoutes from './routes/reports.js';
 import empMappingRoutes from './routes/empMapping.js';
+import complianceRoutes from './routes/compliance.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -49,6 +50,7 @@ app.use('/api/auth/bridge', bridgeRoutes);
 app.use('/api/coordinator', coordinatorRoutes);
 app.use('/api/trainee', traineeRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/compliance', complianceRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/upload', uploadRoutes);
