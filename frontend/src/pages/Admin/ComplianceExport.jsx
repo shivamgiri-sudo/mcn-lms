@@ -104,15 +104,25 @@ export default function ComplianceExport() {
   }
 
   async function doExport(key, path) {
-    const err = validate();
-    if (err) { setError(err); return; }
+    if (key !== 'trainees') {
+      const err = validate();
+      if (err) { setError(err); return; }
+    }
     setError('');
     setExportLoading(s => ({ ...s, [key]: true }));
-    const params = new URLSearchParams({ dateFrom: form.dateFrom, dateTo: form.dateTo });
+    const params = new URLSearchParams();
+    if (key !== 'trainees') {
+      if (form.dateFrom) params.set('dateFrom', form.dateFrom);
+      if (form.dateTo) params.set('dateTo', form.dateTo);
+    }
     if (form.branch) params.set('branch', form.branch);
     if (form.process) params.set('process', form.process);
     const d = new Date().toISOString().slice(0, 10);
-    await downloadCsv(`/admin/compliance/${path}?${params}`, `compliance-${key}-${d}.csv`, 'admin');
+    try {
+      await downloadCsv(`/admin/compliance/${path}?${params}`, `compliance-${key}-${d}.csv`, 'admin');
+    } catch {
+      setError('Export failed. Please try again.');
+    }
     setExportLoading(s => ({ ...s, [key]: false }));
   }
 
@@ -228,7 +238,7 @@ export default function ComplianceExport() {
             desc={exp.desc}
             cols={exp.cols}
             btnColor={exp.btnColor}
-            disabled={!dateRangeOk}
+            disabled={exp.key !== 'trainees' && !dateRangeOk}
             loading={!!exportLoading[exp.key]}
             onExport={() => doExport(exp.key, exp.path)}
           />
