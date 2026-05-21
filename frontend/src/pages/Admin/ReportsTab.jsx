@@ -188,7 +188,7 @@ export default function ReportsTab() {
       key: 'broadcast-assignments',
       icon: '📢', title: 'Broadcast Assignments', btnColor: '#7c3aed',
       desc: 'All module assignments via broadcast/refresher with scope and timestamps.',
-      cols: 'Assignment ID, Module ID, Module Name, Scope Type, Scope Value, Assignment Type, Due Date, Message, Assigned At, Status',
+      cols: 'Broadcast Title, Module Name, Scope Type, Scope Value, Assignment Type, Status (Active), Assigned By, Assigned At, Due Date, Message',
       url: `/admin/reports/broadcast-assignments`, filename: `broadcast-assignments-${d}.csv`,
     },
     {

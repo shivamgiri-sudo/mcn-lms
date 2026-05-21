@@ -17,6 +17,7 @@ export default function BroadcastTab() {
   const [processes, setProcesses] = useState([]);
 
   const [form, setForm] = useState({
+    broadcastTitle: '',
     scope: 'company',
     scopeValue: '',
     classroomId: '',
@@ -67,6 +68,7 @@ export default function BroadcastTab() {
     setLoading(true); setMsg(null);
 
     const res = await api.post('/admin/broadcast-module', {
+      broadcastTitle: form.broadcastTitle.trim() || null,
       moduleId: form.moduleId,
       moduleName: form.moduleName,
       scope: form.scope,
@@ -80,7 +82,7 @@ export default function BroadcastTab() {
     if (res.ok) {
       const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
       setMsg({ type: 'ok', text: `Module "${form.moduleName}" assigned to ${scopeLabel}.` });
-      setForm(f => ({ ...f, scopeValue: '', message: '', dueDate: '' }));
+      setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', message: '', dueDate: '' }));
     } else {
       setMsg({ type: 'bad', text: res.message || 'Failed to broadcast.' });
     }
@@ -109,6 +111,19 @@ export default function BroadcastTab() {
         {/* Main form */}
         <div style={{ background: 'var(--card-solid)', borderRadius: 16, border: '1.5px solid var(--line)', padding: '24px 26px', boxShadow: 'var(--shadow-sm)' }}>
           <form onSubmit={submit}>
+
+            {/* Broadcast Title */}
+            <div className="field" style={{ marginBottom: 20 }}>
+              <label>Broadcast Title / Name <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
+              <input
+                className="input"
+                type="text"
+                placeholder="e.g. Week 3 Refresher — Banking Process"
+                value={form.broadcastTitle}
+                onChange={e => set('broadcastTitle', e.target.value)}
+                maxLength={120}
+              />
+            </div>
 
             {/* Step 1: Scope selector */}
             <div style={{ marginBottom: 20 }}>
