@@ -730,9 +730,19 @@ export async function syncClassroomFromDrive(req, res) {
 // ── Assign Module ─────────────────────────────────────────────────────────────
 export async function assignModule(req, res) {
   try {
-    const { moduleId, moduleName, assignedTo, assignedToType, assignmentType, message, dueDate } = req.body;
+    const { moduleId, moduleName, broadcastTitle, assignedTo, assignedToType, assignmentType, message, dueDate } = req.body;
     const assignment = await prisma.assignedModule.create({
-      data: { moduleId, moduleName, assignedTo, assignedToType, assignmentType, message, dueDate: dueDate ? new Date(dueDate) : null, assignedBy: req.userId },
+      data: {
+        moduleId,
+        moduleName,
+        broadcastTitle: broadcastTitle?.trim() || null,
+        assignedTo,
+        assignedToType,
+        assignmentType,
+        message,
+        dueDate: dueDate ? new Date(dueDate) : null,
+        assignedBy: req.userId,
+      },
     });
     res.json({ ok: true, data: assignment });
   } catch (err) {
@@ -743,7 +753,7 @@ export async function assignModule(req, res) {
 // Broadcast a module to a group: process, branch, company, or multiple batches
 export async function broadcastModule(req, res) {
   try {
-    const { moduleId, moduleName, scope, scopeValue, assignmentType, message, dueDate } = req.body;
+    const { moduleId, moduleName, broadcastTitle, scope, scopeValue, assignmentType, message, dueDate } = req.body;
     // scope: 'process' | 'branch' | 'company' | 'batch'
     // scopeValue: process name, branch name, 'ALL' for company, batchNo for batch
     if (!moduleId || !moduleName || !scope) {
@@ -752,6 +762,7 @@ export async function broadcastModule(req, res) {
     const data = {
       moduleId,
       moduleName,
+      broadcastTitle: broadcastTitle?.trim() || null,
       assignedTo: scopeValue || scope,
       assignedToType: scope,
       assignmentType: assignmentType || 'Mandatory',
@@ -1167,16 +1178,17 @@ export async function exportBroadcastAssignments(req, res) {
     const where = scopeType ? { assignedToType: scopeType } : {};
     const assignments = await prisma.assignedModule.findMany({ where, orderBy: { createdAt: 'desc' } });
 
-    const headers = [
-      'Module Name', 'Scope Type', 'Scope Value (Target)',
-      'Assignment Type', 'Status (Active)',
-      'Assigned By', 'Assigned At', 'Due Date',
-      'Message',
-    ];
+    const headers = ['Broadcast Title', 'Module Name', 'Scope Type', 'Scope Value (Target)', 'Assignment Type', 'Status (Active)', 'Assigned By', 'Assigned At', 'Due Date', 'Message'];
     const rows = assignments.map(a => [
-      a.moduleName, a.assignedToType, a.assignedTo,
-      a.assignmentType, a.active ? 'Active' : 'Inactive',
-      a.assignedBy || '', fmtDt(a.createdAt), fmtDate(a.dueDate),
+      a.broadcastTitle || '',
+      a.moduleName,
+      a.assignedToType,
+      a.assignedTo,
+      a.assignmentType,
+      a.active ? 'Active' : 'Inactive',
+      a.assignedBy || '',
+      fmtDt(a.createdAt),
+      fmtDate(a.dueDate),
       a.message || '',
     ]);
     csvRes(res, `broadcast-assignments-${fmtDate(new Date())}.csv`, headers, rows);
