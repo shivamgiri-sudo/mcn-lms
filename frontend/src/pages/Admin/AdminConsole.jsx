@@ -21,6 +21,7 @@ import UsersTab from './UsersTab.jsx';
 import OrgTab from './OrgTab.jsx';
 import BroadcastTab from './BroadcastTab.jsx';
 import EmpIdMappingUpload from './EmpIdMappingUpload.jsx';
+import ComplianceExport from './ComplianceExport.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -40,6 +41,9 @@ const NAV = [
   ]},
   { section: 'Reports', items: [
     { id: 'reports', label: 'Reports & Exports', icon: '📥' },
+  ]},
+  { section: 'Compliance', items: [
+    { id: 'compliance-audit', label: 'Compliance Audit', icon: '🔒' },
   ]},
   { section: 'Config', items: [
     { id: 'processlob', label: 'Process & LOB', icon: '⚙️' },
@@ -137,6 +141,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'accounts' && <AccountsTab />}
           {activeId === 'coordinators' && <CoordinatorsPage navigate={navigate} />}
           {activeId === 'reports' && <ReportsTab />}
+          {activeId === 'compliance-audit' && <ComplianceExport />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}
           {activeId === 'branches' && <BranchTab />}
