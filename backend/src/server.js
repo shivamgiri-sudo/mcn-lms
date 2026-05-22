@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { prisma } from './utils/db.js';
+import { sendDailySummaryEmail } from './utils/mailer.js';
 
 import authRoutes from './routes/auth.js';
 import bridgeRoutes from './routes/bridge.js';
@@ -116,12 +117,39 @@ async function runKpiSnapshot() {
   }
 }
 
+// Daily summary email — fires at 07:00 IST (01:30 UTC) every day.
+// Set DAILY_SUMMARY_EMAILS as a comma-separated list in env vars.
+function scheduleDailyEmail() {
+  const now = new Date();
+  // Target: 01:30 UTC = 07:00 IST
+  const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 1, 30, 0));
+  if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
+  const delay = next - now;
+
+  setTimeout(async () => {
+    const emailEnv = process.env.DAILY_SUMMARY_EMAILS || '';
+    const recipients = emailEnv.split(',').map(e => e.trim()).filter(Boolean);
+    if (recipients.length > 0) {
+      try {
+        await sendDailySummaryEmail(recipients);
+      } catch (err) {
+        console.error('[MAILER] Daily summary failed:', err.message);
+      }
+    }
+    scheduleDailyEmail(); // reschedule for next day
+  }, delay);
+
+  const hh = String(next.getUTCHours()).padStart(2, '0');
+  const mm = String(next.getUTCMinutes()).padStart(2, '0');
+  console.log(`[MAILER] Daily summary scheduled for ${next.toDateString()} ${hh}:${mm} UTC`);
+}
+
 app.listen(PORT, () => {
   console.log(`LMS running on http://localhost:${PORT}`);
   console.log(`Frontend path checked: ${frontendDist}`);
-  // Run KPI snapshot on startup, then every 24 hours
   runKpiSnapshot();
   setInterval(runKpiSnapshot, 24 * 60 * 60 * 1000);
+  scheduleDailyEmail();
 });
 
 export default app;

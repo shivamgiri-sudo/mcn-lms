@@ -10,7 +10,7 @@ export async function getManagementDashboard(req, res) {
     ] = await Promise.all([
       prisma.batchMaster.count({ where: { batchStatus: 'Active' } }),
       prisma.traineeMaster.count({ where: { status: 'Active' } }),
-      prisma.batchMaster.count({ where: { batchStatus: 'Closed' } }),
+      prisma.batchMaster.count({ where: { batchStatus: 'Completed' } }),
       prisma.traineeMaster.count({ where: { certificationStatus: 'Certified' } }),
       prisma.traineeMaster.count({ where: { handoverToOps: true } }),
       prisma.traineeMaster.count({ where: { certificationStatus: 'Attrition' } }),
@@ -138,7 +138,7 @@ export async function getCoordinatorPerformance(req, res) {
       }
       coordMap[id].totalBatches++;
       if (b.batchStatus === 'Active') coordMap[id].activeBatches++;
-      if (b.batchStatus === 'Closed') coordMap[id].closedBatches++;
+      if (b.batchStatus === 'Completed') coordMap[id].closedBatches++;
       coordMap[id].batchNos.push(b.batchNo);
     }
 
@@ -504,15 +504,15 @@ export async function mgmtExportCertEvidence(req, res) {
 
     const headers = [
       'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
-      'Evidence Type', 'Score / Result', 'Conducted At',
-      'Assessor', 'Remarks', 'Created At',
+      'Evidence Type', 'Score %', 'Result', 'Conducted At',
+      'Conducted By', 'Remarks', 'Created At',
     ];
     const rows = evidence.map(e => {
       const t = traineeMap[e.employeeId] || {};
       return [
         e.employeeId, t.traineeName || '', t.batchNo || '', t.branch || '', t.process || '',
-        e.evidenceType, e.score || '', fmtDt(e.conductedAt),
-        e.assessorName || '', e.remarks || '', fmtDt(e.createdAt),
+        e.evidenceType, e.scorePct ?? '', e.result || '', fmtDt(e.conductedAt),
+        e.conductedBy || '', e.remarks || '', fmtDt(e.createdAt),
       ];
     });
     csvRes(res, `cert-evidence-${branch || proc || 'company'}-${fmtDate(new Date())}.csv`, headers, rows);

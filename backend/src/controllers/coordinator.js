@@ -4,6 +4,7 @@ import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
+import { sendCertificationEmail } from '../utils/mailer.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -565,15 +566,35 @@ export async function saveCertificationEvidence(req, res) {
 export async function certifyTrainee(req, res) {
   try {
     const { employeeId } = req.body;
-    await prisma.traineeMaster.update({
-      where: { employeeId },
-      data: { certificationStatus: 'Certified' },
-    });
-    await prisma.batchMaster.update({
-      where: { batchNo: req.params.batchNo },
-      data: { certified: { increment: 1 } },
-    });
+    const batchNo = req.params.batchNo;
+
+    const [trainee, batch] = await Promise.all([
+      prisma.traineeMaster.update({
+        where: { employeeId },
+        data: { certificationStatus: 'Certified' },
+      }),
+      prisma.batchMaster.update({
+        where: { batchNo },
+        data: { certified: { increment: 1 } },
+        select: { batchNo: true, batchName: true, process: true, lob: true },
+      }),
+    ]);
+
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'CERTIFY_TRAINEE', module: 'Certification', referenceId: employeeId });
+
+    // Send certification email — fire-and-forget, never fail the API call
+    if (trainee.email) {
+      sendCertificationEmail({
+        employeeId,
+        traineeName: trainee.traineeName,
+        email: trainee.email,
+        batchNo: batch.batchNo,
+        batchName: batch.batchName,
+        process: batch.process,
+        lob: batch.lob,
+      }).catch(err => console.error(`[MAILER] Cert email failed for ${employeeId}:`, err.message));
+    }
+
     res.json({ ok: true, message: `${employeeId} certified.` });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -888,7 +909,7 @@ export async function coordExportQAActivity(req, res) {
 
     const queries = await prisma.traineeQueryLog.findMany({
       where: { batchNo: { in: batchNos }, ...(batchNo ? { batchNo } : {}) },
-      orderBy: { raisedAt: 'desc' },
+      orderBy: { createdAt: 'desc' },
     });
 
     const headers = [
@@ -899,18 +920,18 @@ export async function coordExportQAActivity(req, res) {
       'TAT (hours)', 'Answer',
     ];
     const rows = queries.map(q => {
-      const raisedAt = q.raisedAt ? new Date(q.raisedAt) : null;
+      const raisedAt = q.createdAt ? new Date(q.createdAt) : null;
       const answeredAt = q.answeredAt ? new Date(q.answeredAt) : null;
       const closedAt = q.closedAt ? new Date(q.closedAt) : null;
       const endTime = closedAt || answeredAt;
       const tatHours = raisedAt && endTime ? Math.round((endTime - raisedAt) / 3600000 * 10) / 10 : '';
       return [
         q.queryId, q.employeeId, q.batchNo,
-        q.moduleTitle || q.moduleId || '',
-        q.queryText,
+        q.moduleId || '',
+        q.question,
         q.status, q.priority || '',
-        fmtDt(q.raisedAt), fmtDt(q.answeredAt), fmtDt(q.closedAt),
-        tatHours, q.answer || '',
+        fmtDt(q.createdAt), fmtDt(q.answeredAt), fmtDt(q.closedAt),
+        tatHours, q.coordinatorAnswer || '',
       ];
     });
     csvRes(res, `qa-activity-${batchNo || 'my-batches'}-${fmtDate(new Date())}.csv`, headers, rows);

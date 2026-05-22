@@ -142,7 +142,7 @@ Format: `PRO_LOB_MON'YY_###` — e.g. `ONF_KYC_MAY'26_001`. Sequential `###` tra
 
 ### Content Heartbeat
 - Frontend fires every 30s while playing
-- Delta capped 0–120s (0 when `document.hidden` or video paused)
+- Delta capped 0–30s per heartbeat call (matches 30s frontend interval)
 - `completionPct = totalSecondsSpent / requiredSeconds × 100`
 
 ### Risk Engine (`utils/riskEngine.js`)
@@ -160,6 +160,18 @@ Per process+LOB in `CertificationRuleMaster` — thresholds for course %, MCQ %,
 
 ### KPI Snapshot (scheduled)
 Runs on server startup + every 24h. Writes monthly aggregate to `HistoricalTrainingKpi`. Used by management dashboard trend charts.
+
+### Email Notifications (`utils/mailer.js`)
+Shared mailer — creates transporter on demand from env vars, no singleton (avoids startup crash when SMTP not configured).
+
+| Function | Trigger | Recipients |
+|----------|---------|------------|
+| `sendDailySummaryEmail(recipients[])` | Daily cron at 07:00 IST (01:30 UTC) via `scheduleDailyEmail()` in server.js | `DAILY_SUMMARY_EMAILS` env var (comma-separated) |
+| `sendCertificationEmail({...})` | `certifyTrainee` in coordinator.js, fire-and-forget `.catch()` | `trainee.email` if set |
+
+Required env vars for email: `SMTP_HOST` (default `smtp.gmail.com`), `SMTP_PORT` (default `587`), `SMTP_USER`, `SMTP_PASS`, `EMAIL_FROM`, `DAILY_SUMMARY_EMAILS`.
+
+If SMTP vars are not set, `createTransporter()` throws and the error is logged — the API call itself never fails.
 
 ### MySQL Migration
 Change `provider = "postgresql"` to `"mysql"` in schema.prisma, remove `directUrl` line, run `npx prisma db push`. See `docs/MYSQL_MIGRATION_GUIDE.md`.

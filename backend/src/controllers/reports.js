@@ -1,5 +1,5 @@
 import { prisma } from '../utils/db.js';
-import nodemailer from 'nodemailer';
+import { sendDailySummaryEmail } from '../utils/mailer.js';
 
 export async function getBatchReport(req, res) {
   try {
@@ -51,37 +51,8 @@ export async function sendDailySummary(req, res) {
     const { to } = req.body;
     if (!to) return res.status(400).json({ ok: false, message: 'Recipient required.' });
 
-    const [activeBatches, totalTrainees, avgRaw, criticalRisks] = await Promise.all([
-      prisma.batchMaster.count({ where: { batchStatus: 'Active' } }),
-      prisma.traineeMaster.count({ where: { status: 'Active' } }),
-      prisma.traineeMaster.aggregate({ _avg: { courseCompletionPct: true, assessmentPassPct: true, attendancePct: true } }),
-      prisma.trainingRiskLog.count({ where: { severity: 'CRITICAL', status: 'Open' } }),
-    ]);
-
-    const body = `
-LMS 2.0 Daily Training Summary — ${new Date().toDateString()}
-
-Active Batches: ${activeBatches}
-Active Trainees: ${totalTrainees}
-Avg Course Completion: ${Math.round(avgRaw._avg.courseCompletionPct || 0)}%
-Avg MCQ Pass: ${Math.round(avgRaw._avg.assessmentPassPct || 0)}%
-Avg Attendance: ${Math.round(avgRaw._avg.attendancePct || 0)}%
-Critical Risks Open: ${criticalRisks}
-    `.trim();
-
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587', 10),
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    });
-
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
-      to,
-      subject: `LMS Daily Summary – ${new Date().toDateString()}`,
-      text: body,
-    });
-
+    const recipients = Array.isArray(to) ? to : [to];
+    await sendDailySummaryEmail(recipients);
     res.json({ ok: true, message: 'Email sent.' });
   } catch (err) {
     console.error(err);

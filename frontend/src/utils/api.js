@@ -52,7 +52,10 @@ export async function downloadCsv(url, filename, type = 'admin') {
   const headers = {};
   if (token) headers['Authorization'] = `Bearer ${token}`;
   const res = await fetch(`${BASE}${url}`, { headers });
-  if (!res.ok) return;
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `Export failed (${res.status})`);
+  }
   const blob = await res.blob();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
