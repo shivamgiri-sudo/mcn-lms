@@ -96,14 +96,21 @@ export default function BatchDetail({ batchNo, onBack }) {
   async function bulkAddFromCsv() {
     if (!csvPreview || csvPreview.length === 0) return;
     setLoading(true);
-    const res = await api.post(`/coordinator/batches/${batchNo}/trainees/bulk`, { trainees: csvPreview }, 'coordinator');
-    setLoading(false);
-    if (res.ok) {
-      setMsg(`✓ ${res.data.success} onboarded, ${res.data.failed} failed.`);
-      setCsvPreview(null);
-      load();
-    } else {
-      setMsg(res.message || 'Failed.');
+    try {
+      const res = await api.post(`/coordinator/batches/${batchNo}/trainees/bulk`, { trainees: csvPreview }, 'coordinator');
+      if (res.ok) {
+        const { success, failed, errors } = res.data;
+        setShowBulk(false);
+        setCsvPreview(null);
+        setMsg(`✓ ${success} onboarded${failed > 0 ? `, ${failed} failed: ${errors.slice(0, 3).join('; ')}` : '.'}`);
+        load();
+      } else {
+        setMsg(res.message || 'Upload failed.');
+      }
+    } catch (err) {
+      setMsg('Network error. Please try again.');
+    } finally {
+      setLoading(false);
     }
   }
 
