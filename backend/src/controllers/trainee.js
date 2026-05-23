@@ -482,12 +482,15 @@ export async function submitAssessment(req, res) {
     await syncTraineeMasterStats(empId, assessment.classroomId);
 
     // Return correct answers for review
+    const attemptsLeft = Math.max(0, limit - attemptNo);
+    const revealAnswers = result === 'Pass' || attemptsLeft === 0;
+
     const reviewData = questions.map(q => ({
       questionId: q.questionId,
       questionText: q.questionText,
-      correctOption: q.correctOption,
+      correctOption: revealAnswers ? q.correctOption : null,
       yourAnswer: (answers || {})[q.questionId] || null,
-      explanation: q.explanation,
+      explanation: revealAnswers ? q.explanation : null,
     }));
 
     res.json({
@@ -502,7 +505,7 @@ export async function submitAssessment(req, res) {
         blank,
         attemptNo,
         passingPct: assessment.passingPct,
-        attemptsLeft: Math.max(0, (assessment.attemptLimit || 3) - attemptNo),
+        attemptsLeft,
         review: reviewData,
       },
     });

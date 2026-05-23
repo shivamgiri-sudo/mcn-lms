@@ -125,34 +125,70 @@ export default function AssessmentModal({ assessmentId, onClose }) {
               )}
 
               <h3 className="section-title">Answer Review</h3>
-              {(result.review || []).map((q, i) => {
-                const correct = q.yourAnswer === q.correctOption;
-                const notAnswered = !q.yourAnswer;
+              {(() => {
+                const revealAnswers = result.result === 'Pass' || result.attemptsLeft === 0;
+                return (result.review || []).map((q, i) => {
+                  const correct = revealAnswers ? q.yourAnswer === q.correctOption : null;
+                  const notAnswered = !q.yourAnswer;
+
+                const yourAnswerColor = notAnswered
+                  ? 'var(--muted)'
+                  : !revealAnswers
+                  ? 'var(--fg)'
+                  : correct
+                  ? 'var(--ok)'
+                  : 'var(--bad)';
+
+                const borderColor = notAnswered
+                  ? 'var(--line)'
+                  : correct === true
+                  ? '#a7f3d0'
+                  : correct === false
+                  ? '#fecaca'
+                  : 'var(--line)';
+
+                const bgColor = notAnswered
+                  ? '#fafafa'
+                  : correct === true
+                  ? 'var(--ok-soft)'
+                  : correct === false
+                  ? 'var(--bad-soft)'
+                  : '#fafafa';
+
                 return (
                   <div key={q.questionId} style={{
-                    border: `1.5px solid ${notAnswered ? 'var(--line)' : correct ? '#a7f3d0' : '#fecaca'}`,
+                    border: `1.5px solid ${borderColor}`,
                     borderRadius: 12, padding: 14, marginBottom: 9,
-                    background: notAnswered ? '#fafafa' : correct ? 'var(--ok-soft)' : 'var(--bad-soft)',
+                    background: bgColor,
                   }}>
                     <b style={{ fontSize: 13 }}>Q{i + 1}. {q.questionText}</b>
                     <div className="row" style={{ gap: 12, marginTop: 7, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12.5 }}>
-                        Your answer: <b style={{ color: notAnswered ? 'var(--muted)' : correct ? 'var(--ok)' : 'var(--bad)' }}>
+                        Your answer:{' '}
+                        <b style={{ color: yourAnswerColor }}>
                           {q.yourAnswer || 'Not answered'}
                         </b>
                       </span>
-                      <span style={{ fontSize: 12.5 }}>
-                        Correct: <b style={{ color: 'var(--ok)' }}>{q.correctOption}</b>
-                      </span>
+                      {revealAnswers && q.correctOption && (
+                        <span style={{ fontSize: 12.5 }}>
+                          Correct: <b style={{ color: 'var(--ok)' }}>{q.correctOption}</b>
+                        </span>
+                      )}
+                      {!revealAnswers && !notAnswered && (
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          Answer hidden — attempt again to reveal
+                        </span>
+                      )}
                     </div>
-                    {q.explanation && (
+                    {revealAnswers && q.explanation && (
                       <div style={{ marginTop: 7, fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
                         💡 {q.explanation}
                       </div>
                     )}
                   </div>
                 );
-              })}
+              });
+              })()}
               <button className="btn secondary" style={{ width: '100%', marginTop: 12 }} onClick={onClose}>Close</button>
             </div>
           )}
