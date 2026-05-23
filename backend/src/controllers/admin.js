@@ -1940,14 +1940,33 @@ export async function deleteBatch(req, res) {
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
     if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
 
-    // Delete all dependent records in a transaction
-    await prisma.$transaction([
-      prisma.onboardingLog.deleteMany({ where: { batchNo } }),
-      prisma.attendanceInference.deleteMany({ where: { batchNo } }),
-      prisma.batchClassroomMap.deleteMany({ where: { batchNo } }),
-      prisma.traineeMaster.deleteMany({ where: { batchNo } }),
-      prisma.batchMaster.delete({ where: { batchNo } }),
-    ]);
+    // Collect all employeeIds in this batch first
+    const empIds = (await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } }))
+      .map(t => t.employeeId);
+
+    await prisma.$transaction(async (tx) => {
+      // Delete all trainee-level child rows first (FK deps on employeeId)
+      if (empIds.length > 0) {
+        await tx.videoWatchLog.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.contentProgress.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.courseCompletionReport.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.assessmentAttempt.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.assessmentResult.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.traineeQueryLog.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.trainingRiskLog.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.pendingActivityLog.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.certificationEvidence.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.traineeClassroomMap.deleteMany({ where: { employeeId: { in: empIds } } });
+        await tx.userMaster.deleteMany({ where: { employeeId: { in: empIds } } });
+      }
+      // Delete batch-level rows
+      await tx.onboardingLog.deleteMany({ where: { batchNo } });
+      await tx.attendanceInference.deleteMany({ where: { batchNo } });
+      await tx.batchClassroomMap.deleteMany({ where: { batchNo } });
+      await tx.traineeMaster.deleteMany({ where: { batchNo } });
+      await tx.batchMaster.delete({ where: { batchNo } });
+    });
+
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DELETE_BATCH', module: 'Batch', referenceId: batchNo });
     res.json({ ok: true, message: `Batch ${batchNo} and all related data deleted.` });
   } catch (err) {
