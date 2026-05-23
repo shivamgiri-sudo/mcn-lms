@@ -120,29 +120,29 @@ export async function deleteClassroom(req, res) {
       return res.status(400).json({ ok: false, message: 'Classroom name does not match. Deletion cancelled.' });
     }
 
-    // Cascade-delete all related data
+    // Collect IDs needed for child deletes
     const modules = await prisma.moduleMaster.findMany({ where: { classroomId }, select: { moduleId: true } });
     const moduleIds = modules.map(m => m.moduleId);
     const assessments = await prisma.assessmentMaster.findMany({ where: { classroomId }, select: { assessmentId: true } });
     const assessmentIds = assessments.map(a => a.assessmentId);
 
-    // Clear assessmentId references from modules before deleting
-    if (moduleIds.length) await prisma.moduleMaster.updateMany({ where: { classroomId }, data: { assessmentId: null } });
-
-    await prisma.$transaction([
-      prisma.contentProgress.deleteMany({ where: { classroomId } }),
-      prisma.videoWatchLog.deleteMany({ where: { classroomId } }),
-      prisma.courseCompletionReport.deleteMany({ where: { classroomId } }),
-      prisma.assessmentResult.deleteMany({ where: { classroomId } }),
-      prisma.assessmentAttempt.deleteMany({ where: { assessmentId: { in: assessmentIds } } }),
-      prisma.questionBank.deleteMany({ where: { assessmentId: { in: assessmentIds } } }),
-      prisma.assessmentMaster.deleteMany({ where: { classroomId } }),
-      prisma.faqMaster.deleteMany({ where: { moduleId: { in: moduleIds } } }),
-      prisma.contentMaster.deleteMany({ where: { moduleId: { in: moduleIds } } }),
-      prisma.moduleMaster.deleteMany({ where: { classroomId } }),
-      prisma.traineeClassroomMap.deleteMany({ where: { classroomId } }),
-      prisma.classroomMaster.delete({ where: { classroomId } }),
-    ]);
+    // Sequential deletes — no transaction (avoids 5s timeout on large classrooms)
+    await prisma.contentProgress.deleteMany({ where: { classroomId } });
+    await prisma.videoWatchLog.deleteMany({ where: { classroomId } });
+    await prisma.courseCompletionReport.deleteMany({ where: { classroomId } });
+    await prisma.assessmentResult.deleteMany({ where: { classroomId } });
+    if (assessmentIds.length) {
+      await prisma.assessmentAttempt.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+      await prisma.questionBank.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+    }
+    await prisma.assessmentMaster.deleteMany({ where: { classroomId } });
+    if (moduleIds.length) {
+      await prisma.faqMaster.deleteMany({ where: { moduleId: { in: moduleIds } } });
+      await prisma.contentMaster.deleteMany({ where: { moduleId: { in: moduleIds } } });
+    }
+    await prisma.moduleMaster.deleteMany({ where: { classroomId } });
+    await prisma.traineeClassroomMap.deleteMany({ where: { classroomId } });
+    await prisma.classroomMaster.delete({ where: { classroomId } });
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DELETE_CLASSROOM', module: 'Curriculum', referenceId: classroomId, details: cl.classroomName });
     res.json({ ok: true, message: `Classroom "${cl.classroomName}" deleted permanently.` });
