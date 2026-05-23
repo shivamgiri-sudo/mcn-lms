@@ -1410,27 +1410,31 @@ export async function listCoordinators(req, res) {
   try {
     const [batches, roleRows] = await Promise.all([
       prisma.batchMaster.findMany({
-        where: { batchStatus: 'Active', coordinatorLoginId: { not: null } },
-        select: { coordinatorLoginId: true, coordinatorName: true, batchNo: true, batchName: true, totalTrainees: true },
+        where: { coordinatorLoginId: { not: null } },
+        select: { coordinatorLoginId: true, coordinatorName: true, batchNo: true, batchName: true, totalTrainees: true, batchStatus: true },
       }),
       prisma.roleAccessMatrix.findMany({
-        where: { role: { in: ['coordinator', 'Coordinator'] } },
-        select: { loginId: true, name: true },
+        where: { role: { in: ['coordinator', 'Coordinator'] }, active: true },
+        select: { loginId: true, name: true, branch: true, process: true, lob: true },
       }),
     ]);
-    // Build loginId → name lookup from RoleAccessMatrix (source of truth for names)
-    const nameMap = {};
-    roleRows.forEach(r => { nameMap[r.loginId] = r.name; });
 
+    // Seed coordMap from RoleAccessMatrix — every active coordinator appears
     const coordMap = {};
+    roleRows.forEach(r => {
+      coordMap[r.loginId] = { coordinatorLoginId: r.loginId, coordinatorName: r.name || r.loginId, branch: r.branch, process: r.process, lob: r.lob, batches: [], activeBatches: 0, totalBatches: 0 };
+    });
+
+    // Enrich with batch data — also picks up coordinators not in RoleAccessMatrix
     batches.forEach(b => {
       const id = b.coordinatorLoginId;
-      // Prefer RoleAccessMatrix name, fall back to batch-stored name, then loginId
-      const name = nameMap[id] || b.coordinatorName || id;
-      if (!coordMap[id]) coordMap[id] = { coordinatorLoginId: id, coordinatorName: name, batches: [] };
-      coordMap[id].batches.push({ batchNo: b.batchNo, batchName: b.batchName, totalTrainees: b.totalTrainees });
+      if (!coordMap[id]) coordMap[id] = { coordinatorLoginId: id, coordinatorName: b.coordinatorName || id, branch: null, process: null, lob: null, batches: [], activeBatches: 0, totalBatches: 0 };
+      coordMap[id].batches.push({ batchNo: b.batchNo, batchName: b.batchName, totalTrainees: b.totalTrainees, batchStatus: b.batchStatus });
+      coordMap[id].totalBatches++;
+      if (b.batchStatus === 'Active') coordMap[id].activeBatches++;
     });
-    res.json({ ok: true, data: Object.values(coordMap) });
+
+    res.json({ ok: true, data: Object.values(coordMap).sort((a, b) => (a.coordinatorName || '').localeCompare(b.coordinatorName || '')) });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });
