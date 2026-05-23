@@ -700,8 +700,18 @@ function ModuleCard({ mod, selected, onSelect, onDelete }) {
   );
 }
 
-function ContentCard({ c, onToggleLock, onDelete }) {
+function ContentCard({ c, onToggleLock, onDelete, onSave }) {
   const meta = TYPE_META[c.contentType] || TYPE_META.link;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState({ estimatedMins: c.estimatedMins ?? '', completionRulePct: c.completionRulePct ?? 80 });
+  const [saving, setSaving] = useState(false);
+  const [saveErr, setSaveErr] = useState('');
+  useEffect(() => {
+    if (!editing) {
+      setDraft({ estimatedMins: c.estimatedMins ?? '', completionRulePct: c.completionRulePct ?? 80 });
+      setSaveErr('');
+    }
+  }, [c.estimatedMins, c.completionRulePct]);
   return (
     <div style={{
       borderRadius: 12,
@@ -740,19 +750,97 @@ function ContentCard({ c, onToggleLock, onDelete }) {
           )}
           {!c.active && <span className="pill bad">Inactive</span>}
         </div>
-        <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-          <span>⏱ {c.estimatedMins || '—'}m</span>
-          <span>✅ Complete at {c.completionRulePct}%</span>
-          <span>🎬 {c.playerMode}</span>
-          {c.driveFileId && (
-            <a href={`https://drive.google.com/file/d/${c.driveFileId}/view`} target="_blank" rel="noopener"
-              style={{ color: 'var(--brand)', textDecoration: 'none' }}>☁ Drive ↗</a>
-          )}
-        </div>
+        {!editing ? (
+          <div style={{ fontSize: 11.5, color: 'var(--muted)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+            <span>⏱ {c.estimatedMins || '—'}m</span>
+            <span>✅ Complete at {c.completionRulePct}%</span>
+            <span>🎬 {c.playerMode}</span>
+            {c.driveFileId && (
+              <a href={`https://drive.google.com/file/d/${c.driveFileId}/view`} target="_blank" rel="noopener"
+                style={{ color: 'var(--brand)', textDecoration: 'none' }}>☁ Drive ↗</a>
+            )}
+          </div>
+        ) : (
+          <>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
+              <label style={{ fontSize: 12, color: 'var(--muted)' }}>
+                ⏱ Mins
+                <input
+                  type="number" min="0"
+                  value={draft.estimatedMins}
+                  onChange={e => setDraft(p => ({ ...p, estimatedMins: e.target.value }))}
+                  style={{ marginLeft: 6, width: 64, padding: '3px 7px', borderRadius: 7, border: '1.5px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 12 }}
+                />
+              </label>
+              <label style={{ fontSize: 12, color: 'var(--muted)' }}>
+                ✅ Complete %
+                <input
+                  type="number" min="1" max="100"
+                  value={draft.completionRulePct}
+                  onChange={e => {
+                    const v = e.target.value === '' ? '' : Math.min(100, Math.max(1, Number(e.target.value)));
+                    setDraft(p => ({ ...p, completionRulePct: isNaN(v) ? '' : v }));
+                  }}
+                  style={{ marginLeft: 6, width: 56, padding: '3px 7px', borderRadius: 7, border: '1.5px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 12 }}
+                />
+              </label>
+            </div>
+            {saveErr && (
+              <div style={{ fontSize: 11, color: 'var(--bad)', marginTop: 4 }}>{saveErr}</div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Actions */}
       <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        {!editing ? (
+          <button
+            onClick={() => setEditing(true)}
+            title="Edit duration & completion %"
+            style={{
+              border: '1.5px solid var(--line)', background: 'rgba(255,255,255,.07)', color: 'var(--muted)',
+              borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
+            }}
+          >
+            ✎
+          </button>
+        ) : (
+          <>
+            <button
+              onClick={async () => {
+                setSaving(true);
+                setSaveErr('');
+                try {
+                  await onSave(draft);
+                  setEditing(false);
+                } catch (err) {
+                  setSaveErr(err.message || 'Save failed.');
+                } finally {
+                  setSaving(false);
+                }
+              }}
+              disabled={saving}
+              title="Save"
+              style={{
+                border: '1.5px solid rgba(16,185,129,.5)', background: 'rgba(16,185,129,.15)', color: '#34d399',
+                borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
+              }}
+            >
+              {saving ? '…' : '✓'}
+            </button>
+            <button
+              onClick={() => { setDraft({ estimatedMins: c.estimatedMins ?? '', completionRulePct: c.completionRulePct ?? 80 }); setEditing(false); }}
+              title="Cancel"
+              style={{
+                border: '1.5px solid var(--line)', background: 'rgba(255,255,255,.07)', color: 'var(--muted)',
+                borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
+              }}
+            >
+              ✕
+            </button>
+          </>
+        )}
         <button
           onClick={onToggleLock}
           title={c.locked ? 'Remove sequential lock' : 'Set sequential lock'}
@@ -768,6 +856,7 @@ function ContentCard({ c, onToggleLock, onDelete }) {
         </button>
         <button
           onClick={onDelete}
+          title="Delete content"
           style={{
             border: '1.5px solid rgba(220,38,38,.4)', background: 'rgba(220,38,38,.15)', color: '#f87171',
             borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
@@ -1203,6 +1292,14 @@ export default function CurriculumTab() {
                         loadContents(selectedMod.moduleId);
                       }}
                       onDelete={() => deleteContent(c.contentId)}
+                      onSave={async (draft) => {
+                        const res = await api.put(`/admin/contents/${c.contentId}`, {
+                          estimatedMins: Number(draft.estimatedMins) || 0,
+                          completionRulePct: Number(draft.completionRulePct) || 80,
+                        }, 'admin');
+                        if (!res.ok) throw new Error(res.message || 'Save failed.');
+                        loadContents(selectedMod.moduleId);
+                      }}
                     />
                   ))}
                   {contents.length === 0 && (
