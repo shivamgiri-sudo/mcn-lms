@@ -2,27 +2,37 @@ import { useState, useEffect } from 'react';
 import { api, downloadCsv } from '../../utils/api.js';
 import { formatDate, formatDateTime, pct, riskColor } from '../../utils/format.js';
 
-const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile,DOJ\nEMP1001,John Doe,john@example.com,9876543210,2026-05-01\n';
+const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile,DOJ\nEMP1001,John Doe,john@example.com,9876543210,2026-05-01\n,Jane Smith,jane@example.com,9876543211,2026-05-01\n';
 
 function parseCsvTrainees(text) {
-  const lines = text.trim().split('\n').filter(Boolean);
+  // Normalise Windows (\r\n) and old Mac (\r) line endings
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim().split('\n').filter(Boolean);
   if (lines.length < 2) return [];
   const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-  const empIdx = header.findIndex(h => h.includes('emp') || h.includes('id'));
-  const nameIdx = header.findIndex(h => h.includes('name'));
+  const empIdx   = header.findIndex(h => h === 'employeeid' || h === 'employee_id' || h === 'emp id' || h === 'empid');
+  const nameIdx  = header.findIndex(h => h.includes('name'));
   const emailIdx = header.findIndex(h => h.includes('email') || h.includes('mail'));
   const mobileIdx = header.findIndex(h => h.includes('mobile') || h.includes('phone'));
-  const dojIdx = header.findIndex(h => h.includes('doj') || h.includes('date'));
+  const dojIdx   = header.findIndex(h => h === 'doj' || h.includes('joining') || h === 'date of joining');
   return lines.slice(1).map(line => {
-    const cols = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+    // Handle quoted fields that may contain commas
+    const cols = [];
+    let cur = '', inQ = false;
+    for (const ch of line) {
+      if (ch === '"') { inQ = !inQ; }
+      else if (ch === ',' && !inQ) { cols.push(cur.trim()); cur = ''; }
+      else { cur += ch; }
+    }
+    cols.push(cur.trim());
     return {
-      employeeId: (empIdx >= 0 ? cols[empIdx] : cols[0]) || '',
-      traineeName: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || '',
-      email: (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
-      mobile: (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
-      doj: (dojIdx >= 0 ? cols[dojIdx] : cols[4]) || '',
+      employeeId:  (empIdx   >= 0 ? cols[empIdx]   : cols[0]) || '',
+      traineeName: (nameIdx  >= 0 ? cols[nameIdx]  : cols[1]) || '',
+      email:       (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
+      mobile:      (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
+      doj:         (dojIdx   >= 0 ? cols[dojIdx]   : cols[4]) || '',
     };
-  }).filter(t => t.employeeId);
+  // Keep rows that have at least a name or mobile (backend handles no-ID onboarding)
+  }).filter(t => t.traineeName || t.mobile);
 }
 
 export default function BatchDetail({ batchNo, onBack }) {
@@ -357,7 +367,7 @@ export default function BatchDetail({ batchNo, onBack }) {
                 }} />
                 <div style={{ fontSize: 22, marginBottom: 6 }}>📂</div>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drop trainee CSV here or click to browse</div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Columns: EmployeeID, Name, Email, Mobile, DOJ</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>Columns: EmployeeID (optional), Name, Email, Mobile, DOJ</div>
               </div>
               {csvPreview && csvPreview.length > 0 && (
                 <div style={{ background: 'var(--surface, rgba(255,255,255,.04))', borderRadius: 10, border: '1px solid var(--line)', padding: '12px 16px', marginBottom: 10 }}>
