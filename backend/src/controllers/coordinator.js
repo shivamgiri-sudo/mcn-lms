@@ -310,7 +310,7 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
           classroomId: batch.classroomId,
           classroomName: batch.classroomName,
           status: 'Active',
-          doj: doj ? new Date(doj) : null,
+          doj: doj && !isNaN(new Date(doj)) ? new Date(doj) : null,
           onboardingDate: new Date(),
           onboardingStatus: 'Active',
           createdBy: coordinatorLoginId,
