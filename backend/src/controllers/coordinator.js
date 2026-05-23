@@ -254,7 +254,8 @@ export async function bulkAddTrainees(req, res) {
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'BULK_ONBOARD', module: 'Trainee', referenceId: batchNo, newValue: { total: trainees.length, success, failed: failed.length } });
     res.json({ ok: true, data: { success, failed: failed.length, errors: failed.map(r => r.message), results } });
   } catch (err) {
-    res.status(500).json({ ok: false, message: 'Server error' });
+    console.error('[bulkAddTrainees]', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
 
@@ -283,8 +284,10 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
   if (existing) return { ok: false, message: `Duplicate trainee: Employee ID ${existing.employeeId} already exists.` };
 
   let lmsId = `LMS${normEmpId.replace(/\D/g, '').padStart(6, '0').slice(-6)}`;
-  const lmsIdExists = await prisma.traineeMaster.findFirst({ where: { lmsId } });
-  if (lmsIdExists) lmsId = `LMS${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`.slice(0, 9);
+  // Keep generating until we find a unique lmsId
+  while (await prisma.traineeMaster.findFirst({ where: { lmsId } })) {
+    lmsId = `LMS${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+  }
   const tempPassword = mobile ? mobile.replace(/\D/g, '').slice(-4) : '1234';
   const salt = generateSalt();
   const passwordHash = await hashPassword(tempPassword, salt);
