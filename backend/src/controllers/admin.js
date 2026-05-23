@@ -2371,3 +2371,106 @@ export async function getTempTrainees(req, res) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
+
+// ── Batch Content Progress ────────────────────────────────────────────────────
+export async function getBatchContentProgress(req, res) {
+  try {
+    const { batchNo } = req.params;
+
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo }, select: { classroomId: true } });
+    if (!batch?.classroomId) return res.json({ ok: true, data: null });
+    const classroomId = batch.classroomId;
+
+    const trainees = await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } });
+    const employeeIds = trainees.map(t => t.employeeId);
+    const totalTrainees = employeeIds.length;
+
+    if (totalTrainees === 0) return res.json({ ok: true, data: { totalTrainees: 0, modules: [], assessments: [] } });
+
+    const [modules, contents, progressRows, assessments, results] = await Promise.all([
+      prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: { dayNo: 'asc' }, select: { moduleId: true, moduleTitle: true, dayNo: true } }),
+      prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { contentOrder: 'asc' }, select: { contentId: true, contentTitle: true, contentType: true, moduleId: true, estimatedMins: true, completionRulePct: true } }),
+      prisma.contentProgress.findMany({ where: { employeeId: { in: employeeIds }, classroomId }, select: { employeeId: true, contentId: true, opened: true, completionPct: true, completionStatus: true } }),
+      prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: { sortOrder: 'asc' }, select: { assessmentId: true, assessmentName: true, moduleId: true, dayNo: true, passingPct: true } }),
+      prisma.assessmentResult.findMany({ where: { employeeId: { in: employeeIds }, classroomId }, select: { employeeId: true, assessmentId: true, bestPercentage: true, result: true } }),
+    ]);
+
+    // Build lookup maps
+    const progressMap = {};
+    for (const p of progressRows) {
+      if (!progressMap[p.contentId]) progressMap[p.contentId] = {};
+      progressMap[p.contentId][p.employeeId] = p;
+    }
+
+    const resultMap = {};
+    for (const r of results) {
+      if (!resultMap[r.assessmentId]) resultMap[r.assessmentId] = {};
+      resultMap[r.assessmentId][r.employeeId] = r;
+    }
+
+    const moduleMap = {};
+    for (const m of modules) moduleMap[m.moduleId] = m;
+
+    // Group contents by module
+    const contentsByModule = {};
+    for (const c of contents) {
+      if (!contentsByModule[c.moduleId]) contentsByModule[c.moduleId] = [];
+      const byEmp = progressMap[c.contentId] || {};
+      const progressArr = Object.values(byEmp);
+      const completedCount = progressArr.filter(p => p.completionStatus === 'Completed').length;
+      const openedCount = progressArr.filter(p => p.opened).length;
+      const avgCompletionPct = progressArr.length > 0
+        ? Math.round(progressArr.reduce((s, p) => s + (p.completionPct || 0), 0) / progressArr.length)
+        : 0;
+      contentsByModule[c.moduleId].push({
+        contentId: c.contentId,
+        contentTitle: c.contentTitle,
+        contentType: c.contentType,
+        estimatedMins: c.estimatedMins,
+        completionRulePct: c.completionRulePct,
+        completedCount,
+        openedCount,
+        notStartedCount: totalTrainees - openedCount,
+        completionRate: totalTrainees > 0 ? Math.round(completedCount / totalTrainees * 100) : 0,
+        avgCompletionPct,
+      });
+    }
+
+    const modulesOut = modules.map(m => ({
+      moduleId: m.moduleId,
+      moduleTitle: m.moduleTitle,
+      dayNo: m.dayNo,
+      contents: contentsByModule[m.moduleId] || [],
+    }));
+
+    // Aggregate assessments
+    const assessmentsOut = assessments.map(a => {
+      const byEmp = resultMap[a.assessmentId] || {};
+      const attempted = Object.values(byEmp);
+      const passedCount = attempted.filter(r => r.result === 'Pass').length;
+      const avgBestScore = attempted.length > 0
+        ? Math.round(attempted.reduce((s, r) => s + (r.bestPercentage || 0), 0) / attempted.length)
+        : 0;
+      const mod = moduleMap[a.moduleId] || {};
+      return {
+        assessmentId: a.assessmentId,
+        assessmentName: a.assessmentName,
+        moduleId: a.moduleId,
+        moduleTitle: mod.moduleTitle || null,
+        dayNo: a.dayNo ?? mod.dayNo ?? null,
+        passingPct: a.passingPct,
+        attemptedCount: attempted.length,
+        passedCount,
+        notAttemptedCount: totalTrainees - attempted.length,
+        attemptRate: totalTrainees > 0 ? Math.round(attempted.length / totalTrainees * 100) : 0,
+        passRate: totalTrainees > 0 ? Math.round(passedCount / totalTrainees * 100) : 0,
+        avgBestScore,
+      };
+    });
+
+    res.json({ ok: true, data: { totalTrainees, modules: modulesOut, assessments: assessmentsOut } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}

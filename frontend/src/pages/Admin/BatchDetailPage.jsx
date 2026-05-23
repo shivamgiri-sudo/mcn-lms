@@ -25,6 +25,8 @@ function parseCsvTrainees(text) {
 export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [data, setData] = useState(null);
   const [analytics, setAnalytics] = useState(null);
+  const [contentProgress, setContentProgress] = useState(null);
+  const [contentLoading, setContentLoading] = useState(false);
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [addMsg, setAddMsg] = useState({ text: '', ok: true });
@@ -76,6 +78,15 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   }
 
   useEffect(() => { reload(); }, [batchNo]);
+
+  useEffect(() => {
+    if (tab !== 'content' || contentProgress !== null) return;
+    setContentLoading(true);
+    api.get(`/admin/batches/${batchNo}/content-progress`, 'admin').then(r => {
+      setContentLoading(false);
+      if (r.ok) setContentProgress(r.data);
+    });
+  }, [tab, batchNo]);
 
   async function bulkAddFromCsv() {
     if (!csvPreview || csvPreview.length === 0) return;
@@ -323,9 +334,138 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
       )}
 
       {tab === 'content' && (
-        <div className="glass-panel">
-          <div className="panel-title">Content Progress <span className="panel-sub">Classroom: {batch.classroomName || batch.classroomId || 'Not assigned'}</span></div>
-          <p style={{color:'var(--muted)',fontSize:'12px',marginTop:'8px'}}>Content module breakdown available when classroom is linked.</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+          {contentLoading && (
+            <div className="glass-panel" style={{ textAlign: 'center', padding: 32, color: 'var(--muted)', fontSize: 13 }}>
+              Loading content progress…
+            </div>
+          )}
+
+          {!contentLoading && !contentProgress && (
+            <div className="glass-panel">
+              <div className="panel-title">Content Progress <span className="panel-sub">No classroom linked</span></div>
+              <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>Assign a classroom to this batch to see content progress.</p>
+            </div>
+          )}
+
+          {!contentLoading && contentProgress && (
+            <>
+              {/* ── Section 1: Content completion ── */}
+              <div className="glass-panel">
+                <div className="panel-title">
+                  Content Completion
+                  <span className="panel-sub">{contentProgress.totalTrainees} trainees · {batch.classroomName || batch.classroomId || ''}</span>
+                </div>
+
+                {contentProgress.modules.length === 0 && (
+                  <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No content found in this classroom.</p>
+                )}
+
+                {contentProgress.modules.map(mod => (
+                  <div key={mod.moduleId} style={{ marginTop: 18 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                      Day {mod.dayNo} — {mod.moduleTitle}
+                    </div>
+                    <div style={{ overflowX: 'auto' }}>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                        <thead>
+                          <tr style={{ borderBottom: '1.5px solid var(--line)' }}>
+                            <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Content</th>
+                            <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Type</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Est. Mins</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Opened</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Completed</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Not Started</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Completion Rate</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Avg Progress</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {mod.contents.map((c, ci) => (
+                            <tr key={c.contentId} style={{ borderBottom: '1px solid var(--line)', background: ci % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
+                              <td style={{ padding: '8px 10px', color: 'var(--ink)', fontWeight: 500 }}>{c.contentTitle}</td>
+                              <td style={{ padding: '8px 10px', color: 'var(--muted)' }}>{c.contentType}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)' }}>{c.estimatedMins || '—'}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ink)' }}>{c.openedCount}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ok)', fontWeight: 600 }}>{c.completedCount}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: c.notStartedCount > 0 ? 'var(--bad)' : 'var(--muted)' }}>{c.notStartedCount}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                                  <div style={{ width: 64, height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
+                                    <div style={{ height: '100%', width: `${c.completionRate}%`, background: c.completionRate >= 80 ? 'var(--ok)' : c.completionRate >= 50 ? 'var(--warn)' : 'var(--bad)', borderRadius: 99, transition: 'width .3s' }} />
+                                  </div>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: c.completionRate >= 80 ? 'var(--ok)' : c.completionRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{c.completionRate}%</span>
+                                </div>
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>{c.avgCompletionPct}%</td>
+                            </tr>
+                          ))}
+                          {mod.contents.length === 0 && (
+                            <tr><td colSpan={8} style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>No content in this module.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* ── Section 2: MCQ stats ── */}
+              <div className="glass-panel">
+                <div className="panel-title">MCQ Performance</div>
+
+                {contentProgress.assessments.length === 0 && (
+                  <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No assessments found in this classroom.</p>
+                )}
+
+                {contentProgress.assessments.length > 0 && (
+                  <div style={{ overflowX: 'auto', marginTop: 12 }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1.5px solid var(--line)' }}>
+                          <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Assessment</th>
+                          <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Module</th>
+                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Pass Mark</th>
+                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Attempted</th>
+                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Not Attempted</th>
+                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Attempt Rate</th>
+                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Pass Rate</th>
+                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Avg Score</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {contentProgress.assessments.map((a, ai) => (
+                          <tr key={a.assessmentId} style={{ borderBottom: '1px solid var(--line)', background: ai % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
+                            <td style={{ padding: '8px 10px', color: 'var(--ink)', fontWeight: 500 }}>{a.assessmentName}</td>
+                            <td style={{ padding: '8px 10px', color: 'var(--muted)', fontSize: 12 }}>
+                              {a.moduleTitle ? `Day ${a.dayNo ?? ''} — ${a.moduleTitle}` : '—'}
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)' }}>{a.passingPct}%</td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ink)' }}>{a.attemptedCount}</td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center', color: a.notAttemptedCount > 0 ? 'var(--bad)' : 'var(--muted)' }}>{a.notAttemptedCount}</td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                              <span style={{ fontWeight: 700, color: a.attemptRate >= 80 ? 'var(--ok)' : a.attemptRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{a.attemptRate}%</span>
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                                <div style={{ width: 64, height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${a.passRate}%`, background: a.passRate >= 80 ? 'var(--ok)' : a.passRate >= 50 ? 'var(--warn)' : 'var(--bad)', borderRadius: 99, transition: 'width .3s' }} />
+                                </div>
+                                <span style={{ fontSize: 12, fontWeight: 700, color: a.passRate >= 80 ? 'var(--ok)' : a.passRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{a.passRate}%</span>
+                              </div>
+                            </td>
+                            <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: a.attemptedCount === 0 ? 'var(--muted)' : a.avgBestScore >= a.passingPct ? 'var(--ok)' : 'var(--bad)' }}>
+                              {a.attemptedCount > 0 ? `${a.avgBestScore}%` : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

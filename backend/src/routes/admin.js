@@ -15,7 +15,7 @@ import {
   getProcessLobList, saveProcessLob, updateProcessLob, deleteProcessLob,
   exportTrainees,
   syncHistoricalKpi,
-  listBatches, getBatchDetail, getBatchAnalytics,
+  listBatches, getBatchDetail, getBatchAnalytics, getBatchContentProgress,
   listCoordinators, getCoordinatorDetail,
   getTraineeDetail,
   getRiskLevel,
@@ -130,6 +130,7 @@ router.post('/batches', ...auth, adminCreateBatch);
 router.post('/batches/:batchNo/trainees/bulk', ...auth, adminBulkAddTrainees);
 router.get('/batches/:batchNo', ...auth, getBatchDetail);
 router.get('/batches/:batchNo/analytics', ...auth, getBatchAnalytics);
+router.get('/batches/:batchNo/content-progress', ...auth, getBatchContentProgress);
 router.put('/batches/:batchNo/coordinator', ...auth, adminUpdateBatchCoordinator);
 router.post('/batches/:batchNo/close', ...auth, closeBatch);
 router.delete('/batches/:batchNo', ...auth, deleteBatch);
