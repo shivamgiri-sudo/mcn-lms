@@ -1753,6 +1753,33 @@ export async function adminUpdateBatchCoordinator(req, res) {
   }
 }
 
+export async function adminUpdateBatch(req, res) {
+  try {
+    const { batchNo } = req.params;
+    const { batchName, branch, process: proc, lob, startDate, endDate, expectedTrainees, remarks } = req.body;
+
+    const data = {};
+    if (batchName !== undefined) data.batchName = String(batchName).trim();
+    if (branch !== undefined) data.branch = String(branch).trim() || null;
+    if (proc !== undefined) data.process = String(proc).trim() || null;
+    if (lob !== undefined) data.lob = String(lob).trim() || null;
+    if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
+    if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
+    if (expectedTrainees !== undefined) data.expectedTrainees = parseInt(expectedTrainees) || 0;
+    if (remarks !== undefined) data.remarks = String(remarks).trim() || null;
+
+    if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No fields to update.' });
+    if (data.batchName !== undefined && !data.batchName) return res.status(400).json({ ok: false, message: 'Batch name cannot be empty.' });
+
+    const batch = await prisma.batchMaster.update({ where: { batchNo }, data });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_BATCH', module: 'Batch', referenceId: batchNo, newValue: data });
+    res.json({ ok: true, data: batch });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
 export async function listAllCoordinators(req, res) {
   try {
     const coords = await prisma.roleAccessMatrix.findMany({

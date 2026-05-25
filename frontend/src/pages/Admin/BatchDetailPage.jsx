@@ -34,6 +34,37 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [csvPreview, setCsvPreview] = useState(null);
   const [addLoading, setAddLoading] = useState(false);
 
+  // Edit batch modal
+  const [editOpen, setEditOpen] = useState(false);
+  const [editDraft, setEditDraft] = useState({});
+  const [editSaving, setEditSaving] = useState(false);
+  const [editErr, setEditErr] = useState('');
+
+  function openEdit() {
+    const b = data?.batch || {};
+    setEditDraft({
+      batchName: b.batchName || '',
+      branch: b.branch || '',
+      process: b.process || '',
+      lob: b.lob || '',
+      startDate: b.startDate ? b.startDate.slice(0, 10) : '',
+      endDate: b.endDate ? b.endDate.slice(0, 10) : '',
+      expectedTrainees: b.expectedTrainees ?? '',
+      remarks: b.remarks || '',
+    });
+    setEditErr('');
+    setEditOpen(true);
+  }
+
+  async function saveEdit() {
+    if (!editDraft.batchName?.trim()) { setEditErr('Batch name is required.'); return; }
+    setEditSaving(true); setEditErr('');
+    const res = await api.put(`/admin/batches/${batchNo}`, editDraft, 'admin');
+    setEditSaving(false);
+    if (res.ok) { setEditOpen(false); reload(); }
+    else setEditErr(res.message || 'Save failed.');
+  }
+
   // Search & enroll existing trainee
   const [searchQ, setSearchQ] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -112,11 +143,12 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
     <div>
       <button className="back-btn" onClick={onBack}>← Batches</button>
       <div style={{marginBottom:'20px',display:'flex',alignItems:'center',gap:'12px'}}>
-        <div>
+        <div style={{ flex: 1 }}>
           <h2 style={{fontSize:'20px',fontWeight:'900',color:'var(--ink)'}}>{batch.batchName || batchNo}</h2>
           <p style={{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}>{batchNo} · {batch.process} / {batch.lob} · {batch.coordinatorName || 'No coordinator'}</p>
         </div>
         <span className={`pill ${batch.batchStatus==='Active'?'ok':batch.batchStatus==='Completed'?'info':'warn'}`}>{batch.batchStatus}</span>
+        <button className="btn small secondary" onClick={openEdit}>✎ Edit Batch</button>
       </div>
 
       <div className="inner-tabs">
@@ -466,6 +498,56 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
               </div>
             </>
           )}
+        </div>
+      )}
+      {/* ── Edit Batch Modal ── */}
+      {editOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setEditOpen(false)}>
+          <div className="modal-box" style={{ maxWidth: 540, width: '95vw' }}>
+            <div className="modal-head">
+              <b style={{ fontSize: 16 }}>Edit Batch — {batchNo}</b>
+              <button className="btn small secondary" onClick={() => setEditOpen(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Batch Name *</label>
+                <input className="input" value={editDraft.batchName} onChange={e => setEditDraft(d => ({ ...d, batchName: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Branch</label>
+                <input className="input" value={editDraft.branch} onChange={e => setEditDraft(d => ({ ...d, branch: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Process</label>
+                <input className="input" value={editDraft.process} onChange={e => setEditDraft(d => ({ ...d, process: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>LOB</label>
+                <input className="input" value={editDraft.lob} onChange={e => setEditDraft(d => ({ ...d, lob: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Expected Trainees</label>
+                <input className="input" type="number" min="0" value={editDraft.expectedTrainees} onChange={e => setEditDraft(d => ({ ...d, expectedTrainees: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Start Date</label>
+                <input className="input" type="date" value={editDraft.startDate} onChange={e => setEditDraft(d => ({ ...d, startDate: e.target.value }))} />
+              </div>
+              <div className="field">
+                <label>End Date</label>
+                <input className="input" type="date" value={editDraft.endDate} onChange={e => setEditDraft(d => ({ ...d, endDate: e.target.value }))} />
+              </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Remarks</label>
+                <input className="input" value={editDraft.remarks} onChange={e => setEditDraft(d => ({ ...d, remarks: e.target.value }))} placeholder="Optional notes" />
+              </div>
+              {editErr && <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--bad)' }}>{editErr}</div>}
+              <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                <button className="btn secondary" onClick={() => setEditOpen(false)}>Cancel</button>
+                <button className="btn" onClick={saveEdit} disabled={editSaving}>{editSaving ? 'Saving...' : 'Save Changes'}</button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>

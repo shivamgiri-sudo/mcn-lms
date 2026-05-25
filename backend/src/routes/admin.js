@@ -20,7 +20,7 @@ import {
   getTraineeDetail,
   getRiskLevel,
   uploadQuestionsCSV,
-  adminCreateBatch, adminUpdateBatchCoordinator, listAllCoordinators, closeBatch, deleteBatch,
+  adminCreateBatch, adminUpdateBatch, adminUpdateBatchCoordinator, listAllCoordinators, closeBatch, deleteBatch,
   adminBulkAddTrainees, resetAdminPassword,
   setContentLock, unlockContentForTrainee,
   listBranches, getBranchDetail,
@@ -131,6 +131,7 @@ router.post('/batches/:batchNo/trainees/bulk', ...auth, adminBulkAddTrainees);
 router.get('/batches/:batchNo', ...auth, getBatchDetail);
 router.get('/batches/:batchNo/analytics', ...auth, getBatchAnalytics);
 router.get('/batches/:batchNo/content-progress', ...auth, getBatchContentProgress);
+router.put('/batches/:batchNo', ...auth, adminUpdateBatch);
 router.put('/batches/:batchNo/coordinator', ...auth, adminUpdateBatchCoordinator);
 router.post('/batches/:batchNo/close', ...auth, closeBatch);
 router.delete('/batches/:batchNo', ...auth, deleteBatch);
