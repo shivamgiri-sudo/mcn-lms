@@ -481,6 +481,28 @@ export async function submitAssessment(req, res) {
     // FIX 2: Sync TraineeMaster stats after assessment submit
     await syncTraineeMasterStats(empId, assessment.classroomId);
 
+    // Mark mcqActivity on today's attendance inference record
+    if (traineeForBatch?.batchNo) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      prisma.attendanceInference.upsert({
+        where: { date_batchNo_employeeId: { date: today, batchNo: traineeForBatch.batchNo, employeeId: empId } },
+        create: {
+          date: today,
+          batchNo: traineeForBatch.batchNo,
+          employeeId: empId,
+          traineeName: traineeForBatch.traineeName,
+          branch: traineeForBatch.branch,
+          process: traineeForBatch.process,
+          lob: traineeForBatch.lob,
+          mcqActivity: true,
+          finalAttendance: 'Present',
+          attendanceSource: 'Inferred',
+        },
+        update: { mcqActivity: true },
+      }).catch(() => {});
+    }
+
     // Return correct answers for review
     const attemptsLeft = Math.max(0, limit - attemptNo);
     const revealAnswers = result === 'Pass' || attemptsLeft === 0;

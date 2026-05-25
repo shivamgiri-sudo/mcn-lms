@@ -782,14 +782,20 @@ function toCsv(headers, rows) {
   return [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 }
 
+const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+
+function toIST(v) {
+  return new Date(new Date(v).getTime() + IST_OFFSET_MS);
+}
+
 function fmtDt(v) {
   if (!v) return '';
-  return new Date(v).toISOString().replace('T', ' ').slice(0, 19);
+  return toIST(v).toISOString().replace('T', ' ').slice(0, 19);
 }
 
 function fmtDate(v) {
   if (!v) return '';
-  return new Date(v).toISOString().slice(0, 10);
+  return toIST(v).toISOString().slice(0, 10);
 }
 
 function csvRes(res, filename, headers, rows) {
@@ -1036,18 +1042,21 @@ export async function exportAssessmentResults(req, res) {
     const attemptWhere = { employeeId: { in: empIds } };
     if (assessmentId) attemptWhere.assessmentId = assessmentId;
 
-    const [attempts, assessments, batches] = await Promise.all([
+    const [attempts, assessments, batches, modules] = await Promise.all([
       prisma.assessmentAttempt.findMany({
         where: attemptWhere,
         orderBy: [{ employeeId: 'asc' }, { assessmentId: 'asc' }, { attemptNo: 'asc' }],
       }),
-      prisma.assessmentMaster.findMany({ select: { assessmentId: true, assessmentName: true, passingPct: true, timeLimitMins: true, dayNo: true } }),
+      prisma.assessmentMaster.findMany({ select: { assessmentId: true, assessmentName: true, passingPct: true, timeLimitMins: true, dayNo: true, moduleId: true } }),
       prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
+      prisma.moduleMaster.findMany({ select: { moduleId: true, dayNo: true } }),
     ]);
     const assessMap = {};
     assessments.forEach(a => { assessMap[a.assessmentId] = a; });
     const batchMap = {};
     batches.forEach(b => { batchMap[b.batchNo] = b; });
+    const moduleMap = {};
+    modules.forEach(m => { moduleMap[m.moduleId] = m; });
 
     const headers = [
       'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
@@ -1065,7 +1074,7 @@ export async function exportAssessmentResults(req, res) {
       return [
         a.employeeId, t.traineeName, t.batchNo, t.branch, t.process,
         fmtDate(b.startDate), fmtDate(b.endDate),
-        as.assessmentName || a.assessmentId, as.dayNo || '',
+        as.assessmentName || a.assessmentId, as.dayNo ?? moduleMap[as.moduleId]?.dayNo ?? '',
         a.attemptNo, fmtDt(a.startedAt), fmtDt(a.submittedAt),
         Math.round((a.timeTakenSeconds || 0) / 60), as.timeLimitMins || '',
         a.totalQuestions, a.correctAnswers, a.wrongAnswers, a.blankAnswers,
