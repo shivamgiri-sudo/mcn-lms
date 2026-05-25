@@ -36,7 +36,7 @@ function PctBar({ value, cls = 'info' }) {
 }
 
 function StatusPill({ status }) {
-  const cls = status === 'Active' ? 'ok' : status === 'Closed' ? 'info' : 'muted';
+  const cls = status === 'Active' ? 'ok' : status === 'Completed' ? 'info' : 'muted';
   return <span className={`pill ${cls}`}>{status}</span>;
 }
 
@@ -54,6 +54,7 @@ export default function MgmtDashboard({ onLogout }) {
   const [coordinators, setCoordinators] = useState([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [loading, setLoading] = useState(true);
+  const [loadErr, setLoadErr] = useState(null);
 
   // Risk filters
   const [riskSeverity, setRiskSeverity] = useState('ALL');
@@ -88,23 +89,30 @@ export default function MgmtDashboard({ onLogout }) {
 
   async function loadAll() {
     setLoading(true);
-    const [kpiRes, branchRes, procRes, riskRes, histRes, batchRes, coordRes] = await Promise.all([
-      api.get('/management/dashboard', 'management'),
-      api.get('/management/branch-summaries', 'management'),
-      api.get('/management/process-summaries', 'management'),
-      api.get('/management/risk-list', 'management'),
-      api.get('/management/historical-kpis', 'management'),
-      api.get('/management/batch-summaries', 'management'),
-      api.get('/management/coordinator-performance', 'management'),
-    ]);
-    setLoading(false);
-    if (kpiRes.ok) setKpis(kpiRes.data);
-    if (branchRes.ok) setBranches(branchRes.data);
-    if (procRes.ok) setProcesses(procRes.data);
-    if (riskRes.ok) setRisks(riskRes.data);
-    if (histRes.ok) setHistorical(histRes.data);
-    if (batchRes.ok) setBatches(batchRes.data);
-    if (coordRes.ok) setCoordinators(coordRes.data);
+    setLoadErr(null);
+    try {
+      const [kpiRes, branchRes, procRes, riskRes, histRes, batchRes, coordRes] = await Promise.all([
+        api.get('/management/dashboard', 'management'),
+        api.get('/management/branch-summaries', 'management'),
+        api.get('/management/process-summaries', 'management'),
+        api.get('/management/risk-list', 'management'),
+        api.get('/management/historical-kpis', 'management'),
+        api.get('/management/batch-summaries', 'management'),
+        api.get('/management/coordinator-performance', 'management'),
+      ]);
+      if (kpiRes.ok) setKpis(kpiRes.data);
+      else if (!kpiRes.ok) setLoadErr(kpiRes.message || 'Session expired — please log out and log back in.');
+      if (branchRes.ok) setBranches(branchRes.data);
+      if (procRes.ok) setProcesses(procRes.data);
+      if (riskRes.ok) setRisks(riskRes.data);
+      if (histRes.ok) setHistorical(histRes.data);
+      if (batchRes.ok) setBatches(batchRes.data);
+      if (coordRes.ok) setCoordinators(coordRes.data);
+    } catch (e) {
+      setLoadErr('Network error — could not reach the server. Please check your connection.');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function loadRisks() {
@@ -171,6 +179,14 @@ export default function MgmtDashboard({ onLogout }) {
         </div>
       )}
 
+      {/* Load error banner */}
+      {loadErr && (
+        <div style={{ background: 'var(--bad-bg,#fef2f2)', border: '1px solid var(--bad)', borderRadius: 10, padding: '10px 16px', marginBottom: 12, fontSize: 13, color: 'var(--bad)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>⚠ {loadErr}</span>
+          <button className="btn small secondary" onClick={loadAll} style={{ marginLeft: 12 }}>Retry</button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="tabs">
         {tabs.map(t => (
@@ -181,6 +197,9 @@ export default function MgmtDashboard({ onLogout }) {
       </div>
 
       {/* ─── OVERVIEW ─── */}
+      {activeTab === 'overview' && !kpis && !loadErr && (
+        <div className="empty" style={{ marginTop: 40 }}>No data available. Try refreshing or logging out and back in.</div>
+      )}
       {activeTab === 'overview' && kpis && (
         <div style={{ marginTop: 14 }}>
           {/* Charts row */}
@@ -345,7 +364,7 @@ export default function MgmtDashboard({ onLogout }) {
 
       {/* ─── PAST BATCHES (CLOSED) ─── */}
       {activeTab === 'closed' && (() => {
-        const closed = batches.filter(b => b.status === 'Closed');
+        const closed = batches.filter(b => b.status === 'Completed');
         const totalClosed = closed.length;
         const totalTrained = closed.reduce((s, b) => s + b.totalTrainees, 0);
         const totalCert = closed.reduce((s, b) => s + b.certified, 0);
