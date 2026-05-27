@@ -1,6 +1,5 @@
 // LMS 2.0 Platform — Prisma Schema
-// Database: Supabase (PostgreSQL)
-// MySQL-migration: change provider to "mysql", remove directUrl
+// Database: MySQL 8.x
 
 generator client {
   provider      = "prisma-client-js"
@@ -8,9 +7,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 // ─── ROLE & ACCESS ────────────────────────────────────────────────────────────
@@ -94,7 +92,7 @@ model ProcessLobMaster {
   process String
   lob     String
   active  Boolean @default(true)
-  notes   String?
+  notes   String? @db.Text
 
   @@unique([process, lob])
   @@map("process_lob_master")
@@ -127,7 +125,7 @@ model BatchMaster {
   createdAt            DateTime  @default(now()) @map("created_at")
   createdBy            String?   @map("created_by")
   lastUpdatedAt        DateTime  @updatedAt @map("last_updated_at")
-  remarks              String?
+  remarks              String?   @db.Text
 
   trainees      TraineeMaster[]
   classroomMaps BatchClassroomMap[]
@@ -150,7 +148,7 @@ model BatchClassroomMap {
   assignedBy    String?  @map("assigned_by")
   assignedAt    DateTime @default(now()) @map("assigned_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
-  remarks       String?
+  remarks       String?  @db.Text
 
   batch BatchMaster @relation(fields: [batchNo], references: [batchNo])
 
@@ -160,39 +158,39 @@ model BatchClassroomMap {
 // ─── TRAINEE ──────────────────────────────────────────────────────────────────
 
 model TraineeMaster {
-  id                  String    @id @default(uuid())
-  employeeId          String    @unique @map("employee_id")
-  lmsId               String?   @unique @map("lms_id")
-  traineeName         String?   @map("trainee_name")
-  email               String?
-  mobile              String?
-  batchNo             String?   @map("batch_no")
-  branch              String?
-  process             String?
-  lob                 String?
-  classroomId         String?   @map("classroom_id")
-  classroomName       String?   @map("classroom_name")
-  status              String    @default("Active")
-  doj                 DateTime? @map("doj")
-  onboardingDate      DateTime? @map("onboarding_date")
-  onboardingStatus    String    @default("Pending") @map("onboarding_status")
-  courseCompletionPct Float     @default(0) @map("course_completion_pct")
-  assessmentAttemptPct Float    @default(0) @map("assessment_attempt_pct")
-  assessmentPassPct   Float     @default(0) @map("assessment_pass_pct")
-  attendancePct       Float     @default(0) @map("attendance_pct")
-  riskStatus          String    @default("HEALTHY") @map("risk_status")
-  riskReason          String?   @map("risk_reason")
-  ojtReady            Boolean   @default(false) @map("ojt_ready")
-  nestingStatus       String?   @map("nesting_status")
-  certificationStatus String    @default("Not Certified") @map("certification_status")
-  handoverToOps       Boolean   @default(false) @map("handover_to_ops")
-  createdAt           DateTime  @default(now()) @map("created_at")
-  createdBy           String?   @map("created_by")
-  lastUpdatedAt       DateTime  @updatedAt @map("last_updated_at")
-  source              String    @default("Manual")
-  empIdType           String    @default("PERMANENT") @map("emp_id_type")
-  permanentEmpId      String?   @unique @map("permanent_emp_id")
-  empIdMappedAt       DateTime? @map("emp_id_mapped_at")
+  id                   String    @id @default(uuid())
+  employeeId           String    @unique @map("employee_id")
+  lmsId                String?   @unique @map("lms_id")
+  traineeName          String?   @map("trainee_name")
+  email                String?
+  mobile               String?
+  batchNo              String?   @map("batch_no")
+  branch               String?
+  process              String?
+  lob                  String?
+  classroomId          String?   @map("classroom_id")
+  classroomName        String?   @map("classroom_name")
+  status               String    @default("Active")
+  doj                  DateTime? @map("doj")
+  onboardingDate       DateTime? @map("onboarding_date")
+  onboardingStatus     String    @default("Pending") @map("onboarding_status")
+  courseCompletionPct  Float     @default(0) @map("course_completion_pct")
+  assessmentAttemptPct Float     @default(0) @map("assessment_attempt_pct")
+  assessmentPassPct    Float     @default(0) @map("assessment_pass_pct")
+  attendancePct        Float     @default(0) @map("attendance_pct")
+  riskStatus           String    @default("HEALTHY") @map("risk_status")
+  riskReason           String?   @db.Text @map("risk_reason")
+  ojtReady             Boolean   @default(false) @map("ojt_ready")
+  nestingStatus        String?   @map("nesting_status")
+  certificationStatus  String    @default("Not Certified") @map("certification_status")
+  handoverToOps        Boolean   @default(false) @map("handover_to_ops")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  createdBy            String?   @map("created_by")
+  lastUpdatedAt        DateTime  @updatedAt @map("last_updated_at")
+  source               String    @default("Manual")
+  empIdType            String    @default("PERMANENT") @map("emp_id_type")
+  permanentEmpId       String?   @unique @map("permanent_emp_id")
+  empIdMappedAt        DateTime? @map("emp_id_mapped_at")
 
   batch       BatchMaster? @relation(fields: [batchNo], references: [batchNo])
   userAccount UserMaster?
@@ -248,17 +246,17 @@ model UserMaster {
 // ─── CLASSROOM & CURRICULUM ───────────────────────────────────────────────────
 
 model ClassroomMaster {
-  id            String   @id @default(uuid())
-  classroomId   String   @unique @map("classroom_id")
-  classroomName String   @map("classroom_name")
-  process       String?
-  lob           String?
-  active        Boolean  @default(true)
-  description   String?
-  driveFolderId String?  @map("drive_folder_id")
-  driveFolderUrl String? @map("drive_folder_url")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id             String   @id @default(uuid())
+  classroomId    String   @unique @map("classroom_id")
+  classroomName  String   @map("classroom_name")
+  process        String?
+  lob            String?
+  active         Boolean  @default(true)
+  description    String?  @db.Text
+  driveFolderId  String?  @map("drive_folder_id")
+  driveFolderUrl String?  @db.Text @map("drive_folder_url")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
 
   modules              ModuleMaster[]
   assessments          AssessmentMaster[]
@@ -276,11 +274,11 @@ model ModuleMaster {
   moduleOrder  Int      @default(0) @map("module_order")
   required     Boolean  @default(true)
   active       Boolean  @default(true)
-  description  String?
+  description  String?  @db.Text
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
-  classroom   ClassroomMaster  @relation(fields: [classroomId], references: [classroomId])
+  classroom   ClassroomMaster    @relation(fields: [classroomId], references: [classroomId])
   contents    ContentMaster[]
   faqs        FaqMaster[]
   assessments AssessmentMaster[]
@@ -295,9 +293,9 @@ model ContentMaster {
   contentType       String   @map("content_type")
   contentTitle      String   @map("content_title")
   driveFileId       String?  @map("drive_file_id")
-  driveUrl          String?  @map("drive_url")
-  directMediaUrl    String?  @map("direct_media_url")
-  localFilePath     String?  @map("local_file_path")
+  driveUrl          String?  @db.Text @map("drive_url")
+  directMediaUrl    String?  @db.Text @map("direct_media_url")
+  localFilePath     String?  @db.Text @map("local_file_path")
   playerMode        String   @default("Auto") @map("player_mode")
   contentOrder      Int      @default(0) @map("content_order")
   required          Boolean  @default(true)
@@ -305,7 +303,7 @@ model ContentMaster {
   locked            Boolean  @default(false)
   estimatedMins     Int      @default(0) @map("estimated_mins")
   completionRulePct Float    @default(80) @map("completion_rule_pct")
-  description       String?
+  description       String?  @db.Text
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -318,8 +316,8 @@ model FaqMaster {
   id        String   @id @default(uuid())
   faqId     String   @unique @map("faq_id")
   moduleId  String   @map("module_id")
-  question  String
-  answer    String
+  question  String   @db.Text
+  answer    String   @db.LongText
   active    Boolean  @default(true)
   sortOrder Int      @default(0) @map("sort_order")
   createdAt DateTime @default(now()) @map("created_at")
@@ -338,7 +336,7 @@ model TraineeClassroomMap {
   assignedDate DateTime @default(now()) @map("assigned_date")
   active       Boolean  @default(true)
   assignedBy   String?  @map("assigned_by")
-  remarks      String?
+  remarks      String?  @db.Text
 
   classroom ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
 
@@ -360,7 +358,7 @@ model AssessmentMaster {
   attemptLimit   Int      @default(3) @map("attempt_limit")
   timeLimitMins  Int      @default(30) @map("time_limit_mins")
   active         Boolean  @default(true)
-  instructions   String?
+  instructions   String?  @db.Text
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -368,8 +366,8 @@ model AssessmentMaster {
   attempts  AssessmentAttempt[]
   results   AssessmentResult[]
 
-  classroomRel ClassroomMaster @relation(fields: [classroomId], references: [classroomId])
-  moduleRel    ModuleMaster?   @relation(fields: [moduleId], references: [moduleId])
+  classroomRel ClassroomMaster  @relation(fields: [classroomId], references: [classroomId])
+  moduleRel    ModuleMaster?    @relation(fields: [moduleId], references: [moduleId])
 
   @@map("assessment_master")
 }
@@ -378,17 +376,17 @@ model QuestionBank {
   id            String   @id @default(uuid())
   questionId    String   @unique @map("question_id")
   assessmentId  String   @map("assessment_id")
-  questionText  String   @map("question_text")
-  optionA       String   @map("option_a")
-  optionB       String   @map("option_b")
-  optionC       String?  @map("option_c")
-  optionD       String?  @map("option_d")
+  questionText  String   @db.Text @map("question_text")
+  optionA       String   @db.Text @map("option_a")
+  optionB       String   @db.Text @map("option_b")
+  optionC       String?  @db.Text @map("option_c")
+  optionD       String?  @db.Text @map("option_d")
   correctOption String   @map("correct_option")
   marks         Float    @default(1)
   negativeMarks Float    @default(0) @map("negative_marks")
   difficulty    String   @default("Medium")
   active        Boolean  @default(true)
-  explanation   String?
+  explanation   String?  @db.Text
   createdAt     DateTime @default(now()) @map("created_at")
 
   assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
@@ -480,7 +478,7 @@ model VideoWatchLog {
   durationSeconds Int      @default(0) @map("duration_seconds")
   completionPct   Float    @default(0) @map("completion_pct")
   playerMode      String   @default("Auto") @map("player_mode")
-  details         String?
+  details         String?  @db.Text
   createdAt       DateTime @default(now()) @map("created_at")
 
   @@map("video_watch_log")
@@ -498,10 +496,10 @@ model TraineeQueryLog {
   dayNo              Int?      @map("day_no")
   moduleId           String?   @map("module_id")
   category           String    @default("Process Doubt")
-  question           String
+  question           String    @db.Text
   status             String    @default("Open")
   priority           String    @default("Normal")
-  coordinatorAnswer  String?   @map("coordinator_answer")
+  coordinatorAnswer  String?   @db.LongText @map("coordinator_answer")
   answeredBy         String?   @map("answered_by")
   answeredAt         DateTime? @map("answered_at")
   closedAt           DateTime? @map("closed_at")
@@ -527,7 +525,7 @@ model AttendanceInference {
   mcqActivity      Boolean  @default(false) @map("mcq_activity")
   finalAttendance  String   @default("Absent") @map("final_attendance")
   attendanceSource String   @default("Inferred") @map("attendance_source")
-  remarks          String?
+  remarks          String?  @db.Text
   createdAt        DateTime @default(now()) @map("created_at")
 
   batch BatchMaster @relation(fields: [batchNo], references: [batchNo])
@@ -539,32 +537,32 @@ model AttendanceInference {
 // ─── RISK & PENDING ACTIVITIES ────────────────────────────────────────────────
 
 model TrainingRiskLog {
-  id            String    @id @default(uuid())
-  riskKey       String    @unique @map("risk_key")
-  employeeId    String    @map("employee_id")
-  traineeName   String?   @map("trainee_name")
-  batchNo       String?   @map("batch_no")
-  branch        String?
-  process       String?
-  lob           String?
-  classroomId   String?   @map("classroom_id")
-  riskType      String    @map("risk_type")
-  riskTitle     String    @map("risk_title")
-  severity      String    @default("WATCH")
-  currentValue  Float?    @map("current_value")
-  expectedValue Float?    @map("expected_value")
-  referenceId   String?   @map("reference_id")
-  source        String    @default("Auto")
-  details       String?
-  status        String    @default("Open")
-  actionTaken   String?   @map("action_taken")
-  actionBy      String?   @map("action_by")
-  actionAt      DateTime? @map("action_at")
-  followUpDate  DateTime? @map("follow_up_date")
-  closureRemarks String?  @map("closure_remarks")
-  lastSeenAt    DateTime  @default(now()) @map("last_seen_at")
-  lastUpdatedAt DateTime  @updatedAt @map("last_updated_at")
-  createdAt     DateTime  @default(now()) @map("created_at")
+  id             String    @id @default(uuid())
+  riskKey        String    @unique @map("risk_key")
+  employeeId     String    @map("employee_id")
+  traineeName    String?   @map("trainee_name")
+  batchNo        String?   @map("batch_no")
+  branch         String?
+  process        String?
+  lob            String?
+  classroomId    String?   @map("classroom_id")
+  riskType       String    @map("risk_type")
+  riskTitle      String    @map("risk_title")
+  severity       String    @default("WATCH")
+  currentValue   Float?    @map("current_value")
+  expectedValue  Float?    @map("expected_value")
+  referenceId    String?   @map("reference_id")
+  source         String    @default("Auto")
+  details        String?   @db.Text
+  status         String    @default("Open")
+  actionTaken    String?   @db.Text @map("action_taken")
+  actionBy       String?   @map("action_by")
+  actionAt       DateTime? @map("action_at")
+  followUpDate   DateTime? @map("follow_up_date")
+  closureRemarks String?   @db.Text @map("closure_remarks")
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
+  lastUpdatedAt  DateTime  @updatedAt @map("last_updated_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
 
   @@map("training_risk_log")
 }
@@ -584,13 +582,13 @@ model PendingActivityLog {
   lob            String?
   referenceId    String?   @map("reference_id")
   source         String    @default("Auto")
-  details        String?
+  details        String?   @db.Text
   status         String    @default("Open")
-  actionTaken    String?   @map("action_taken")
+  actionTaken    String?   @db.Text @map("action_taken")
   actionBy       String?   @map("action_by")
   actionAt       DateTime? @map("action_at")
   followUpDate   DateTime? @map("follow_up_date")
-  closureRemarks String?   @map("closure_remarks")
+  closureRemarks String?   @db.Text @map("closure_remarks")
   closedAt       DateTime? @map("closed_at")
   lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
   lastUpdatedAt  DateTime  @updatedAt @map("last_updated_at")
@@ -632,7 +630,7 @@ model CertificationEvidence {
   scorePct     Float     @default(0) @map("score_pct")
   conductedBy  String?   @map("conducted_by")
   conductedAt  DateTime? @map("conducted_at")
-  remarks      String?
+  remarks      String?   @db.Text
   createdBy    String?   @map("created_by")
   createdAt    DateTime  @default(now()) @map("created_at")
 
@@ -652,7 +650,7 @@ model OnboardingLog {
   coordinatorLoginId String?  @map("coordinator_login_id")
   coordinatorName    String?  @map("coordinator_name")
   status             String   @default("Success")
-  remarks            String?
+  remarks            String?  @db.Text
   createdAt          DateTime @default(now()) @map("created_at")
 
   batch BatchMaster @relation(fields: [batchNo], references: [batchNo])
@@ -670,7 +668,7 @@ model AssignedModule {
   assignedTo     String    @map("assigned_to")
   assignedToType String    @map("assigned_to_type")
   assignmentType String    @default("Optional") @map("assignment_type")
-  message        String?
+  message        String?   @db.Text
   assignedBy     String?   @map("assigned_by")
   dueDate        DateTime? @map("due_date")
   active         Boolean   @default(true)
@@ -688,10 +686,10 @@ model AuditLog {
   action       String
   module       String?
   referenceId  String?  @map("reference_id")
-  oldValue     String?  @map("old_value")
-  newValue     String?  @map("new_value")
+  oldValue     String?  @db.LongText @map("old_value")
+  newValue     String?  @db.LongText @map("new_value")
   status       String   @default("Success")
-  errorDetails String?  @map("error_details")
+  errorDetails String?  @db.Text @map("error_details")
   source       String   @default("Portal")
   createdAt    DateTime @default(now()) @map("created_at")
 
@@ -704,7 +702,7 @@ model LoginSessionLog {
   userId    String   @map("user_id")
   action    String
   status    String   @default("Success")
-  message   String?
+  message   String?  @db.Text
   ipAddress String?  @map("ip_address")
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -755,8 +753,8 @@ model DriveFile {
   driveFolderId String?  @map("drive_folder_id")
   fileName      String   @map("file_name")
   mimeType      String   @map("mime_type")
-  driveUrl      String   @map("drive_url")
-  thumbnailUrl  String?  @map("thumbnail_url")
+  driveUrl      String   @db.Text @map("drive_url")
+  thumbnailUrl  String?  @db.Text @map("thumbnail_url")
   size          BigInt?
   sortOrder     Int      @default(0) @map("sort_order")
   createdAt     DateTime @default(now()) @map("created_at")
