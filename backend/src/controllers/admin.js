@@ -2091,11 +2091,30 @@ export async function getBranchDetail(req, res) {
 
 export async function listPortalUsers(req, res) {
   try {
-    const users = await prisma.roleAccessMatrix.findMany({
-      where: { active: true },
-      orderBy: [{ role: 'asc' }, { name: 'asc' }],
-    });
-    res.json({ ok: true, data: users });
+    const [coordUsers, adminUsers] = await Promise.all([
+      prisma.roleAccessMatrix.findMany({
+        where: { active: true },
+        orderBy: [{ role: 'asc' }, { name: 'asc' }],
+      }),
+      prisma.adminUserMaster.findMany({
+        where: { active: true },
+        orderBy: { adminName: 'asc' },
+        select: { id: true, adminId: true, adminName: true, role: true, active: true, lastLogin: true, createdAt: true },
+      }),
+    ]);
+    // Normalise admin_user_master rows to the same shape as role_access_matrix
+    const adminRows = adminUsers.map(a => ({
+      id: a.id,
+      loginId: a.adminId,
+      name: a.adminName,
+      role: 'Admin',
+      portalAccess: 'Admin',
+      active: a.active,
+      lastLogin: a.lastLogin,
+      createdAt: a.createdAt,
+      _source: 'admin_user_master',
+    }));
+    res.json({ ok: true, data: [...adminRows, ...coordUsers] });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
@@ -2106,9 +2125,24 @@ export async function createPortalUser(req, res) {
     const { loginId, pin, name, role, portalAccess, branch, process, lob, designation, department, employeeCode,
       canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard } = req.body;
 
-    if (!loginId || !pin || !name) return res.status(400).json({ ok: false, message: 'Login ID, PIN and Name are required.' });
-    if (pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN must be at least 4 characters.' });
+    if (!loginId || !pin || !name) return res.status(400).json({ ok: false, message: 'Login ID, PIN/Password and Name are required.' });
+    if (pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN/Password must be at least 4 characters.' });
 
+    // Admin role → create in admin_user_master (logs into Admin portal with password)
+    if (role === 'Admin') {
+      const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId } });
+      if (existingAdmin) return res.status(400).json({ ok: false, message: 'Admin ID already exists.' });
+      const { generateSalt, hashPassword } = await import('../utils/hash.js');
+      const salt = generateSalt();
+      const passwordHash = await hashPassword(pin, salt);
+      const admin = await prisma.adminUserMaster.create({
+        data: { adminId: loginId, adminName: name, passwordHash, salt, role: 'Admin', active: true },
+      });
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_ADMIN_USER', module: 'Users', referenceId: loginId });
+      return res.json({ ok: true, data: { loginId: admin.adminId, name: admin.adminName, role: 'Admin' }, message: `Admin ${loginId} created. They can log into the Admin portal with this password.` });
+    }
+
+    // All other roles → create in role_access_matrix (logs into Coordinator portal with PIN)
     const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
     if (existing) return res.status(400).json({ ok: false, message: 'Login ID already exists.' });
 

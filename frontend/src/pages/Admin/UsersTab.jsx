@@ -338,7 +338,7 @@ export default function UsersTab() {
                     <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', margin: '14px 0 10px', letterSpacing: .5 }}>Login PIN</div>
                     <div className="col-2">
                       <div className="field">
-                        <label>PIN *</label>
+                        <label>{form.role === 'Admin' ? 'Password *' : 'PIN *'}</label>
                         <input
                           className="input"
                           type="password"
@@ -349,16 +349,21 @@ export default function UsersTab() {
                         />
                       </div>
                       <div className="field">
-                        <label>Confirm PIN *</label>
+                        <label>{form.role === 'Admin' ? 'Confirm Password *' : 'Confirm PIN *'}</label>
                         <input
                           className="input"
                           type="password"
-                          placeholder="Repeat PIN"
+                          placeholder={form.role === 'Admin' ? 'Repeat password' : 'Repeat PIN'}
                           value={form.confirmPin}
                           onChange={e => setForm(p => ({ ...p, confirmPin: e.target.value }))}
                           required={!editing}
                         />
                       </div>
+                      {form.role === 'Admin' && (
+                        <div style={{ gridColumn: '1 / -1', fontSize: 12, color: 'var(--warn)', background: 'rgba(217,119,6,.1)', border: '1px solid var(--warn)', borderRadius: 8, padding: '8px 12px' }}>
+                          ⚠ Admin users log into the <b>Admin portal</b> with their Login ID + Password. They cannot log into the Coordinator portal.
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
