@@ -11,7 +11,9 @@ export default function BatchesPage({ navigate }) {
   const [msg, setMsg] = useState({ text: '', ok: true });
 
   function load() {
-    api.get('/admin/batches', 'admin').then(r => { if (r.ok) setBatches(r.data); setLoading(false); });
+    api.get('/admin/batches', 'admin')
+      .then(r => { if (r.ok) setBatches(r.data); setLoading(false); })
+      .catch(() => setLoading(false));
   }
 
   useEffect(() => { load(); }, []);

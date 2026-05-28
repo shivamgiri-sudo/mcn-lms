@@ -15,7 +15,7 @@ export default function CoordLogin({ onLogin }) {
     e.preventDefault();
     if (!loginId || !pin) return setMsg('Login ID and PIN required.');
     setLoading(true); setMsg('');
-    const res = await api.post('/auth/coordinator/login', { loginId, pin });
+    const res = await api.post('/auth/coordinator/login', { loginId, pin }, 'coordinator');
     setLoading(false);
     if (res.ok) onLogin(res);
     else setMsg(res.message || 'Login failed.');

@@ -8,6 +8,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
+import { cleanExpiredSessions } from './utils/session.js';
 
 import authRoutes from './routes/auth.js';
 import bridgeRoutes from './routes/bridge.js';
@@ -29,13 +30,21 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: false,
-    frameguard: false,
+    frameguard: { action: 'deny' },
   })
 );
 
+// CORS — lock to explicit origins, never open to all
+const allowedOrigins = process.env.FRONTEND_URL
+  ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:3000'];
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || true,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+      callback(new Error(`CORS: origin ${origin} not allowed`));
+    },
     credentials: true,
   })
 );
@@ -84,11 +93,13 @@ if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   });
 }
 
+// Global error handler — only expose message for 4xx client errors
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(err.status || 500).json({
+  const status = err.status || 500;
+  res.status(status).json({
     ok: false,
-    message: err.message || 'Internal server error',
+    message: status >= 400 && status < 500 ? (err.message || 'Bad request') : 'Internal server error',
   });
 });
 
@@ -150,6 +161,10 @@ app.listen(PORT, () => {
   runKpiSnapshot();
   setInterval(runKpiSnapshot, 24 * 60 * 60 * 1000);
   scheduleDailyEmail();
+  // Clean expired portal sessions every hour to prevent DB bloat
+  setInterval(() => {
+    cleanExpiredSessions().catch(err => console.error('[Sessions] Cleanup failed:', err.message));
+  }, 60 * 60 * 1000);
 });
 
 export default app;

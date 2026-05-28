@@ -204,6 +204,7 @@ export async function getBatchDetails(req, res) {
     ]);
 
     if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
     res.json({ ok: true, data: { batch, trainees, pending, queries, risks, attendance } });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -369,7 +370,7 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
     },
   });
 
-  return { ok: true, data: trainee, message: `${traineeName || normEmpId} onboarded. Temp password: ${tempPassword}` };
+  return { ok: true, data: trainee, message: `${traineeName || normEmpId} onboarded. Temp password is last 4 digits of mobile (or 1234 if no mobile).` };
 }
 
 // ── Trainee Search ─────────────────────────────────────────────────────────────
@@ -549,6 +550,8 @@ function checkEligibility(t, rule, evidence) {
 export async function saveCertificationEvidence(req, res) {
   try {
     const { employeeId, evidenceType, result, scorePct, conductedBy, conductedAt, remarks } = req.body;
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo: req.params.batchNo } });
+    if (!batch || batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
     const ev = await prisma.certificationEvidence.create({
       data: {
         employeeId,
@@ -572,6 +575,13 @@ export async function certifyTrainee(req, res) {
   try {
     const { employeeId } = req.body;
     const batchNo = req.params.batchNo;
+
+    const [batchCheck, traineeCheck] = await Promise.all([
+      prisma.batchMaster.findUnique({ where: { batchNo } }),
+      prisma.traineeMaster.findUnique({ where: { employeeId } }),
+    ]);
+    if (!batchCheck || batchCheck.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    if (!traineeCheck || traineeCheck.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
 
     const [trainee, batch] = await Promise.all([
       prisma.traineeMaster.update({
@@ -609,6 +619,10 @@ export async function certifyTrainee(req, res) {
 export async function handoverTrainee(req, res) {
   try {
     const { employeeId } = req.body;
+    const batchCheck = await prisma.batchMaster.findUnique({ where: { batchNo: req.params.batchNo } });
+    if (!batchCheck || batchCheck.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    const traineeCheck = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!traineeCheck || traineeCheck.batchNo !== req.params.batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
     await prisma.traineeMaster.update({
       where: { employeeId },
       data: { handoverToOps: true },
@@ -632,6 +646,11 @@ export async function updateTraineeFinalStatus(req, res) {
     if (!validStatuses.includes(finalStatus)) {
       return res.status(400).json({ ok: false, message: `finalStatus must be one of: ${validStatuses.join(', ')}` });
     }
+
+    const batchCheck = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batchCheck || batchCheck.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    const traineeCheck = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!traineeCheck || traineeCheck.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
 
     const updateData = { certificationStatus: finalStatus };
     if (finalStatus === 'Attrition') {

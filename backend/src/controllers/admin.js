@@ -570,7 +570,7 @@ export async function resetTraineePassword(req, res) {
     });
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_PASSWORD', module: 'Accounts', referenceId: employeeId });
-    res.json({ ok: true, message: `Password reset for ${employeeId}. Temp: ${tempPass}` });
+    res.json({ ok: true, message: `Password reset for ${employeeId}. Temp password is last 4 digits of mobile (or 1234 if no mobile).` });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
