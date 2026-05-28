@@ -73,6 +73,16 @@ export async function coordinatorLogout(req, res) {
   res.json({ ok: true });
 }
 
+export async function adminLogout(req, res) {
+  await deleteSession(req.headers.authorization?.replace('Bearer ', '').trim());
+  res.json({ ok: true });
+}
+
+export async function traineeLogout(req, res) {
+  await deleteSession(req.headers.authorization?.replace('Bearer ', '').trim());
+  res.json({ ok: true });
+}
+
 // ── Admin Login ───────────────────────────────────────────────────────────────
 export async function adminLogin(req, res) {
   try {

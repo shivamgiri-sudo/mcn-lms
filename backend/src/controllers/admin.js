@@ -2173,6 +2173,25 @@ export async function updatePortalUser(req, res) {
     const { name, pin, role, portalAccess, branch, process, lob,
       canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard, active } = req.body;
 
+    // Check if this is an admin_user_master record
+    const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
+    if (adminRecord) {
+      const data = {};
+      if (name !== undefined) data.adminName = name;
+      if (active !== undefined) data.active = !!active;
+      if (pin !== undefined && pin.length >= 4) {
+        const { generateSalt, hashPassword } = await import('../utils/hash.js');
+        const salt = generateSalt();
+        data.passwordHash = await hashPassword(pin, salt);
+        data.salt = salt;
+        data.failedAttempts = 0;
+        data.locked = false;
+      }
+      const updated = await prisma.adminUserMaster.update({ where: { id }, data });
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_ADMIN_USER', module: 'Users', referenceId: updated.adminId });
+      return res.json({ ok: true, data: { loginId: updated.adminId, name: updated.adminName, role: 'Admin' } });
+    }
+
     const user = await prisma.roleAccessMatrix.update({
       where: { id },
       data: {
@@ -2202,6 +2221,15 @@ export async function updatePortalUser(req, res) {
 export async function deletePortalUser(req, res) {
   try {
     const { id } = req.params;
+
+    // Check if this is an admin_user_master record
+    const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
+    if (adminRecord) {
+      await prisma.adminUserMaster.update({ where: { id }, data: { active: false } });
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DEACTIVATE_ADMIN_USER', module: 'Users', referenceId: adminRecord.adminId });
+      return res.json({ ok: true, message: 'Admin user deactivated.' });
+    }
+
     await prisma.roleAccessMatrix.update({ where: { id }, data: { active: false } });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DEACTIVATE_PORTAL_USER', module: 'Users', referenceId: id });
     res.json({ ok: true, message: 'User deactivated.' });
@@ -2214,7 +2242,19 @@ export async function resetPortalUserPin(req, res) {
   try {
     const { id } = req.params;
     const { pin } = req.body;
-    if (!pin || pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN must be at least 4 characters.' });
+    if (!pin || pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN/Password must be at least 4 characters.' });
+
+    // Check if this is an admin_user_master record
+    const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
+    if (adminRecord) {
+      const { generateSalt, hashPassword } = await import('../utils/hash.js');
+      const salt = generateSalt();
+      const passwordHash = await hashPassword(pin, salt);
+      await prisma.adminUserMaster.update({ where: { id }, data: { passwordHash, salt, failedAttempts: 0, locked: false } });
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_ADMIN_PASSWORD', module: 'Users', referenceId: adminRecord.adminId });
+      return res.json({ ok: true, message: 'Admin password reset.' });
+    }
+
     const user = await prisma.roleAccessMatrix.update({ where: { id }, data: { pin, failedAttempts: 0, locked: false } });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_PORTAL_USER_PIN', module: 'Users', referenceId: user.loginId });
     res.json({ ok: true, message: 'PIN reset.' });
@@ -2229,27 +2269,36 @@ export async function bulkCreatePortalUsers(req, res) {
     if (!Array.isArray(users) || users.length === 0)
       return res.status(400).json({ ok: false, message: 'No users provided.' });
 
+    const { generateSalt, hashPassword } = await import('../utils/hash.js');
     const results = [];
     for (const u of users) {
       const { loginId, pin, name, role, branch, process, lob, designation, department, employeeCode,
         canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard } = u;
       if (!loginId || !pin || !name) { results.push({ loginId, ok: false, message: 'Login ID, PIN and Name required.' }); continue; }
       if (String(pin).length < 4) { results.push({ loginId, ok: false, message: 'PIN min 4 chars.' }); continue; }
-      const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
-      if (existing) { results.push({ loginId, ok: false, message: 'Login ID already exists.' }); continue; }
       try {
-        await prisma.roleAccessMatrix.create({
-          data: {
-            loginId, pin: String(pin), name,
-            role: role || 'Coordinator', portalAccess: role || 'Coordinator',
-            branch: branch || null, process: process || null, lob: lob || null,
-            designation: designation || null, department: department || null, employeeCode: employeeCode || null,
-            active: true,
-            canCreateBatch: !!canCreateBatch, canOnboardTrainee: !!canOnboardTrainee,
-            canUploadLmsReport: !!canUploadLmsReport, canOverrideAttendance: !!canOverrideAttendance,
-            canCloseBatch: !!canCloseBatch, canViewManagementDashboard: !!canViewManagementDashboard,
-          },
-        });
+        if (role === 'Admin') {
+          const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId } });
+          if (existingAdmin) { results.push({ loginId, ok: false, message: 'Admin ID already exists.' }); continue; }
+          const salt = generateSalt();
+          const passwordHash = await hashPassword(String(pin), salt);
+          await prisma.adminUserMaster.create({ data: { adminId: loginId, adminName: name, passwordHash, salt, role: 'Admin', active: true } });
+        } else {
+          const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
+          if (existing) { results.push({ loginId, ok: false, message: 'Login ID already exists.' }); continue; }
+          await prisma.roleAccessMatrix.create({
+            data: {
+              loginId, pin: String(pin), name,
+              role: role || 'Coordinator', portalAccess: role || 'Coordinator',
+              branch: branch || null, process: process || null, lob: lob || null,
+              designation: designation || null, department: department || null, employeeCode: employeeCode || null,
+              active: true,
+              canCreateBatch: !!canCreateBatch, canOnboardTrainee: !!canOnboardTrainee,
+              canUploadLmsReport: !!canUploadLmsReport, canOverrideAttendance: !!canOverrideAttendance,
+              canCloseBatch: !!canCloseBatch, canViewManagementDashboard: !!canViewManagementDashboard,
+            },
+          });
+        }
         results.push({ loginId, ok: true });
       } catch (err) {
         results.push({ loginId, ok: false, message: err.message });

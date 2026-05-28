@@ -151,9 +151,10 @@ export default function UsersTab() {
 
   async function submitPinReset(e) {
     e.preventDefault();
-    if (!newPin || newPin.length < 4) return toast('PIN must be at least 4 characters.', false);
+    const isAdmin = resetTarget?.role === 'Admin';
+    if (!newPin || newPin.length < 4) return toast(`${isAdmin ? 'Password' : 'PIN'} must be at least 4 characters.`, false);
     const res = await api.post(`/admin/portal-users/${resetTarget.id}/reset-pin`, { pin: newPin }, 'admin');
-    if (res.ok) { toast('PIN reset successfully.'); setResetTarget(null); setNewPin(''); }
+    if (res.ok) { toast(`${isAdmin ? 'Password' : 'PIN'} reset successfully.`); setResetTarget(null); setNewPin(''); }
     else toast(res.message || 'Failed.', false);
   }
 
@@ -274,7 +275,7 @@ export default function UsersTab() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn xs secondary" onClick={() => openEdit(u)}>Edit</button>
-                      <button className="btn xs secondary" onClick={() => { setResetTarget(u); setNewPin(''); }}>Reset PIN</button>
+                      <button className="btn xs secondary" onClick={() => { setResetTarget(u); setNewPin(''); }}>{u.role === 'Admin' ? 'Reset Password' : 'Reset PIN'}</button>
                       <button className="btn xs danger" onClick={() => deactivateUser(u)}>Deactivate</button>
                     </div>
                   </td>
@@ -489,18 +490,18 @@ export default function UsersTab() {
         </div>
       )}
 
-      {/* Reset PIN Modal */}
+      {/* Reset PIN / Password Modal */}
       {resetTarget && (
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setResetTarget(null)}>
           <div className="modal-box" style={{ maxWidth: 380 }}>
             <div className="modal-head">
-              <b>Reset PIN — {resetTarget.loginId}</b>
+              <b>{resetTarget.role === 'Admin' ? 'Reset Password' : 'Reset PIN'} — {resetTarget.loginId}</b>
               <button className="btn small secondary" onClick={() => setResetTarget(null)}>✕</button>
             </div>
             <div className="modal-body">
               <form onSubmit={submitPinReset} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="field">
-                  <label>New PIN *</label>
+                  <label>{resetTarget.role === 'Admin' ? 'New Password *' : 'New PIN *'}</label>
                   <input
                     className="input"
                     type="password"
@@ -510,7 +511,7 @@ export default function UsersTab() {
                     required
                   />
                 </div>
-                <button className="btn" type="submit">Set New PIN</button>
+                <button className="btn" type="submit">Set New {resetTarget.role === 'Admin' ? 'Password' : 'PIN'}</button>
               </form>
             </div>
           </div>

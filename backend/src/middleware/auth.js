@@ -16,10 +16,20 @@ export async function requireSession(req, res, next) {
 }
 
 export function requireRole(...roles) {
-  return (req, res, next) => {
-    if (!roles.includes(req.userType)) {
-      return res.status(403).json({ ok: false, message: 'Access denied.' });
+  return async (req, res, next) => {
+    if (roles.includes(req.userType)) return next();
+
+    // Management routes accept coordinator sessions that have the management permission
+    if (roles.includes('management') && req.userType === 'coordinator') {
+      const user = await prisma.roleAccessMatrix.findFirst({
+        where: { loginId: req.userId, active: true },
+        select: { canViewManagementDashboard: true, role: true },
+      });
+      if (user && (user.canViewManagementDashboard || user.role === 'CEO' || user.role === 'Super Admin')) {
+        return next();
+      }
     }
-    next();
+
+    return res.status(403).json({ ok: false, message: 'Access denied.' });
   };
 }

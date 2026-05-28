@@ -26,7 +26,8 @@ export default function AdminPage() {
     setUser(data.user);
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    await api.post('/auth/admin/logout', {}, 'admin').catch(() => {});
     clearToken('admin');
     setSession('');
     setUser(null);
