@@ -31,7 +31,7 @@ export async function getLearnerDashboard(req, res) {
     const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults] = await Promise.all([
       prisma.classroomMaster.findUnique({ where: { classroomId } }),
       prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ dayNo: 'asc' }, { moduleOrder: 'asc' }] }),
-      prisma.contentMaster.findMany({ where: { module: { classroomId } }, orderBy: { contentOrder: 'asc' } }),
+      prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { contentOrder: 'asc' } }),
       prisma.faqMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { sortOrder: 'asc' } }),
       prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }] }),
       prisma.contentProgress.findMany({ where: { employeeId: empId, classroomId } }),
@@ -77,7 +77,7 @@ export async function getLearnerDashboard(req, res) {
     const attemptedAssessments = allAttemptResults.length;
     const passedAssessments = allAttemptResults.filter(r => r.result === 'Pass').length;
     const mcqCompletionPercent = totalAssessments > 0 ? Math.round((attemptedAssessments / totalAssessments) * 100) : 0;
-    const bestMcqScore = allAttemptResults.length > 0 ? Math.max(...allAttemptResults.map(r => r.bestPercentage)) : null;
+    const bestMcqScore = allAttemptResults.length > 0 ? Math.max(...allAttemptResults.map(r => r.bestPercentage || 0)) : null;
     // Overall progress = video/content completion only.
     // MCQ attempt rate is shown separately — blending it inflates the number misleadingly.
     const overallTrainingProgress = completionPercent;

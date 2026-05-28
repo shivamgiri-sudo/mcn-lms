@@ -450,7 +450,8 @@ export async function getQueryLog(req, res) {
 
     const where = { batchNo: { in: batchNos } };
     if (status) where.status = status;
-    if (batchNo) where.batchNo = batchNo;
+    // Only allow filtering to a specific batch if it belongs to this coordinator
+    if (batchNo && batchNos.includes(batchNo)) where.batchNo = batchNo;
 
     const queries = await prisma.traineeQueryLog.findMany({
       where,
@@ -470,7 +471,8 @@ export async function answerQuery(req, res) {
     if (!coordinatorAnswer) return res.status(400).json({ ok: false, message: 'Answer text required.' });
 
     const query = await prisma.traineeQueryLog.findUnique({ where: { id } });
-    const tatHours = query ? (Date.now() - new Date(query.createdAt).getTime()) / 3600000 : null;
+    if (!query) return res.status(404).json({ ok: false, message: 'Query not found.' });
+    const tatHours = (Date.now() - new Date(query.createdAt).getTime()) / 3600000;
 
     const updated = await prisma.traineeQueryLog.update({
       where: { id },
@@ -696,14 +698,6 @@ export async function closeBatchByCoordinator(req, res) {
     if (batch.batchStatus === 'Completed') return res.status(400).json({ ok: false, message: 'Batch already closed.' });
 
     // Hard check: every active trainee must have been explicitly marked Certified or Attrition
-    const unresolvedTrainees = await prisma.traineeMaster.count({
-      where: {
-        batchNo,
-        status: 'Active',
-        certificationStatus: 'Not Certified',
-      },
-    });
-    // Count trainees still at default "Not Certified" (not yet classified)
     const unsetTrainees = await prisma.traineeMaster.count({
       where: {
         batchNo,

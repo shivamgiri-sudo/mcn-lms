@@ -73,6 +73,7 @@ export async function getAdminDashboard(req, res) {
 export async function listClassrooms(req, res) {
   try {
     const classrooms = await prisma.classroomMaster.findMany({
+      where: { active: true },
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { modules: true } } },
     });
@@ -157,7 +158,7 @@ export async function listModules(req, res) {
   try {
     const { classroomId } = req.params;
     const modules = await prisma.moduleMaster.findMany({
-      where: { classroomId },
+      where: { classroomId, active: true },
       orderBy: [{ dayNo: 'asc' }, { moduleOrder: 'asc' }],
       include: { _count: { select: { contents: true, faqs: true } } },
     });
@@ -217,7 +218,7 @@ export async function listContents(req, res) {
   try {
     const { moduleId } = req.params;
     const contents = await prisma.contentMaster.findMany({
-      where: { moduleId },
+      where: { moduleId, active: true },
       orderBy: { contentOrder: 'asc' },
     });
     res.json({ ok: true, data: contents });
@@ -297,7 +298,7 @@ export async function deleteContent(req, res) {
 export async function listFaqs(req, res) {
   try {
     const { moduleId } = req.params;
-    const faqs = await prisma.faqMaster.findMany({ where: { moduleId }, orderBy: { sortOrder: 'asc' } });
+    const faqs = await prisma.faqMaster.findMany({ where: { moduleId, active: true }, orderBy: { sortOrder: 'asc' } });
     res.json({ ok: true, data: faqs });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -556,7 +557,10 @@ export async function resetTraineePassword(req, res) {
     const { newPassword } = req.body;
     const pass = newPassword || '1234';
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
-    const tempPass = trainee?.mobile ? trainee.mobile.slice(-4) : pass;
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+    const userAccount = await prisma.userMaster.findUnique({ where: { employeeId } });
+    if (!userAccount) return res.status(404).json({ ok: false, message: 'Trainee has no login account.' });
+    const tempPass = trainee.mobile ? trainee.mobile.slice(-4) : pass;
 
     const salt = generateSalt();
     const passwordHash = await hashPassword(tempPass, salt);
