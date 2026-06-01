@@ -1760,7 +1760,7 @@ export async function adminUpdateBatchCoordinator(req, res) {
 export async function adminUpdateBatch(req, res) {
   try {
     const { batchNo } = req.params;
-    const { batchName, branch, process: proc, lob, startDate, endDate, expectedTrainees, remarks } = req.body;
+    const { batchName, branch, process: proc, lob, classroomId, startDate, endDate, expectedTrainees, remarks } = req.body;
 
     const data = {};
     if (batchName !== undefined) data.batchName = String(batchName).trim();
@@ -1771,6 +1771,43 @@ export async function adminUpdateBatch(req, res) {
     if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
     if (expectedTrainees !== undefined) data.expectedTrainees = parseInt(expectedTrainees) || 0;
     if (remarks !== undefined) data.remarks = String(remarks).trim() || null;
+
+    // Handle classroom assignment — also backfills existing trainees
+    if (classroomId !== undefined) {
+      const newClassroomId = classroomId || null;
+      let classroomName = null;
+      if (newClassroomId) {
+        const cl = await prisma.classroomMaster.findUnique({ where: { classroomId: newClassroomId } });
+        if (!cl) return res.status(400).json({ ok: false, message: 'Classroom not found.' });
+        classroomName = cl.classroomName;
+      }
+      data.classroomId = newClassroomId;
+      data.classroomName = classroomName;
+      if (newClassroomId) {
+        data.classroomAssignedAt = new Date();
+        data.classroomAssignedBy = req.userId;
+      }
+
+      // Backfill all existing trainees in this batch with the new classroomId
+      if (newClassroomId) {
+        const trainees = await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } });
+        await Promise.all(trainees.map(t => Promise.all([
+          prisma.traineeMaster.update({ where: { employeeId: t.employeeId }, data: { classroomId: newClassroomId, classroomName } }),
+          prisma.userMaster.updateMany({ where: { employeeId: t.employeeId }, data: { classroomId: newClassroomId } }),
+          prisma.traineeClassroomMap.upsert({
+            where: { employeeId_classroomId: { employeeId: t.employeeId, classroomId: newClassroomId } },
+            create: { employeeId: t.employeeId, classroomId: newClassroomId, batchNo, assignedBy: req.userId },
+            update: { active: true, batchNo },
+          }),
+        ])));
+        // Update batch_classroom_map
+        await prisma.batchClassroomMap.upsert({
+          where: { id: (await prisma.batchClassroomMap.findFirst({ where: { batchNo } }))?.id || '' },
+          create: { batchNo, batchName: data.batchName || batchNo, classroomId: newClassroomId, classroomName, assignedBy: req.userId },
+          update: { classroomId: newClassroomId, classroomName, active: true },
+        }).catch(() => prisma.batchClassroomMap.create({ data: { batchNo, batchName: data.batchName || batchNo, classroomId: newClassroomId, classroomName, assignedBy: req.userId } }));
+      }
+    }
 
     if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No fields to update.' });
     if (data.batchName !== undefined && !data.batchName) return res.status(400).json({ ok: false, message: 'Batch name cannot be empty.' });
@@ -2133,14 +2170,14 @@ export async function createPortalUser(req, res) {
     if (pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN/Password must be at least 4 characters.' });
 
     // Admin role → create in admin_user_master (logs into Admin portal with password)
-    if (role === 'Admin') {
-      const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId } });
+    const normalizedRole = (role || '').trim();
+    if (normalizedRole === 'Admin') {
+      const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId.trim() } });
       if (existingAdmin) return res.status(400).json({ ok: false, message: 'Admin ID already exists.' });
-      const { generateSalt, hashPassword } = await import('../utils/hash.js');
       const salt = generateSalt();
       const passwordHash = await hashPassword(pin, salt);
       const admin = await prisma.adminUserMaster.create({
-        data: { adminId: loginId, adminName: name, passwordHash, salt, role: 'Admin', active: true },
+        data: { adminId: loginId.trim(), adminName: name.trim(), passwordHash, salt, role: 'Admin', active: true },
       });
       await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_ADMIN_USER', module: 'Users', referenceId: loginId });
       return res.json({ ok: true, data: { loginId: admin.adminId, name: admin.adminName, role: 'Admin' }, message: `Admin ${loginId} created. They can log into the Admin portal with this password.` });
@@ -2184,7 +2221,7 @@ export async function updatePortalUser(req, res) {
       if (name !== undefined) data.adminName = name;
       if (active !== undefined) data.active = !!active;
       if (pin !== undefined && pin.length >= 4) {
-        const { generateSalt, hashPassword } = await import('../utils/hash.js');
+        // generateSalt and hashPassword are statically imported at top of file
         const salt = generateSalt();
         data.passwordHash = await hashPassword(pin, salt);
         data.salt = salt;
@@ -2251,7 +2288,6 @@ export async function resetPortalUserPin(req, res) {
     // Check if this is an admin_user_master record
     const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
     if (adminRecord) {
-      const { generateSalt, hashPassword } = await import('../utils/hash.js');
       const salt = generateSalt();
       const passwordHash = await hashPassword(pin, salt);
       await prisma.adminUserMaster.update({ where: { id }, data: { passwordHash, salt, failedAttempts: 0, locked: false } });
@@ -2273,7 +2309,6 @@ export async function bulkCreatePortalUsers(req, res) {
     if (!Array.isArray(users) || users.length === 0)
       return res.status(400).json({ ok: false, message: 'No users provided.' });
 
-    const { generateSalt, hashPassword } = await import('../utils/hash.js');
     const results = [];
     for (const u of users) {
       const { loginId, pin, name, role, branch, process, lob, designation, department, employeeCode,

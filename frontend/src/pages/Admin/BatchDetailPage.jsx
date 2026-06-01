@@ -39,6 +39,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [editDraft, setEditDraft] = useState({});
   const [editSaving, setEditSaving] = useState(false);
   const [editErr, setEditErr] = useState('');
+  const [classrooms, setClassrooms] = useState([]);
 
   function openEdit() {
     const b = data?.batch || {};
@@ -47,6 +48,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
       branch: b.branch || '',
       process: b.process || '',
       lob: b.lob || '',
+      classroomId: b.classroomId || '',
       startDate: b.startDate ? b.startDate.slice(0, 10) : '',
       endDate: b.endDate ? b.endDate.slice(0, 10) : '',
       expectedTrainees: b.expectedTrainees ?? '',
@@ -54,6 +56,9 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
     });
     setEditErr('');
     setEditOpen(true);
+    if (classrooms.length === 0) {
+      api.get('/admin/classrooms', 'admin').then(r => { if (r.ok) setClassrooms(r.data); });
+    }
   }
 
   async function saveEdit() {
@@ -524,6 +529,20 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
               <div className="field">
                 <label>LOB</label>
                 <input className="input" value={editDraft.lob} onChange={e => setEditDraft(d => ({ ...d, lob: e.target.value }))} />
+              </div>
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>Classroom</label>
+                <select className="select" value={editDraft.classroomId} onChange={e => setEditDraft(d => ({ ...d, classroomId: e.target.value }))}>
+                  <option value="">— No classroom —</option>
+                  {classrooms.map(c => (
+                    <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>
+                  ))}
+                </select>
+                {editDraft.classroomId && editDraft.classroomId !== (data?.batch?.classroomId || '') && (
+                  <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }}>
+                    ⚠ Changing classroom will update all enrolled trainees in this batch.
+                  </div>
+                )}
               </div>
               <div className="field">
                 <label>Expected Trainees</label>
