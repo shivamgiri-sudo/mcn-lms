@@ -2169,23 +2169,28 @@ export async function createPortalUser(req, res) {
     if (!loginId || !pin || !name) return res.status(400).json({ ok: false, message: 'Login ID, PIN/Password and Name are required.' });
     if (pin.length < 4) return res.status(400).json({ ok: false, message: 'PIN/Password must be at least 4 characters.' });
 
+    const cleanLoginId = loginId.trim();
+
+    // Cross-table uniqueness check — loginId must be unique across BOTH tables
+    const [existingCoord, existingAdmin] = await Promise.all([
+      prisma.roleAccessMatrix.findFirst({ where: { loginId: cleanLoginId } }),
+      prisma.adminUserMaster.findFirst({ where: { adminId: cleanLoginId } }),
+    ]);
+    if (existingCoord || existingAdmin) return res.status(400).json({ ok: false, message: 'Login ID already exists.' });
+
     // Admin role → create in admin_user_master (logs into Admin portal with password)
     const normalizedRole = (role || '').trim();
     if (normalizedRole === 'Admin') {
-      const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId.trim() } });
-      if (existingAdmin) return res.status(400).json({ ok: false, message: 'Admin ID already exists.' });
       const salt = generateSalt();
       const passwordHash = await hashPassword(pin, salt);
       const admin = await prisma.adminUserMaster.create({
-        data: { adminId: loginId.trim(), adminName: name.trim(), passwordHash, salt, role: 'Admin', active: true },
+        data: { adminId: cleanLoginId, adminName: name.trim(), passwordHash, salt, role: 'Admin', active: true },
       });
-      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_ADMIN_USER', module: 'Users', referenceId: loginId });
-      return res.json({ ok: true, data: { loginId: admin.adminId, name: admin.adminName, role: 'Admin' }, message: `Admin ${loginId} created. They can log into the Admin portal with this password.` });
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_ADMIN_USER', module: 'Users', referenceId: cleanLoginId });
+      return res.json({ ok: true, data: { loginId: admin.adminId, name: admin.adminName, role: 'Admin' }, message: `Admin ${cleanLoginId} created. They can log into the Admin portal with this password.` });
     }
 
     // All other roles → create in role_access_matrix (logs into Coordinator portal with PIN)
-    const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
-    if (existing) return res.status(400).json({ ok: false, message: 'Login ID already exists.' });
 
     const user = await prisma.roleAccessMatrix.create({
       data: {
@@ -2316,15 +2321,18 @@ export async function bulkCreatePortalUsers(req, res) {
       if (!loginId || !pin || !name) { results.push({ loginId, ok: false, message: 'Login ID, PIN and Name required.' }); continue; }
       if (String(pin).length < 4) { results.push({ loginId, ok: false, message: 'PIN min 4 chars.' }); continue; }
       try {
-        if (role === 'Admin') {
-          const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId } });
-          if (existingAdmin) { results.push({ loginId, ok: false, message: 'Admin ID already exists.' }); continue; }
+        // Cross-table uniqueness check
+        const [existingC, existingA] = await Promise.all([
+          prisma.roleAccessMatrix.findFirst({ where: { loginId } }),
+          prisma.adminUserMaster.findFirst({ where: { adminId: loginId } }),
+        ]);
+        if (existingC || existingA) { results.push({ loginId, ok: false, message: 'Login ID already exists.' }); continue; }
+
+        if ((role || '').trim() === 'Admin') {
           const salt = generateSalt();
           const passwordHash = await hashPassword(String(pin), salt);
           await prisma.adminUserMaster.create({ data: { adminId: loginId, adminName: name, passwordHash, salt, role: 'Admin', active: true } });
         } else {
-          const existing = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
-          if (existing) { results.push({ loginId, ok: false, message: 'Login ID already exists.' }); continue; }
           await prisma.roleAccessMatrix.create({
             data: {
               loginId, pin: String(pin), name,
