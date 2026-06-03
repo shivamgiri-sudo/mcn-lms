@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { coordinatorLogin, coordinatorLogout, adminLogin, adminLogout, traineeLogin, traineeLogout, traineeChangePassword, getMyProfile } from '../controllers/auth.js';
+import { coordinatorLogin } from '../controllers/coordinatorAuth.js';
+import { coordinatorLogout, adminLogin, adminLogout, traineeLogin, traineeLogout, traineeChangePassword, getMyProfile } from '../controllers/auth.js';
 import { requireSession } from '../middleware/auth.js';
 
 const router = Router();
