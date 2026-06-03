@@ -1,7 +1,7 @@
 {
   "name": "lms-platform-backend",
   "version": "1.0.0",
-  "description": "LMS 2.0 Backend - Express + Prisma + Supabase",
+  "description": "LMS 2.0 Backend - Express + Prisma + MySQL",
   "main": "src/server.js",
   "type": "module",
   "scripts": {

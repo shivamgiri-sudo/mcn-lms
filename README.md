@@ -1,6 +1,6 @@
 # LMS 2.0 Platform
 
-A full-stack Learning Management System rebuilt from Google Sheets/AppScript to **React + Express + Supabase (PostgreSQL)**.
+A full-stack Learning Management System rebuilt from Google Sheets/AppScript to **React + Express + Prisma + MySQL 8.x**.
 
 ## Architecture
 
@@ -48,16 +48,21 @@ cd ../frontend
 npm install
 ```
 
-### 2. Database — Supabase Setup
+### 2. Database - MySQL Setup
 
-1. Go to [supabase.com](https://supabase.com) → New Project
-2. Copy your **Connection String** (Settings → Database → Connection string → URI mode)
+1. Install and start MySQL 8.x.
+2. Create a local database:
+
+```sql
+CREATE DATABASE lms_platform CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+```
+
 3. Create `backend/.env` from `backend/.env.example`:
 
 ```env
-DATABASE_URL="postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres"
-DIRECT_URL="postgresql://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres"
+DATABASE_URL="mysql://root:password@localhost:3306/lms_platform"
 PORT=4000
+API_URL=http://localhost:4000
 FRONTEND_URL=http://localhost:5173
 SESSION_SECRET=your-random-secret-here
 ```
@@ -66,7 +71,7 @@ SESSION_SECRET=your-random-secret-here
 
 ```bash
 cd backend
-npx prisma db push          # Push schema to Supabase
+npx prisma db push          # Push schema to MySQL
 npx prisma generate         # Generate Prisma client
 node prisma/seed.js         # Seed demo data
 ```
@@ -123,17 +128,9 @@ GOOGLE_REDIRECT_URI=http://localhost:4000/api/drive/oauth2callback
 
 ---
 
-## MySQL Migration
+## MySQL Notes
 
-The Prisma schema is MySQL-compatible. To migrate:
-
-1. In `backend/prisma/schema.prisma`, change:
-   ```
-   provider = "postgresql"  →  provider = "mysql"
-   url       = ...          →  url = "mysql://user:pass@localhost:3306/lms"
-   ```
-2. Remove `directUrl` line (MySQL doesn't need it)
-3. Run `npx prisma db push` against MySQL
+The Prisma schema and migration lock are configured for MySQL. For local SQL deployment, use `backend/.env.example` as the source of truth and run `npx prisma db push` before seeding.
 
 ---
 
@@ -196,7 +193,7 @@ Risk thresholds:
 
 ---
 
-## Deployment (Supabase + Vercel/Railway)
+## Deployment (MySQL + Vercel/Railway)
 
 ### Backend on Railway
 1. Push to GitHub
@@ -209,10 +206,10 @@ Risk thresholds:
 2. Set `VITE_API_URL` if needed, or configure reverse proxy
 3. Update `FRONTEND_URL` in backend `.env` to your Vercel domain
 
-### Supabase
-- No extra setup needed — your Supabase project is already the database
-- Enable Row Level Security if you want to restrict direct DB access
-- Connection pooling: use `?pgbouncer=true&connection_limit=1` for serverless
+### MySQL
+- Provision a MySQL 8.x database and set `DATABASE_URL` in the backend environment.
+- Run `npx prisma db push` once for the target database before seeding or starting users.
+- Set `API_URL` to the deployed backend URL so uploaded content links resolve correctly.
 
 ---
 

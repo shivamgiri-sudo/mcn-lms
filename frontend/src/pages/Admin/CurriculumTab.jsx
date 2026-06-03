@@ -971,7 +971,6 @@ export default function CurriculumTab() {
   }
 
   async function deleteClassroomConfirmed(classroomId, confirmName) {
-    const res = await api.delete(`/admin/classrooms/${classroomId}`, 'admin');
     // Pass confirmName in body — use a custom fetch since api.delete doesn't support body
     const token = localStorage.getItem('lms_token_admin') || '';
     const BASE = (import.meta.env.VITE_API_URL || '') + '/api';

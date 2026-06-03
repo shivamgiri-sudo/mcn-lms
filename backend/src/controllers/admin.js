@@ -5,6 +5,90 @@ import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import path from 'path';
 
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
+const cleanText = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const text = String(value).trim();
+  return text || null;
+};
+const parseOptionalInt = (value, fallback = 0) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const parseOptionalFloat = (value, fallback = 0) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+const parseOptionalBoolean = (value, fallback = true) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  if (typeof value === 'boolean') return value;
+  if (typeof value === 'number') return value !== 0;
+  const normalized = String(value).trim().toLowerCase();
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  return fallback;
+};
+const parseOptionalDate = (value) => {
+  if (value === undefined) return undefined;
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+const drivePreviewUrl = (driveFileId) => driveFileId ? `https://drive.google.com/file/d/${driveFileId}/preview` : null;
+
+async function syncBatchClassroomAssignment({ batch, classroomId, classroomName, assignedBy }) {
+  const batchNo = batch.batchNo;
+
+  await prisma.traineeMaster.updateMany({
+    where: { batchNo },
+    data: { classroomId, classroomName },
+  });
+  await prisma.userMaster.updateMany({
+    where: { batchNo },
+    data: { classroomId },
+  });
+
+  if (!classroomId) {
+    await Promise.all([
+      prisma.traineeClassroomMap.updateMany({ where: { batchNo }, data: { active: false } }),
+      prisma.batchClassroomMap.updateMany({ where: { batchNo }, data: { active: false } }),
+    ]);
+    return;
+  }
+
+  const trainees = await prisma.traineeMaster.findMany({
+    where: { batchNo },
+    select: { employeeId: true },
+  });
+
+  await Promise.all(trainees.map(t => prisma.traineeClassroomMap.upsert({
+    where: { employeeId_classroomId: { employeeId: t.employeeId, classroomId } },
+    create: { employeeId: t.employeeId, classroomId, batchNo, assignedBy },
+    update: { active: true, batchNo, assignedBy },
+  })));
+
+  const existingMap = await prisma.batchClassroomMap.findFirst({ where: { batchNo } });
+  const mapData = {
+    batchName: batch.batchName,
+    branch: batch.branch,
+    process: batch.process,
+    lob: batch.lob,
+    classroomId,
+    classroomName,
+    active: true,
+    assignedBy,
+  };
+
+  if (existingMap) {
+    await prisma.batchClassroomMap.update({ where: { id: existingMap.id }, data: mapData });
+  } else {
+    await prisma.batchClassroomMap.create({ data: { batchNo, ...mapData } });
+  }
+}
+
 export async function getAdminDashboard(req, res) {
   try {
     const [classrooms, trainees, batches, openQueries, atRisk] = await Promise.all([
@@ -171,35 +255,54 @@ export async function listModules(req, res) {
 export async function createModule(req, res) {
   try {
     const { classroomId } = req.params;
-    const { dayNo, moduleTitle, moduleOrder, required, assessmentId, description } = req.body;
-    if (!dayNo || !moduleTitle) return res.status(400).json({ ok: false, message: 'Day number and module title required.' });
+    const { dayNo, moduleTitle, moduleOrder, required, description } = req.body;
+    const title = cleanText(moduleTitle);
+    const parsedDayNo = parseOptionalInt(dayNo, 0);
+
+    if (!parsedDayNo || !title) return res.status(400).json({ ok: false, message: 'Day number and module title required.' });
+
+    const classroom = await prisma.classroomMaster.findUnique({ where: { classroomId } });
+    if (!classroom || !classroom.active) return res.status(404).json({ ok: false, message: 'Classroom not found.' });
 
     const moduleId = `MOD-${generateId()}`;
     const mod = await prisma.moduleMaster.create({
       data: {
         moduleId,
         classroomId,
-        dayNo: parseInt(dayNo, 10),
-        moduleTitle,
-        moduleOrder: parseInt(moduleOrder || 0, 10),
-        required: required !== false,
-        assessmentId: assessmentId || null,
-        description,
+        dayNo: parsedDayNo,
+        moduleTitle: title,
+        moduleOrder: parseOptionalInt(moduleOrder, 0),
+        required: parseOptionalBoolean(required, true),
+        description: cleanText(description),
       },
     });
     res.json({ ok: true, data: mod });
   } catch (err) {
-    res.status(500).json({ ok: false, message: 'Server error' });
+    console.error(err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
 
 export async function updateModule(req, res) {
   try {
     const { moduleId } = req.params;
-    const mod = await prisma.moduleMaster.update({ where: { moduleId }, data: req.body });
+    const data = {};
+    if (hasOwn(req.body, 'dayNo')) data.dayNo = parseOptionalInt(req.body.dayNo, 0);
+    if (hasOwn(req.body, 'moduleTitle')) data.moduleTitle = cleanText(req.body.moduleTitle);
+    if (hasOwn(req.body, 'moduleOrder')) data.moduleOrder = parseOptionalInt(req.body.moduleOrder, 0);
+    if (hasOwn(req.body, 'required')) data.required = parseOptionalBoolean(req.body.required, true);
+    if (hasOwn(req.body, 'active')) data.active = parseOptionalBoolean(req.body.active, true);
+    if (hasOwn(req.body, 'description')) data.description = cleanText(req.body.description);
+
+    if (data.dayNo !== undefined && !data.dayNo) return res.status(400).json({ ok: false, message: 'Valid day number required.' });
+    if (data.moduleTitle !== undefined && !data.moduleTitle) return res.status(400).json({ ok: false, message: 'Module title cannot be empty.' });
+    if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No valid fields to update.' });
+
+    const mod = await prisma.moduleMaster.update({ where: { moduleId }, data });
     res.json({ ok: true, data: mod });
   } catch (err) {
-    res.status(500).json({ ok: false, message: 'Server error' });
+    console.error(err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
 
@@ -232,6 +335,9 @@ export async function createContent(req, res) {
     const { moduleId } = req.params;
     const { contentType, contentTitle, driveFileId, driveUrl, directMediaUrl, playerMode, contentOrder, required, estimatedMins, completionRulePct, description } = req.body;
 
+    const module = await prisma.moduleMaster.findUnique({ where: { moduleId } });
+    if (!module || !module.active) return res.status(404).json({ ok: false, message: 'Module not found.' });
+
     let localFilePath = null;
     if (req.file) {
       localFilePath = `/uploads/content/${req.file.filename}`;
@@ -248,23 +354,27 @@ export async function createContent(req, res) {
       order = (last?.contentOrder || 0) + 1;
     }
 
+    const cleanDriveFileId = cleanText(driveFileId);
+    const cleanDriveUrl = cleanText(driveUrl) || drivePreviewUrl(cleanDriveFileId);
+    const apiBase = process.env.API_URL || `${req.protocol}://${req.get('host')}`;
+
     const contentId = `CON-${generateId()}`;
     const content = await prisma.contentMaster.create({
       data: {
         contentId,
         moduleId,
         contentType: contentType || 'video',
-        contentTitle: contentTitle || req.file?.originalname || 'Untitled',
-        driveFileId: driveFileId || null,
-        driveUrl: driveUrl || null,
-        directMediaUrl: directMediaUrl || (localFilePath ? `${process.env.API_URL || 'http://localhost:4000'}${localFilePath}` : null),
+        contentTitle: cleanText(contentTitle) || req.file?.originalname || 'Untitled',
+        driveFileId: cleanDriveFileId,
+        driveUrl: cleanDriveUrl,
+        directMediaUrl: cleanText(directMediaUrl) || (localFilePath ? `${apiBase}${localFilePath}` : null),
         localFilePath,
         playerMode: playerMode || 'Auto',
         contentOrder: order,
-        required: required !== false,
-        estimatedMins: parseInt(estimatedMins || 0, 10),
-        completionRulePct: parseFloat(completionRulePct || 80),
-        description,
+        required: parseOptionalBoolean(required, true),
+        estimatedMins: parseOptionalInt(estimatedMins, 0),
+        completionRulePct: parseOptionalFloat(completionRulePct, 80),
+        description: cleanText(description),
       },
     });
     res.json({ ok: true, data: content });
@@ -277,10 +387,30 @@ export async function createContent(req, res) {
 export async function updateContent(req, res) {
   try {
     const { contentId } = req.params;
-    const content = await prisma.contentMaster.update({ where: { contentId }, data: req.body });
+    const data = {};
+    if (hasOwn(req.body, 'contentType')) data.contentType = cleanText(req.body.contentType) || 'video';
+    if (hasOwn(req.body, 'contentTitle')) data.contentTitle = cleanText(req.body.contentTitle);
+    if (hasOwn(req.body, 'driveFileId')) data.driveFileId = cleanText(req.body.driveFileId);
+    if (hasOwn(req.body, 'driveUrl')) data.driveUrl = cleanText(req.body.driveUrl);
+    if (hasOwn(req.body, 'directMediaUrl')) data.directMediaUrl = cleanText(req.body.directMediaUrl);
+    if (hasOwn(req.body, 'playerMode')) data.playerMode = cleanText(req.body.playerMode) || 'Auto';
+    if (hasOwn(req.body, 'contentOrder')) data.contentOrder = parseOptionalInt(req.body.contentOrder, 0);
+    if (hasOwn(req.body, 'required')) data.required = parseOptionalBoolean(req.body.required, true);
+    if (hasOwn(req.body, 'active')) data.active = parseOptionalBoolean(req.body.active, true);
+    if (hasOwn(req.body, 'locked')) data.locked = parseOptionalBoolean(req.body.locked, false);
+    if (hasOwn(req.body, 'estimatedMins')) data.estimatedMins = parseOptionalInt(req.body.estimatedMins, 0);
+    if (hasOwn(req.body, 'completionRulePct')) data.completionRulePct = parseOptionalFloat(req.body.completionRulePct, 80);
+    if (hasOwn(req.body, 'description')) data.description = cleanText(req.body.description);
+    if (data.driveFileId && !data.driveUrl && !hasOwn(req.body, 'driveUrl')) data.driveUrl = drivePreviewUrl(data.driveFileId);
+
+    if (data.contentTitle !== undefined && !data.contentTitle) return res.status(400).json({ ok: false, message: 'Content title cannot be empty.' });
+    if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No valid fields to update.' });
+
+    const content = await prisma.contentMaster.update({ where: { contentId }, data });
     res.json({ ok: true, data: content });
   } catch (err) {
-    res.status(500).json({ ok: false, message: 'Server error' });
+    console.error(err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
 
@@ -688,7 +818,7 @@ export async function syncClassroomFromDrive(req, res) {
     const driveFolderId = extractFolderId(rawFolderId) || classroom.driveFolderId;
     if (!driveFolderId) return res.status(400).json({ ok: false, message: 'No Drive folder ID provided.' });
 
-    const { files: rawFiles } = await listDriveFolderAny(driveFolderId);
+    const { files: rawFiles, method } = await listDriveFolderAny(driveFolderId);
 
     // Sort files by numeric prefix before saving
     const files = sortFilesByPrefix(rawFiles);
@@ -707,13 +837,22 @@ export async function syncClassroomFromDrive(req, res) {
           driveFolderId,
           fileName: f.name,
           mimeType: f.mimeType,
-          driveUrl: `https://drive.google.com/file/d/${f.id}/view`,
+          driveUrl: f.driveUrl || `https://drive.google.com/file/d/${f.id}/preview`,
           thumbnailUrl: f.thumbnailLink || null,
           size: f.size ? BigInt(f.size) : null,
           syncedAt: new Date(),
           sortOrder,
         },
-        update: { fileName: f.name, syncedAt: new Date(), sortOrder },
+        update: {
+          driveFolderId,
+          fileName: f.name,
+          mimeType: f.mimeType,
+          driveUrl: f.driveUrl || `https://drive.google.com/file/d/${f.id}/preview`,
+          thumbnailUrl: f.thumbnailLink || null,
+          size: f.size ? BigInt(f.size) : null,
+          syncedAt: new Date(),
+          sortOrder,
+        },
       });
     }
 
@@ -724,7 +863,7 @@ export async function syncClassroomFromDrive(req, res) {
       displayTitle: cleanTitle(f.name),
     }));
 
-    res.json({ ok: true, data: { synced: files.length, files: enriched } });
+    res.json({ ok: true, data: { synced: files.length, files: enriched, method } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: err.message || 'Drive sync failed.' });
@@ -1679,6 +1818,7 @@ export async function adminCreateBatch(req, res) {
     let classroomName = null;
     if (classroomId) {
       const cl = await prisma.classroomMaster.findUnique({ where: { classroomId } });
+      if (!cl || !cl.active) return res.status(400).json({ ok: false, message: 'Classroom not found.' });
       classroomName = cl?.classroomName;
     }
 
@@ -1762,23 +1902,30 @@ export async function adminUpdateBatch(req, res) {
     const { batchNo } = req.params;
     const { batchName, branch, process: proc, lob, classroomId, startDate, endDate, expectedTrainees, remarks } = req.body;
 
+    const existingBatch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!existingBatch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+
     const data = {};
     if (batchName !== undefined) data.batchName = String(batchName).trim();
     if (branch !== undefined) data.branch = String(branch).trim() || null;
     if (proc !== undefined) data.process = String(proc).trim() || null;
     if (lob !== undefined) data.lob = String(lob).trim() || null;
-    if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
-    if (endDate !== undefined) data.endDate = endDate ? new Date(endDate) : null;
-    if (expectedTrainees !== undefined) data.expectedTrainees = parseInt(expectedTrainees) || 0;
+    if (startDate !== undefined) data.startDate = parseOptionalDate(startDate);
+    if (endDate !== undefined) data.endDate = parseOptionalDate(endDate);
+    if (expectedTrainees !== undefined) data.expectedTrainees = parseOptionalInt(expectedTrainees, 0);
     if (remarks !== undefined) data.remarks = String(remarks).trim() || null;
+
+    let shouldSyncClassroom = false;
+    let nextClassroomId = existingBatch.classroomId;
+    let nextClassroomName = existingBatch.classroomName;
 
     // Handle classroom assignment — also backfills existing trainees
     if (classroomId !== undefined) {
-      const newClassroomId = classroomId || null;
+      const newClassroomId = cleanText(classroomId);
       let classroomName = null;
       if (newClassroomId) {
         const cl = await prisma.classroomMaster.findUnique({ where: { classroomId: newClassroomId } });
-        if (!cl) return res.status(400).json({ ok: false, message: 'Classroom not found.' });
+        if (!cl || !cl.active) return res.status(400).json({ ok: false, message: 'Classroom not found.' });
         classroomName = cl.classroomName;
       }
       data.classroomId = newClassroomId;
@@ -1786,33 +1933,30 @@ export async function adminUpdateBatch(req, res) {
       if (newClassroomId) {
         data.classroomAssignedAt = new Date();
         data.classroomAssignedBy = req.userId;
+      } else {
+        data.classroomAssignedAt = null;
+        data.classroomAssignedBy = null;
       }
+      shouldSyncClassroom = true;
+      nextClassroomId = newClassroomId;
+      nextClassroomName = classroomName;
 
-      // Backfill all existing trainees in this batch with the new classroomId
-      if (newClassroomId) {
-        const trainees = await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } });
-        await Promise.all(trainees.map(t => Promise.all([
-          prisma.traineeMaster.update({ where: { employeeId: t.employeeId }, data: { classroomId: newClassroomId, classroomName } }),
-          prisma.userMaster.updateMany({ where: { employeeId: t.employeeId }, data: { classroomId: newClassroomId } }),
-          prisma.traineeClassroomMap.upsert({
-            where: { employeeId_classroomId: { employeeId: t.employeeId, classroomId: newClassroomId } },
-            create: { employeeId: t.employeeId, classroomId: newClassroomId, batchNo, assignedBy: req.userId },
-            update: { active: true, batchNo },
-          }),
-        ])));
-        // Update batch_classroom_map
-        await prisma.batchClassroomMap.upsert({
-          where: { id: (await prisma.batchClassroomMap.findFirst({ where: { batchNo } }))?.id || '' },
-          create: { batchNo, batchName: data.batchName || batchNo, classroomId: newClassroomId, classroomName, assignedBy: req.userId },
-          update: { classroomId: newClassroomId, classroomName, active: true },
-        }).catch(() => prisma.batchClassroomMap.create({ data: { batchNo, batchName: data.batchName || batchNo, classroomId: newClassroomId, classroomName, assignedBy: req.userId } }));
-      }
     }
 
     if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No fields to update.' });
     if (data.batchName !== undefined && !data.batchName) return res.status(400).json({ ok: false, message: 'Batch name cannot be empty.' });
+    if (data.startDate === null && startDate) return res.status(400).json({ ok: false, message: 'Invalid start date.' });
+    if (data.endDate === null && endDate) return res.status(400).json({ ok: false, message: 'Invalid end date.' });
 
     const batch = await prisma.batchMaster.update({ where: { batchNo }, data });
+    if (shouldSyncClassroom) {
+      await syncBatchClassroomAssignment({
+        batch,
+        classroomId: nextClassroomId,
+        classroomName: nextClassroomName,
+        assignedBy: req.userId,
+      });
+    }
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_BATCH', module: 'Batch', referenceId: batchNo, newValue: data });
     res.json({ ok: true, data: batch });
   } catch (err) {
