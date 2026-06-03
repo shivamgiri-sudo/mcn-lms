@@ -84,9 +84,7 @@ export async function listFolder(req, res) {
 export async function getFileInfo(req, res) {
   try {
     const { fileId } = req.params;
-    const { files } = await listDriveFolderAny(fileId);
-    const client = getOAuthClient();
-    const drive = google.drive({ version: 'v3', auth: client });
+    const drive = await getDriveService();
     const file = await drive.files.get({
       fileId,
       fields: 'id, name, mimeType, size, thumbnailLink, webViewLink',
