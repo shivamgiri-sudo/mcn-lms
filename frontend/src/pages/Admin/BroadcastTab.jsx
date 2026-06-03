@@ -2,14 +2,20 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../../utils/api.js';
 
 const SCOPE_OPTIONS = [
-  { value: 'company',    label: 'Entire Company',    desc: 'All active trainees' },
-  { value: 'branch',     label: 'Branch',             desc: 'Trainees in a branch' },
-  { value: 'process',    label: 'Process',            desc: 'Trainees in a process' },
-  { value: 'batch',      label: 'Batch',              desc: 'Trainees in a batch' },
-  { value: 'individual', label: 'Individual Trainee', desc: 'One trainee by Emp ID' },
+  { value: 'company',    label: 'Entire Company',       desc: 'All active trainees' },
+  { value: 'branch',     label: 'Branch(es)',           desc: 'One or more branches' },
+  { value: 'process',    label: 'Process(es)',          desc: 'One or more processes' },
+  { value: 'batch',      label: 'Batch(es)',            desc: 'One or more batches' },
+  { value: 'individual', label: 'Individual',           desc: 'One trainee by Emp ID' },
+  { value: 'specific',   label: 'Specific Employees',  desc: 'Search or paste a list' },
 ];
 
 const EMPTY_MCQ = () => ({ question: '', optionA: '', optionB: '', optionC: '', optionD: '', correct: 'A', marks: 1 });
+
+// Multi-select toggle helper
+function toggleItem(arr, val) {
+  return arr.includes(val) ? arr.filter(x => x !== val) : [...arr, val];
+}
 
 export default function BroadcastTab() {
   const [classrooms, setClassrooms] = useState([]);
@@ -22,24 +28,37 @@ export default function BroadcastTab() {
   const [form, setForm] = useState({
     broadcastTitle: '',
     scope: 'company',
+    // single-value scopes (individual)
     scopeValue: '',
+    // multi-value scopes (batch, process, branch) — array of selected values
+    scopeValues: [],
     classroomId: '',
     moduleId: '',
     moduleName: '',
-    selectedContentIds: [],   // optional: specific content items from the module
+    selectedContentIds: [],
     assignmentType: 'Mandatory',
     message: '',
     dueDate: '',
   });
 
-  // Direct upload state
+  // Specific Employees state
+  const [empSearch, setEmpSearch] = useState('');
+  const [empSearchResults, setEmpSearchResults] = useState([]);
+  const [empSearchLoading, setEmpSearchLoading] = useState(false);
+  const [selectedEmployees, setSelectedEmployees] = useState([]); // [{employeeId, traineeName, ...}]
+  const [pasteText, setPasteText] = useState('');
+  const [pasteMode, setPasteMode] = useState(false);
+  const [validateLoading, setValidateLoading] = useState(false);
+  const [pasteResult, setPasteResult] = useState(null); // {found, notFound}
+
+  // Upload state
   const [uploadFile, setUploadFile] = useState(null);
   const [uploadTitle, setUploadTitle] = useState('');
   const [uploadMode, setUploadMode] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef(null);
 
-  // Optional MCQ state
+  // MCQ state
   const [mcqEnabled, setMcqEnabled] = useState(false);
   const [mcqName, setMcqName] = useState('');
   const [mcqPassPct, setMcqPassPct] = useState(60);
@@ -68,9 +87,24 @@ export default function BroadcastTab() {
     api.get(`/admin/modules/${form.moduleId}/contents`, 'admin').then(r => r.ok && setContents(r.data));
   }, [form.moduleId]);
 
+  // Employee search with debounce
+  useEffect(() => {
+    if (empSearch.trim().length < 2) { setEmpSearchResults([]); return; }
+    const t = setTimeout(async () => {
+      setEmpSearchLoading(true);
+      const res = await api.get(`/admin/trainees/search?q=${encodeURIComponent(empSearch)}&limit=10`, 'admin');
+      setEmpSearchLoading(false);
+      if (res.ok) setEmpSearchResults(res.data || []);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [empSearch]);
+
   function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
-  function changeScope(scopeVal) { setForm(f => ({ ...f, scope: scopeVal, scopeValue: '' })); }
+  function changeScope(scopeVal) {
+    setForm(f => ({ ...f, scope: scopeVal, scopeValue: '', scopeValues: [] }));
+    setSelectedEmployees([]); setPasteText(''); setPasteResult(null);
+  }
 
   function toggleContent(contentId) {
     setF('selectedContentIds', form.selectedContentIds.includes(contentId)
@@ -78,24 +112,46 @@ export default function BroadcastTab() {
       : [...form.selectedContentIds, contentId]);
   }
 
+  function addEmployee(trainee) {
+    if (!selectedEmployees.find(e => e.employeeId === trainee.employeeId)) {
+      setSelectedEmployees(s => [...s, trainee]);
+    }
+    setEmpSearch(''); setEmpSearchResults([]);
+  }
+
+  function removeEmployee(empId) {
+    setSelectedEmployees(s => s.filter(e => e.employeeId !== empId));
+  }
+
+  async function validatePaste() {
+    const ids = pasteText.split(/[\n,;]+/).map(s => s.trim().toUpperCase()).filter(Boolean);
+    if (!ids.length) return;
+    setValidateLoading(true);
+    const res = await api.post('/admin/validate-employee-ids', { employeeIds: ids }, 'admin');
+    setValidateLoading(false);
+    if (res.ok) {
+      setPasteResult(res);
+      // Auto-add all found employees to selected list
+      const newOnes = res.found.filter(f => !selectedEmployees.find(e => e.employeeId === f.employeeId));
+      setSelectedEmployees(s => [...s, ...newOnes]);
+    }
+  }
+
   function addQuestion() { setQuestions(qs => [...qs, EMPTY_MCQ()]); }
   function removeQuestion(i) { setQuestions(qs => qs.filter((_, idx) => idx !== i)); }
   function setQ(i, k, v) { setQuestions(qs => qs.map((q, idx) => idx === i ? { ...q, [k]: v } : q)); }
 
   async function handleUpload() {
-    if (!uploadFile || !uploadTitle.trim()) return setMsg({ type: 'bad', text: 'File and title are required for upload.' });
-    if (!form.moduleId) return setMsg({ type: 'bad', text: 'Select a module before uploading content.' });
+    if (!uploadFile || !uploadTitle.trim()) return setMsg({ type: 'bad', text: 'File and title are required.' });
+    if (!form.moduleId) return setMsg({ type: 'bad', text: 'Select a module before uploading.' });
     setUploading(true);
     const fd = new FormData();
     fd.append('file', uploadFile);
     fd.append('contentTitle', uploadTitle.trim());
     fd.append('contentOrder', String(contents.length + 1));
     const token = localStorage.getItem('lms_token_admin') || '';
-    // Use the admin content creation endpoint which persists to DB
     const res = await fetch(`/api/admin/modules/${form.moduleId}/contents`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: fd,
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
     }).then(r => r.json()).catch(() => ({ ok: false, message: 'Upload failed' }));
     setUploading(false);
     if (!res.ok) return setMsg({ type: 'bad', text: res.message || 'Upload failed.' });
@@ -107,74 +163,94 @@ export default function BroadcastTab() {
   async function submit(e) {
     e.preventDefault();
     if (!form.moduleId) return setMsg({ type: 'bad', text: 'Select a module.' });
-    if (form.scope !== 'company' && !form.scopeValue.trim()) return setMsg({ type: 'bad', text: 'Select a target for the chosen scope.' });
+
+    const isMultiScope = ['batch', 'process', 'branch'].includes(form.scope);
+    const isBulk = form.scope === 'specific' || isMultiScope;
+
+    // Validate scope selection
+    if (form.scope !== 'company') {
+      if (form.scope === 'individual' && !form.scopeValue.trim()) return setMsg({ type: 'bad', text: 'Enter an Employee ID.' });
+      if (isMultiScope && form.scopeValues.length === 0) return setMsg({ type: 'bad', text: `Select at least one ${form.scope}.` });
+      if (form.scope === 'specific' && selectedEmployees.length === 0) return setMsg({ type: 'bad', text: 'Add at least one employee.' });
+    }
 
     setLoading(true); setMsg(null);
 
-    // 1. Broadcast the module assignment
-    const res = await api.post('/admin/broadcast-module', {
+    const basePayload = {
       broadcastTitle: form.broadcastTitle.trim() || null,
       moduleId: form.moduleId,
       moduleName: form.moduleName,
-      scope: form.scope,
-      scopeValue: form.scope === 'company' ? 'ALL' : form.scopeValue.trim(),
       assignmentType: form.assignmentType,
       message: form.message || null,
       dueDate: form.dueDate || null,
       contentIds: form.selectedContentIds.length > 0 ? form.selectedContentIds : null,
-    }, 'admin');
+    };
 
-    if (!res.ok) {
-      setLoading(false);
-      return setMsg({ type: 'bad', text: res.message || 'Broadcast failed.' });
+    let res;
+    if (isBulk) {
+      // Use bulk endpoint for specific employees or multi-scope
+      const bulkPayload = { ...basePayload };
+      if (form.scope === 'specific') {
+        bulkPayload.employeeIds = selectedEmployees.map(e => e.employeeId);
+      } else {
+        bulkPayload.scopeType = form.scope;
+        bulkPayload.scopeValues = form.scopeValues;
+      }
+      res = await api.post('/admin/broadcast-module-bulk', bulkPayload, 'admin');
+    } else {
+      // Use single broadcast endpoint for company / individual
+      res = await api.post('/admin/broadcast-module', {
+        ...basePayload,
+        scope: form.scope,
+        scopeValue: form.scope === 'company' ? 'ALL' : form.scopeValue.trim(),
+      }, 'admin');
     }
 
-    // 2. Optionally create MCQ assessment for this module
-    if (mcqEnabled && mcqName.trim() && questions.some(q => q.question.trim())) {
+    // Optionally create MCQ
+    if (res.ok && mcqEnabled && mcqName.trim()) {
       const validQs = questions.filter(q => q.question.trim() && q.optionA.trim() && q.optionB.trim());
       if (validQs.length > 0) {
         const aRes = await api.post('/admin/assessments', {
-          classroomId: form.classroomId,
-          moduleId: form.moduleId,
-          assessmentName: mcqName.trim(),
-          passingPct: mcqPassPct,
-          attemptLimit: mcqAttempts,
-          timeLimitMins: mcqTimeMins,
+          classroomId: form.classroomId, moduleId: form.moduleId,
+          assessmentName: mcqName.trim(), passingPct: mcqPassPct,
+          attemptLimit: mcqAttempts, timeLimitMins: mcqTimeMins,
           instructions: `Broadcast MCQ for: ${form.broadcastTitle || form.moduleName}`,
         }, 'admin');
-
         if (aRes.ok && aRes.data?.assessmentId) {
-          const uploadPayload = validQs.map(q => ({
-            question: q.question,
-            option_a: q.optionA,
-            option_b: q.optionB,
-            option_c: q.optionC || '',
-            option_d: q.optionD || '',
-            correct: q.correct,
-            marks: q.marks || 1,
-            difficulty: 'Medium',
-            explanation: '',
-          }));
-          await api.post(`/admin/assessments/${aRes.data.assessmentId}/questions/upload`, { questions: uploadPayload }, 'admin');
+          await api.post(`/admin/assessments/${aRes.data.assessmentId}/questions/upload`, {
+            questions: validQs.map(q => ({
+              question: q.question, option_a: q.optionA, option_b: q.optionB,
+              option_c: q.optionC || '', option_d: q.optionD || '',
+              correct: q.correct, marks: q.marks || 1, difficulty: 'Medium', explanation: '',
+            })),
+          }, 'admin');
         }
       }
     }
 
     setLoading(false);
-    const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
-    setMsg({ type: 'ok', text: `Module "${form.moduleName}" broadcast to ${scopeLabel}${mcqEnabled ? ' + MCQ created' : ''}.` });
-    setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', message: '', dueDate: '', selectedContentIds: [] }));
-    setQuestions([EMPTY_MCQ()]); setMcqEnabled(false); setMcqName('');
+    if (res.ok) {
+      const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
+      let successText = res.message || `Module "${form.moduleName}" assigned to ${scopeLabel}.`;
+      if (mcqEnabled && mcqName.trim()) successText += ' + MCQ created.';
+      setMsg({ type: 'ok', text: successText });
+      setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', scopeValues: [], message: '', dueDate: '', selectedContentIds: [] }));
+      setSelectedEmployees([]); setPasteText(''); setPasteResult(null);
+      setQuestions([EMPTY_MCQ()]); setMcqEnabled(false); setMcqName('');
+    } else {
+      setMsg({ type: 'bad', text: res.message || 'Broadcast failed.' });
+    }
   }
 
-  const stepNum = (n) => form.scope === 'company' ? n - 1 : n;
+  const isMultiScope = ['batch', 'process', 'branch'].includes(form.scope);
+  const stepBase = form.scope === 'company' ? 0 : 1; // offset for step numbering
 
   return (
     <div>
       <div style={{ marginBottom: 24 }}>
         <h2 style={{ fontSize: 20, fontWeight: 900, color: 'var(--ink)' }}>Broadcast / Refresher Assignment</h2>
         <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-          Assign a module to any group. Optionally select specific content items, upload new content, or attach an MCQ.
+          Assign a module to any audience — select multiple batches, processes, or branches, or pick specific employees by search or paste.
           Assignments appear immediately in the trainee's <b>Assigned</b> tab.
         </p>
       </div>
@@ -200,12 +276,13 @@ export default function BroadcastTab() {
             {/* Step 1: Scope */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step 1 — Target Audience</div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
                 {SCOPE_OPTIONS.map(opt => (
                   <div key={opt.value} onClick={() => changeScope(opt.value)} style={{
                     border: `2px solid ${form.scope === opt.value ? 'var(--brand)' : 'var(--line)'}`,
                     borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
                     background: form.scope === opt.value ? 'rgba(29,78,216,.08)' : 'var(--card)',
+                    transition: 'border-color .15s',
                   }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: form.scope === opt.value ? 'var(--brand)' : 'var(--ink)' }}>{opt.label}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{opt.desc}</div>
@@ -214,45 +291,151 @@ export default function BroadcastTab() {
               </div>
             </div>
 
-            {/* Step 2: Scope value */}
+            {/* Step 2: Scope selector */}
             {form.scope !== 'company' && (
               <div style={{ marginBottom: 20 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step 2 — Pick Specific Target</div>
-                {form.scope === 'branch' && (
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Branch</label>
-                    {branches.length > 0
-                      ? <select className="select" value={form.scopeValue} onChange={e => setF('scopeValue', e.target.value)} required>
-                          <option value="">Select branch…</option>
-                          {branches.map(b => <option key={b} value={b}>{b}</option>)}
-                        </select>
-                      : <input className="input" placeholder="Branch name" value={form.scopeValue} onChange={e => setF('scopeValue', e.target.value)} required />}
-                  </div>
-                )}
-                {form.scope === 'process' && (
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Process</label>
-                    {processes.length > 0
-                      ? <select className="select" value={form.scopeValue} onChange={e => setF('scopeValue', e.target.value)} required>
-                          <option value="">Select process…</option>
-                          {processes.map(p => <option key={p} value={p}>{p}</option>)}
-                        </select>
-                      : <input className="input" placeholder="Process name" value={form.scopeValue} onChange={e => setF('scopeValue', e.target.value)} required />}
-                  </div>
-                )}
-                {form.scope === 'batch' && (
-                  <div className="field" style={{ margin: 0 }}>
-                    <label>Batch</label>
-                    <select className="select" value={form.scopeValue} onChange={e => setF('scopeValue', e.target.value)} required>
-                      <option value="">Select batch…</option>
-                      {batches.map(b => <option key={b.batchNo} value={b.batchNo}>{b.batchNo}{b.batchName ? ` — ${b.batchName}` : ''}</option>)}
-                    </select>
-                  </div>
-                )}
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step 2 — Pick Target</div>
+
+                {/* Individual */}
                 {form.scope === 'individual' && (
                   <div className="field" style={{ margin: 0 }}>
                     <label>Employee ID</label>
-                    <input className="input" placeholder="e.g. EMP1001" value={form.scopeValue} onChange={e => setF('scopeValue', e.target.value)} required />
+                    <input className="input" placeholder="e.g. EMP1001" value={form.scopeValue}
+                      onChange={e => setF('scopeValue', e.target.value)} required />
+                  </div>
+                )}
+
+                {/* Multi-select: Batch / Process / Branch */}
+                {isMultiScope && (
+                  <div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
+                      Click to select multiple. <b style={{ color: 'var(--brand)' }}>{form.scopeValues.length} selected.</b>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, maxHeight: 200, overflowY: 'auto', padding: 2 }}>
+                      {(form.scope === 'batch' ? batches.map(b => ({ value: b.batchNo, label: `${b.batchNo}${b.batchName ? ' — ' + b.batchName : ''}` }))
+                        : form.scope === 'process' ? processes.map(p => ({ value: p, label: p }))
+                        : branches.map(b => ({ value: b, label: b }))
+                      ).map(opt => {
+                        const sel = form.scopeValues.includes(opt.value);
+                        return (
+                          <div key={opt.value} onClick={() => setF('scopeValues', toggleItem(form.scopeValues, opt.value))}
+                            style={{
+                              padding: '6px 12px', borderRadius: 20, fontSize: 12, cursor: 'pointer', userSelect: 'none',
+                              border: `1.5px solid ${sel ? 'var(--brand)' : 'var(--line)'}`,
+                              background: sel ? 'rgba(29,78,216,.1)' : 'var(--card)',
+                              color: sel ? 'var(--brand)' : 'var(--ink)', fontWeight: sel ? 700 : 400,
+                            }}>
+                            {sel ? '✓ ' : ''}{opt.label}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    {form.scopeValues.length > 0 && (
+                      <button type="button" style={{ fontSize: 11, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', marginTop: 6, padding: 0 }}
+                        onClick={() => setF('scopeValues', [])}>Clear all</button>
+                    )}
+                  </div>
+                )}
+
+                {/* Specific Employees */}
+                {form.scope === 'specific' && (
+                  <div>
+                    {/* Search panel */}
+                    <div style={{ position: 'relative', marginBottom: 10 }}>
+                      <input className="input" placeholder="Search by name or Employee ID…"
+                        value={empSearch} onChange={e => setEmpSearch(e.target.value)} />
+                      {empSearchLoading && (
+                        <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)' }}>⟳</span>
+                      )}
+                      {empSearchResults.length > 0 && (
+                        <div style={{
+                          position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20,
+                          background: 'var(--card-solid)', border: '1.5px solid var(--line)', borderRadius: 10,
+                          boxShadow: 'var(--shadow-sm)', maxHeight: 220, overflowY: 'auto', marginTop: 4,
+                        }}>
+                          {empSearchResults.map(t => {
+                            const already = selectedEmployees.some(e => e.employeeId === t.employeeId);
+                            return (
+                              <div key={t.employeeId} style={{
+                                display: 'flex', alignItems: 'center', gap: 10, padding: '9px 14px',
+                                borderBottom: '1px solid var(--line)', cursor: already ? 'default' : 'pointer',
+                                opacity: already ? .5 : 1,
+                              }} onClick={() => !already && addEmployee(t)}>
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ fontSize: 13, fontWeight: 700 }}>{t.traineeName || t.employeeId}</div>
+                                  <div style={{ fontSize: 11, color: 'var(--muted)' }}>{t.employeeId} · {t.batchNo} · {t.process}</div>
+                                </div>
+                                {already
+                                  ? <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 700 }}>✓ Added</span>
+                                  : <span style={{ fontSize: 11, color: 'var(--brand)', fontWeight: 700 }}>+ Add</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Paste panel toggle */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                      <button type="button" className="btn small secondary" style={{ fontSize: 11 }}
+                        onClick={() => setPasteMode(v => !v)}>
+                        {pasteMode ? 'Hide Paste Panel' : '📋 Paste Employee IDs'}
+                      </button>
+                      {selectedEmployees.length > 0 && (
+                        <button type="button" style={{ fontSize: 11, color: 'var(--danger)', background: 'none', border: 'none', cursor: 'pointer' }}
+                          onClick={() => { setSelectedEmployees([]); setPasteResult(null); }}>
+                          Clear all ({selectedEmployees.length})
+                        </button>
+                      )}
+                    </div>
+
+                    {pasteMode && (
+                      <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', padding: 12, marginBottom: 10 }}>
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>
+                          Paste employee IDs — one per line, or comma/semicolon separated
+                        </div>
+                        <textarea className="input" rows={4} style={{ resize: 'vertical', fontFamily: 'monospace', fontSize: 12 }}
+                          placeholder={'EMP001\nEMP002\nEMP003'} value={pasteText}
+                          onChange={e => { setPasteText(e.target.value); setPasteResult(null); }} />
+                        <button type="button" className="btn small" style={{ marginTop: 8 }}
+                          onClick={validatePaste} disabled={validateLoading || !pasteText.trim()}>
+                          {validateLoading ? 'Validating…' : 'Validate & Add'}
+                        </button>
+                        {pasteResult && (
+                          <div style={{ marginTop: 8, fontSize: 12 }}>
+                            <span style={{ color: 'var(--ok)', fontWeight: 700 }}>✓ {pasteResult.found.length} found & added</span>
+                            {pasteResult.notFound.length > 0 && (
+                              <span style={{ color: 'var(--danger)', marginLeft: 12, fontWeight: 700 }}>
+                                ✗ {pasteResult.notFound.length} not found: {pasteResult.notFound.slice(0, 5).join(', ')}{pasteResult.notFound.length > 5 ? '…' : ''}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Selected employees chips */}
+                    {selectedEmployees.length > 0 && (
+                      <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', padding: '10px 12px' }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 8 }}>
+                          SELECTED — {selectedEmployees.length} employee(s)
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {selectedEmployees.map(e => (
+                            <div key={e.employeeId} style={{
+                              display: 'flex', alignItems: 'center', gap: 5, padding: '4px 10px',
+                              background: 'rgba(29,78,216,.08)', borderRadius: 20,
+                              border: '1px solid rgba(29,78,216,.2)', fontSize: 12,
+                            }}>
+                              <span style={{ fontWeight: 700, color: 'var(--brand)' }}>{e.employeeId}</span>
+                              {e.traineeName && <span style={{ color: 'var(--muted)' }}>{e.traineeName}</span>}
+                              <button type="button" onClick={() => removeEmployee(e.employeeId)}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, fontSize: 13, lineHeight: 1 }}>✕</button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -260,7 +443,9 @@ export default function BroadcastTab() {
 
             {/* Step 3: Module */}
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step {stepNum(3)} — Select Module</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
+                Step {2 + stepBase} — Select Module
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label>Classroom</label>
@@ -284,7 +469,7 @@ export default function BroadcastTab() {
             {form.moduleId && contents.length > 0 && (
               <div style={{ marginBottom: 20, background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', padding: '14px 16px' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 10 }}>
-                  Content from Module <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional — leave blank to assign all)</span>
+                  Content from Module <span style={{ fontWeight: 400 }}>(optional — leave blank for all)</span>
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {contents.map(c => (
@@ -299,7 +484,7 @@ export default function BroadcastTab() {
                 </div>
                 {form.selectedContentIds.length > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--brand)', marginTop: 8 }}>
-                    {form.selectedContentIds.length} of {contents.length} content item(s) selected
+                    {form.selectedContentIds.length} of {contents.length} selected
                   </div>
                 )}
               </div>
@@ -309,36 +494,28 @@ export default function BroadcastTab() {
             {form.moduleId && (
               <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>
-                    Upload New Content to this Module
-                  </div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>Upload New Content</div>
                   <button type="button" className="btn small secondary" style={{ fontSize: 11 }}
                     onClick={() => setUploadMode(v => !v)}>
-                    {uploadMode ? 'Cancel' : '+ Upload Content'}
+                    {uploadMode ? 'Cancel' : '+ Upload File'}
                   </button>
                 </div>
                 {uploadMode && (
                   <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px dashed var(--line)', padding: 16 }}>
                     <div className="field" style={{ marginBottom: 10 }}>
                       <label style={{ fontSize: 12 }}>Content Title</label>
-                      <input className="input" placeholder="e.g. Refresher Deck Week 3" value={uploadTitle}
-                        onChange={e => setUploadTitle(e.target.value)} />
+                      <input className="input" placeholder="e.g. Refresher Deck Week 3" value={uploadTitle} onChange={e => setUploadTitle(e.target.value)} />
                     </div>
-                    <div
-                      onClick={() => fileRef.current?.click()}
-                      style={{
-                        border: '2px dashed var(--line)', borderRadius: 8, padding: '20px 16px',
-                        textAlign: 'center', cursor: 'pointer', fontSize: 13, color: 'var(--muted)',
-                        background: uploadFile ? 'rgba(22,163,74,.06)' : 'var(--card)',
-                      }}>
-                      {uploadFile
-                        ? <span style={{ color: 'var(--ok)', fontWeight: 700 }}>📎 {uploadFile.name}</span>
+                    <div onClick={() => fileRef.current?.click()} style={{
+                      border: '2px dashed var(--line)', borderRadius: 8, padding: '20px 16px',
+                      textAlign: 'center', cursor: 'pointer', fontSize: 13, color: 'var(--muted)',
+                      background: uploadFile ? 'rgba(22,163,74,.06)' : 'var(--card)',
+                    }}>
+                      {uploadFile ? <span style={{ color: 'var(--ok)', fontWeight: 700 }}>📎 {uploadFile.name}</span>
                         : <span>Click to select file (PDF, video, PPT, DOC, image)</span>}
                     </div>
-                    <input ref={fileRef} type="file"
-                      accept=".pdf,.mp4,.webm,.pptx,.ppt,.docx,.doc,.jpg,.jpeg,.png,.gif"
-                      style={{ display: 'none' }}
-                      onChange={e => setUploadFile(e.target.files[0] || null)} />
+                    <input ref={fileRef} type="file" accept="video/*,.pdf,.pptx,.ppt,.docx,.doc,.xlsx,.jpg,.jpeg,.png,.gif"
+                      style={{ display: 'none' }} onChange={e => setUploadFile(e.target.files[0] || null)} />
                     <button type="button" className="btn small" style={{ marginTop: 10 }}
                       onClick={handleUpload} disabled={uploading || !uploadFile}>
                       {uploading ? 'Uploading…' : '⬆ Upload'}
@@ -350,7 +527,9 @@ export default function BroadcastTab() {
 
             {/* Assignment details */}
             <div style={{ marginBottom: 20 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>Step {stepNum(4)} — Assignment Details</div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
+                Step {3 + stepBase} — Assignment Details
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
                 <div className="field" style={{ margin: 0 }}>
                   <label>Assignment Type</label>
@@ -373,14 +552,13 @@ export default function BroadcastTab() {
 
             {/* Optional MCQ */}
             <div style={{ marginBottom: 24, border: `2px solid ${mcqEnabled ? 'var(--brand)' : 'var(--line)'}`, borderRadius: 12, overflow: 'hidden' }}>
-              <div
-                onClick={() => setMcqEnabled(v => !v)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer',
-                  background: mcqEnabled ? 'rgba(29,78,216,.06)' : 'var(--card)',
-                }}>
+              <div onClick={() => setMcqEnabled(v => !v)} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer',
+                background: mcqEnabled ? 'rgba(29,78,216,.06)' : 'var(--card)',
+              }}>
                 <div style={{
-                  width: 22, height: 22, borderRadius: 6, border: `2px solid ${mcqEnabled ? 'var(--brand)' : 'var(--line)'}`,
+                  width: 22, height: 22, borderRadius: 6,
+                  border: `2px solid ${mcqEnabled ? 'var(--brand)' : 'var(--line)'}`,
                   background: mcqEnabled ? 'var(--brand)' : 'transparent',
                   display: 'grid', placeItems: 'center', flexShrink: 0,
                 }}>
@@ -388,7 +566,7 @@ export default function BroadcastTab() {
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Attach MCQ Assessment (optional)</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Create a new MCQ for this broadcast. Uses the same format as existing assessments.</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Create a new MCQ for this broadcast using the same format as existing assessments.</div>
                 </div>
               </div>
 
@@ -412,7 +590,6 @@ export default function BroadcastTab() {
                       <input className="input" type="number" min={1} value={mcqTimeMins} onChange={e => setMcqTimeMins(Number(e.target.value))} />
                     </div>
                   </div>
-
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', marginBottom: 10 }}>Questions</div>
                   {questions.map((q, i) => (
                     <div key={i} style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', padding: '12px 14px', marginBottom: 10 }}>
@@ -430,19 +607,18 @@ export default function BroadcastTab() {
                           <div key={opt} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', width: 14 }}>{opt}</span>
                             <input className="input" placeholder={`Option ${opt}${opt === 'C' || opt === 'D' ? ' (optional)' : ''}`}
-                              value={q[`option${opt}`]} onChange={e => setQ(i, `option${opt}`, e.target.value)}
-                              style={{ flex: 1 }} />
+                              value={q[`option${opt}`]} onChange={e => setQ(i, `option${opt}`, e.target.value)} style={{ flex: 1 }} />
                           </div>
                         ))}
                       </div>
                       <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                        <div className="field" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', whiteSpace: 'nowrap' }}>Correct:</label>
                           <select className="select" style={{ width: 70 }} value={q.correct} onChange={e => setQ(i, 'correct', e.target.value)}>
                             {['A', 'B', 'C', 'D'].map(o => <option key={o} value={o}>{o}</option>)}
                           </select>
                         </div>
-                        <div className="field" style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)' }}>Marks:</label>
                           <input className="input" type="number" style={{ width: 60 }} min={1} value={q.marks}
                             onChange={e => setQ(i, 'marks', Number(e.target.value))} />
@@ -465,7 +641,14 @@ export default function BroadcastTab() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div style={{ background: 'var(--card-solid)', borderRadius: 14, border: '1.5px solid var(--line)', padding: '18px 20px', boxShadow: 'var(--shadow-sm)' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 12 }}>Scope Guide</div>
-            {[['📢','Entire Company','Every active trainee'],['🌿','Branch','Trainees in that branch'],['⚙️','Process','Trainees in that process'],['🏢','Batch','All trainees in batch'],['👤','Individual','One trainee by ID']].map(([icon, title, desc]) => (
+            {[
+              ['📢', 'Entire Company', 'Every active trainee'],
+              ['🌿', 'Branch(es)', 'Select one or multiple branches'],
+              ['⚙️', 'Process(es)', 'Select one or multiple processes'],
+              ['🏢', 'Batch(es)', 'Select one or multiple batches'],
+              ['👤', 'Individual', 'One trainee by Emp ID'],
+              ['🎯', 'Specific Employees', 'Search + add, or paste a list of IDs'],
+            ].map(([icon, title, desc]) => (
               <div key={title} style={{ display: 'flex', gap: 10, marginBottom: 10 }}>
                 <span style={{ fontSize: 16, flexShrink: 0 }}>{icon}</span>
                 <div>
@@ -478,8 +661,8 @@ export default function BroadcastTab() {
           <div style={{ background: 'rgba(29,78,216,.06)', borderRadius: 12, border: '1px solid rgba(29,78,216,.15)', padding: '14px 16px' }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--brand)', marginBottom: 6 }}>What trainees see</div>
             <p style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, margin: 0 }}>
-              The assigned module appears immediately in the <b style={{ color: 'var(--ink)' }}>Assigned</b> tab after next page load.
-              If you selected specific content items, those are noted. MCQ appears in their Assessments if module is linked.
+              Assigned modules appear immediately in the <b style={{ color: 'var(--ink)' }}>Assigned</b> tab on next page load.
+              Multi-scope broadcasts create one individual record per matched trainee.
             </p>
           </div>
         </div>

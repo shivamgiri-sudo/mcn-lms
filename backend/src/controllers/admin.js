@@ -923,6 +923,108 @@ export async function broadcastModule(req, res) {
   }
 }
 
+// Bulk assignment — supports two modes:
+//   1. employeeIds[]  — direct list of specific employee IDs
+//   2. scopeType + scopeValues[]  — expand multiple batches/processes/branches to individuals
+export async function broadcastModuleBulk(req, res) {
+  try {
+    const { moduleId, moduleName, broadcastTitle, employeeIds, scopeType, scopeValues, assignmentType, message, dueDate } = req.body;
+    if (!moduleId || !moduleName) {
+      return res.status(400).json({ ok: false, message: 'moduleId and moduleName are required.' });
+    }
+
+    let trainees = [];
+    let notFound = [];
+
+    if (Array.isArray(employeeIds) && employeeIds.length > 0) {
+      // Mode 1: specific employee IDs
+      const found = await prisma.traineeMaster.findMany({
+        where: { employeeId: { in: employeeIds }, status: { not: 'Deleted' } },
+        select: { employeeId: true, traineeName: true },
+      });
+      const foundIds = new Set(found.map(t => t.employeeId));
+      notFound = employeeIds.filter(id => !foundIds.has(id));
+      trainees = found;
+    } else if (scopeType && Array.isArray(scopeValues) && scopeValues.length > 0) {
+      // Mode 2: expand by scope (batch / process / branch)
+      const where = { status: { not: 'Deleted' } };
+      if (scopeType === 'batch') where.batchNo = { in: scopeValues };
+      else if (scopeType === 'process') where.process = { in: scopeValues };
+      else if (scopeType === 'branch') where.branch = { in: scopeValues };
+      else return res.status(400).json({ ok: false, message: 'scopeType must be batch, process, or branch.' });
+
+      trainees = await prisma.traineeMaster.findMany({
+        where,
+        select: { employeeId: true, traineeName: true },
+      });
+    } else {
+      return res.status(400).json({ ok: false, message: 'Provide employeeIds[] or scopeType + scopeValues[].' });
+    }
+
+    if (trainees.length === 0) {
+      return res.json({ ok: true, assigned: 0, notFound, message: 'No matching active trainees found.' });
+    }
+
+    // Deduplicate in case of overlapping scope values
+    const seen = new Set();
+    const unique = trainees.filter(t => seen.has(t.employeeId) ? false : seen.add(t.employeeId));
+
+    const now = Date.now();
+    const records = unique.map((t, i) => ({
+      id: `bk-${now}-${i}-${t.employeeId}`.slice(0, 36),
+      moduleId,
+      moduleName,
+      broadcastTitle: broadcastTitle?.trim() || null,
+      assignedTo: t.employeeId,
+      assignedToType: 'individual',
+      assignmentType: assignmentType || 'Mandatory',
+      message: message || null,
+      dueDate: dueDate ? new Date(dueDate) : null,
+      assignedBy: req.userId,
+    }));
+
+    await prisma.assignedModule.createMany({ data: records, skipDuplicates: true });
+
+    await audit({
+      userIdentity: req.userId,
+      userRole: 'Admin',
+      action: 'BROADCAST_BULK',
+      module: 'AssignedModule',
+      referenceId: moduleId,
+      newValue: { assigned: unique.length, notFound: notFound.length, scopeType: scopeType || 'individual' },
+    });
+
+    res.json({
+      ok: true,
+      assigned: unique.length,
+      notFound,
+      message: `Module assigned to ${unique.length} trainee(s).${notFound.length ? ` ${notFound.length} ID(s) not found.` : ''}`,
+    });
+  } catch (err) {
+    console.error('[broadcastModuleBulk]', err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// Validate a list of employee IDs — returns found/notFound without assigning
+export async function validateEmployeeIds(req, res) {
+  try {
+    const { employeeIds } = req.body;
+    if (!Array.isArray(employeeIds) || employeeIds.length === 0) {
+      return res.status(400).json({ ok: false, message: 'employeeIds required.' });
+    }
+    const found = await prisma.traineeMaster.findMany({
+      where: { employeeId: { in: employeeIds }, status: { not: 'Deleted' } },
+      select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true },
+    });
+    const foundIds = new Set(found.map(t => t.employeeId));
+    const notFound = employeeIds.filter(id => !foundIds.has(id));
+    res.json({ ok: true, found, notFound });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
 function toCsv(headers, rows) {
   return [headers, ...rows].map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\n');
 }
