@@ -93,13 +93,13 @@ export default function LearningTab({ days, onRefresh }) {
   const DOC_TYPES = new Set(['pdf', 'doc', 'ppt', 'pptx', 'docx', 'xls', 'xlsx']);
 
   function wrapForViewer(proxyUrl, fileId, contentType) {
-    // Videos play natively via proxy; documents need Google Docs Viewer to prevent download
-    if (contentType === 'video') return { type: 'proxy', url: proxyUrl, fileId };
-    // PDF renders natively in Chrome/Firefox iframes — keep as proxy
-    if (contentType === 'pdf') return { type: 'proxy', url: proxyUrl, fileId };
-    // Office formats (ppt, doc, xls, etc.) — use Google Docs Viewer so they render in-browser
-    const viewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(proxyUrl)}&embedded=true`;
-    return { type: 'proxy', url: viewerUrl, fileId };
+    // All content types go through the backend proxy directly.
+    // Videos stream natively. PDFs render in-browser via iframe.
+    // Office formats (ppt, doc, xls) are exported to PDF by the proxy (Google Drive API
+    // drive.files.export) before streaming — so they also render as PDF in the iframe.
+    // We never send localhost proxy URLs to Google Docs Viewer because Google cannot
+    // reach localhost — the proxy handles the conversion itself.
+    return { type: 'proxy', url: proxyUrl, fileId };
   }
 
   function renderContentUrl(c) {

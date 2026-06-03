@@ -606,11 +606,16 @@ export async function getAssignedModules(req, res) {
   try {
     const empId = req.userId;
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId: empId } });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+
     const assignments = await prisma.assignedModule.findMany({
       where: {
         OR: [
-          { assignedTo: empId, assignedToType: 'trainee' },
-          { assignedTo: trainee?.batchNo || '', assignedToType: 'batch' },
+          { assignedTo: empId, assignedToType: 'individual' },
+          { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
+          { assignedTo: trainee.process || '', assignedToType: 'process' },
+          { assignedTo: trainee.branch || '', assignedToType: 'branch' },
+          { assignedToType: 'company' },
         ],
         active: true,
       },
