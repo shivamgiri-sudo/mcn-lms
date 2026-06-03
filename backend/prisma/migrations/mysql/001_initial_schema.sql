@@ -772,8 +772,29 @@ CREATE TABLE IF NOT EXISTS `sequence_counter` (
 -- ─── Initial sequence counter seed ───────────────────────────
 INSERT IGNORE INTO `sequence_counter` (`key`, `value`) VALUES ('batch_seq', 0);
 
+CREATE TABLE IF NOT EXISTS `communication_config` (
+  `id`                                VARCHAR(36)   NOT NULL DEFAULT 'default',
+  `smtp_host`                         VARCHAR(191)  NOT NULL DEFAULT 'smtp.gmail.com',
+  `smtp_port`                         INT           NOT NULL DEFAULT 587,
+  `smtp_user`                         VARCHAR(191)  NOT NULL DEFAULT '',
+  `smtp_pass`                         VARCHAR(500)  NOT NULL DEFAULT '',
+  `email_from`                        VARCHAR(191)  NOT NULL DEFAULT '',
+  `smtp_enabled`                      TINYINT(1)    NOT NULL DEFAULT 0,
+  `msg91_auth_key`                    VARCHAR(500)  NOT NULL DEFAULT '',
+  `msg91_sender_id`                   VARCHAR(191)  NOT NULL DEFAULT 'MCNLMS',
+  `msg91_template_id`                 VARCHAR(191)  NOT NULL DEFAULT '',
+  `sms_enabled`                       TINYINT(1)    NOT NULL DEFAULT 0,
+  `msg91_whatsapp_token`              VARCHAR(500)  NOT NULL DEFAULT '',
+  `msg91_whatsapp_integrated_number`  VARCHAR(191)  NOT NULL DEFAULT '',
+  `whatsapp_enabled`                  TINYINT(1)    NOT NULL DEFAULT 0,
+  `updated_at`                        DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `updated_by`                        VARCHAR(191)  NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `communication_config` (`id`) VALUES ('default');
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ─── Done ─────────────────────────────────────────────────────
--- All 30 tables created.
--- Next: Run `npx prisma generate` to regenerate the Prisma client.
+-- All 31 tables created. Run `npx prisma generate` to regenerate the Prisma client.

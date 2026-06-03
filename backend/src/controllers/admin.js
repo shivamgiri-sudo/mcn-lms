@@ -896,9 +896,7 @@ export async function assignModule(req, res) {
 // Broadcast a module to a group: process, branch, company, or multiple batches
 export async function broadcastModule(req, res) {
   try {
-    const { moduleId, moduleName, broadcastTitle, scope, scopeValue, assignmentType, message, dueDate } = req.body;
-    // scope: 'process' | 'branch' | 'company' | 'batch'
-    // scopeValue: process name, branch name, 'ALL' for company, batchNo for batch
+    const { moduleId, moduleName, broadcastTitle, scope, scopeValue, assignmentType, message, dueDate, contentIds } = req.body;
     if (!moduleId || !moduleName || !scope) {
       return res.status(400).json({ ok: false, message: 'moduleId, moduleName and scope are required.' });
     }
@@ -913,6 +911,10 @@ export async function broadcastModule(req, res) {
       dueDate: dueDate ? new Date(dueDate) : null,
       assignedBy: req.userId,
     };
+    // Store optional content filter as JSON in the message field prefix if provided
+    if (Array.isArray(contentIds) && contentIds.length > 0) {
+      data.message = `[contentIds:${contentIds.join(',')}]${message ? ' ' + message : ''}`;
+    }
     const assignment = await prisma.assignedModule.create({ data });
     res.json({ ok: true, data: assignment });
   } catch (err) {
@@ -950,10 +952,16 @@ function csvRes(res, filename, headers, rows) {
 // ── 1. Trainee Progress ────────────────────────────────────────────────────────
 export async function exportTrainees(req, res) {
   try {
-    const { batchNo, classroomId } = req.query;
+    const { batchNo, classroomId, status } = req.query;
     const where = {};
     if (batchNo) where.batchNo = batchNo;
     if (classroomId) where.classroomId = classroomId;
+    // status filter: 'Active', 'Inactive', or omitted for all (excludes Deleted)
+    if (status === 'Active' || status === 'Inactive') {
+      where.status = status;
+    } else {
+      where.status = { not: 'Deleted' };
+    }
 
     const [trainees, batches] = await Promise.all([
       prisma.traineeMaster.findMany({ where, orderBy: [{ batchNo: 'asc' }, { employeeId: 'asc' }] }),
@@ -974,6 +982,7 @@ export async function exportTrainees(req, res) {
       'Status', 'Source', 'Export Generated At',
     ];
     const genAt = fmtDt(new Date());
+    const statusLabel = status === 'Active' ? 'active' : status === 'Inactive' ? 'inactive' : 'all';
     const rows = trainees.map(t => {
       const b = batchMap[t.batchNo] || {};
       return [
@@ -988,7 +997,7 @@ export async function exportTrainees(req, res) {
         t.status, t.source, genAt,
       ];
     });
-    csvRes(res, `trainee-progress-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+    csvRes(res, `trainees-${statusLabel}-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Export failed.' });

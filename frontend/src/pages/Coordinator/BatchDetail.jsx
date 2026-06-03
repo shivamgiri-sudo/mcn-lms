@@ -80,8 +80,8 @@ export default function BatchDetail({ batchNo, onBack }) {
 
   async function enrollExisting(trainee) {
     setEnrolling(trainee.employeeId);
-    const res = await api.post(`/coordinator/batches/${batchNo}/trainees/bulk`, {
-      trainees: [{ employeeId: trainee.employeeId, traineeName: trainee.traineeName, email: trainee.email || '', mobile: trainee.mobile || '' }],
+    const res = await api.post(`/coordinator/batches/${batchNo}/trainees/enroll-existing`, {
+      employeeId: trainee.employeeId,
     }, 'coordinator');
     setEnrolling(null);
     if (res.ok) {

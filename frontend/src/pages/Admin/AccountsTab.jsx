@@ -43,8 +43,8 @@ export default function AccountsTab() {
           <button className="btn small secondary" onClick={() => downloadCsv('/admin/trainees/export', 'all-trainees.csv')}>⬇ Export All CSV</button>
           {trainees.length > 0 && (
             <button className="btn small secondary" onClick={() => {
-              const rows = [['Employee ID','Name','Batch','Branch','Process','Course%','MCQ%','Attendance%','Risk','Certification']];
-              trainees.forEach(t => rows.push([t.employeeId,t.traineeName||'',t.batchNo||'',t.branch||'',t.process||'',t.courseCompletionPct||0,t.assessmentPassPct||0,t.attendancePct||0,t.riskStatus||'',t.certificationStatus||'']));
+              const rows = [['Employee ID','Name','Email','Mobile','Batch','Branch','Process','Course%','MCQ%','Attendance%','Risk','Certification']];
+              trainees.forEach(t => rows.push([t.employeeId,t.traineeName||'',t.email||'',t.mobile||'',t.batchNo||'',t.branch||'',t.process||'',t.courseCompletionPct||0,t.assessmentPassPct||0,t.attendancePct||0,t.riskStatus||'',t.certificationStatus||'']));
               const csv = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
               const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv],{type:'text/csv'})); a.download='search-results.csv'; a.click();
             }}>⬇ Export Search Results</button>
@@ -59,7 +59,7 @@ export default function AccountsTab() {
           <table>
             <thead>
               <tr>
-                <th>Employee ID</th><th>Name</th><th>Batch</th><th>Branch / Process</th>
+                <th>Employee ID</th><th>Name</th><th>Email</th><th>Mobile</th><th>Batch</th><th>Branch / Process</th>
                 <th>Course</th><th>MCQ</th><th>Risk</th><th>Joined</th><th>Actions</th>
               </tr>
             </thead>
@@ -73,6 +73,8 @@ export default function AccountsTab() {
                     )}
                   </td>
                   <td>{t.traineeName || '—'}</td>
+                  <td style={{ fontSize: 12, color: 'var(--muted)' }}>{t.email || '—'}</td>
+                  <td style={{ fontSize: 12, fontFamily: 'monospace' }}>{t.mobile || '—'}</td>
                   <td>{t.batchNo || '—'}</td>
                   <td>{t.branch} / {t.process}</td>
                   <td>{pct(t.courseCompletionPct)}</td>

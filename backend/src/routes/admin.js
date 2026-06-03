@@ -34,6 +34,7 @@ import {
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   adminMapSingleEmpId, adminBulkMapEmpIds, getTempTrainees,
 } from '../controllers/admin.js';
+import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
 import { contentUpload } from '../utils/upload.js';
 
 const auth = [requireSession, requireRole('admin')];
@@ -178,5 +179,12 @@ router.get('/org/departments', ...auth, listDepartments);
 router.post('/org/departments', ...auth, createDepartment);
 router.put('/org/departments/:id', ...auth, updateDepartment);
 router.delete('/org/departments/:id', ...auth, deleteDepartment);
+
+// Communication Config
+router.get('/comm-config', ...auth, getCommConfig);
+router.post('/comm-config', ...auth, saveCommConfig);
+router.post('/comm-config/test-email', ...auth, testEmailConfig);
+router.post('/comm-config/test-sms', ...auth, testSmsConfig);
+router.post('/comm-config/test-whatsapp', ...auth, testWhatsAppConfig);
 
 export default router;

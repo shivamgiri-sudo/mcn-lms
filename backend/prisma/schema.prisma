@@ -769,3 +769,27 @@ model SequenceCounter {
 
   @@map("sequence_counter")
 }
+
+model CommunicationConfig {
+  id                              String   @id @default("default")
+  smtpHost                        String   @default("smtp.gmail.com") @map("smtp_host")
+  smtpPort                        Int      @default(587) @map("smtp_port")
+  smtpUser                        String   @default("") @map("smtp_user")
+  smtpPass                        String   @default("") @db.VarChar(500) @map("smtp_pass")
+  emailFrom                       String   @default("") @map("email_from")
+  smtpEnabled                     Boolean  @default(false) @map("smtp_enabled")
+
+  msg91AuthKey                    String   @default("") @db.VarChar(500) @map("msg91_auth_key")
+  msg91SenderId                   String   @default("MCNLMS") @map("msg91_sender_id")
+  msg91TemplateId                 String   @default("") @map("msg91_template_id")
+  smsEnabled                      Boolean  @default(false) @map("sms_enabled")
+
+  msg91WhatsappToken              String   @default("") @db.VarChar(500) @map("msg91_whatsapp_token")
+  msg91WhatsappIntegratedNumber   String   @default("") @map("msg91_whatsapp_integrated_number")
+  whatsappEnabled                 Boolean  @default(false) @map("whatsapp_enabled")
+
+  updatedAt                       DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy                       String?  @map("updated_by")
+
+  @@map("communication_config")
+}

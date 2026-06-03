@@ -137,10 +137,24 @@ export default function ReportsTab() {
   const exports = [
     {
       key: 'trainee-progress',
-      icon: '👥', title: 'Trainee Progress Report', btnColor: CHART_COLORS.blue,
-      desc: 'All trainees with KPI metrics and certification status.',
-      cols: 'Employee ID, Name, Batch, Branch, Process, LOB, Batch Start/End, Onboarding Date, Last Updated, Course %, MCQ %, Attendance %, Risk, Cert Status',
-      url: `/admin/trainees/export?${p}`, filename: `trainee-progress-${bl}-${d}.csv`,
+      icon: '👥', title: 'All Trainees Report', btnColor: CHART_COLORS.blue,
+      desc: 'All trainees (active + inactive) with KPI metrics and certification status.',
+      cols: 'Employee ID, Name, Email, Mobile, Batch, Branch, Process, LOB, Batch Start/End, Onboarding Date, Last Updated, Course %, MCQ %, Attendance %, Risk, Cert Status, Status',
+      url: `/admin/trainees/export?${p}`, filename: `trainees-all-${bl}-${d}.csv`,
+    },
+    {
+      key: 'trainees-active',
+      icon: '✅', title: 'Active Trainees Database', btnColor: CHART_COLORS.green,
+      desc: 'Export all currently Active trainees with full profile and KPI data.',
+      cols: 'Employee ID, Name, Email, Mobile, Batch, Branch, Process, LOB, Batch Start/End, Onboarding Date, Last Updated, Course %, MCQ %, Attendance %, Risk, Cert Status',
+      url: `/admin/trainees/export?status=Active&${p}`, filename: `trainees-active-${bl}-${d}.csv`,
+    },
+    {
+      key: 'trainees-inactive',
+      icon: '🔴', title: 'Inactive Trainees Database', btnColor: CHART_COLORS.red,
+      desc: 'Export all Inactive/deactivated trainees for records and compliance.',
+      cols: 'Employee ID, Name, Email, Mobile, Batch, Branch, Process, LOB, Batch Start/End, Onboarding Date, Last Updated, Course %, MCQ %, Attendance %, Risk, Cert Status',
+      url: `/admin/trainees/export?status=Inactive&${p}`, filename: `trainees-inactive-${bl}-${d}.csv`,
     },
     {
       key: 'batch-summary',

@@ -30,7 +30,7 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: false,
-    frameguard: { action: 'deny' },
+    frameguard: { action: 'sameorigin' },
   })
 );
 

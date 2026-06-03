@@ -4,7 +4,7 @@ import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
-import { sendCertificationEmail } from '../utils/mailer.js';
+import { notifyCertification, notifyBatchAssignment } from '../utils/notify.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -256,6 +256,83 @@ export async function bulkAddTrainees(req, res) {
     res.json({ ok: true, data: { success, failed: failed.length, errors: failed.map(r => r.message), results } });
   } catch (err) {
     console.error('[bulkAddTrainees]', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
+// Enroll an existing LMS user into a different batch/classroom without re-creating their account
+export async function enrollExistingTrainee(req, res) {
+  try {
+    const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: req.userId } });
+    if (!coord?.canOnboardTrainee) return res.status(403).json({ ok: false, message: 'No permission.' });
+
+    const { batchNo } = req.params;
+    const { employeeId } = req.body;
+    if (!employeeId) return res.status(400).json({ ok: false, message: 'employeeId required.' });
+
+    const normId = normalize(employeeId);
+
+    const [batch, trainee] = await Promise.all([
+      prisma.batchMaster.findUnique({ where: { batchNo } }),
+      prisma.traineeMaster.findUnique({ where: { employeeId: normId } }),
+    ]);
+
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+
+    await prisma.$transaction(async (tx) => {
+      await tx.traineeMaster.update({
+        where: { employeeId: normId },
+        data: {
+          batchNo: batch.batchNo,
+          branch: batch.branch,
+          process: batch.process,
+          lob: batch.lob,
+          classroomId: batch.classroomId || trainee.classroomId,
+          classroomName: batch.classroomName || trainee.classroomName,
+          status: 'Active',
+          onboardingStatus: 'Active',
+        },
+      });
+      await tx.userMaster.updateMany({
+        where: { employeeId: normId },
+        data: {
+          batchNo: batch.batchNo,
+          branch: batch.branch,
+          process: batch.process,
+          lob: batch.lob,
+          classroomId: batch.classroomId || trainee.classroomId,
+        },
+      });
+    });
+
+    if (batch.classroomId) {
+      await prisma.traineeClassroomMap.upsert({
+        where: { employeeId_classroomId: { employeeId: normId, classroomId: batch.classroomId } },
+        create: { employeeId: normId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+        update: { active: true, batchNo: batch.batchNo },
+      });
+    }
+
+    await prisma.batchMaster.update({
+      where: { batchNo: batch.batchNo },
+      data: { totalTrainees: { increment: 1 } },
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'ENROLL_EXISTING', module: 'Trainee', referenceId: normId, newValue: { batchNo } });
+
+    notifyBatchAssignment({
+      traineeName: trainee.traineeName,
+      mobile: trainee.mobile,
+      email: trainee.email,
+      batchNo: batch.batchNo,
+      classroomName: batch.classroomName,
+      process: batch.process,
+    }).catch(err => console.error(`[NOTIFY] Batch assignment notification failed:`, err.message));
+
+    res.json({ ok: true, message: `${trainee.traineeName || normId} enrolled in ${batchNo}.` });
+  } catch (err) {
+    console.error('[enrollExistingTrainee]', err);
     res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
@@ -597,18 +674,17 @@ export async function certifyTrainee(req, res) {
 
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'CERTIFY_TRAINEE', module: 'Certification', referenceId: employeeId });
 
-    // Send certification email — fire-and-forget, never fail the API call
-    if (trainee.email) {
-      sendCertificationEmail({
-        employeeId,
-        traineeName: trainee.traineeName,
-        email: trainee.email,
-        batchNo: batch.batchNo,
-        batchName: batch.batchName,
-        process: batch.process,
-        lob: batch.lob,
-      }).catch(err => console.error(`[MAILER] Cert email failed for ${employeeId}:`, err.message));
-    }
+    // Notify trainee via all enabled channels — fire-and-forget
+    notifyCertification({
+      traineeName: trainee.traineeName,
+      employeeId,
+      email: trainee.email,
+      mobile: trainee.mobile,
+      batchNo: batch.batchNo,
+      batchName: batch.batchName,
+      process: batch.process,
+      lob: batch.lob,
+    }).catch(err => console.error(`[NOTIFY] Cert notification failed for ${employeeId}:`, err.message));
 
     res.json({ ok: true, message: `${employeeId} certified.` });
   } catch (err) {
