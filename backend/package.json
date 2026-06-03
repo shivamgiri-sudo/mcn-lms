@@ -12,7 +12,8 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:studio": "prisma studio",
-    "db:seed": "node prisma/seed.js"
+    "db:seed": "node prisma/seed.js",
+    "db:migrate-role-pins": "node prisma/migrateRolePins.js"
   },
   "dependencies": {
     "@prisma/client": "^5.14.0",

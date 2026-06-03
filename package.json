@@ -1,0 +1,24 @@
+{
+  "name": "mcn-lms-local-package",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local runner for MCN LMS React frontend and Express MySQL backend",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix frontend",
+    "backend:dev": "npm run dev --prefix backend",
+    "frontend:dev": "npm run dev --prefix frontend",
+    "backend:start": "npm run start --prefix backend",
+    "frontend:build": "npm run build --prefix frontend",
+    "db:generate": "npm run db:generate --prefix backend",
+    "db:push": "npm run db:push --prefix backend",
+    "db:seed": "npm run db:seed --prefix backend",
+    "db:migrate-role-pins": "npm run db:migrate-role-pins --prefix backend",
+    "local:setup": "npm run install:all && npm run db:generate && npm run db:push && npm run db:seed",
+    "local:build": "npm run frontend:build && npm run db:generate",
+    "local:backend": "npm run backend:dev",
+    "local:frontend": "npm run frontend:dev"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

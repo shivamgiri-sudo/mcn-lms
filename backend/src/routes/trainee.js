@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
+import { requireContentSequence, requireAssessmentSequence } from '../middleware/learningAccess.js';
 import {
   getLearnerDashboard,
   logContentOpen, logContentHeartbeat, logContentClose,
@@ -14,12 +15,12 @@ const router = Router();
 
 router.get('/dashboard', ...auth, getLearnerDashboard);
 
-router.post('/content/:contentId/open', ...auth, logContentOpen);
+router.post('/content/:contentId/open', ...auth, requireContentSequence, logContentOpen);
 router.post('/content/:contentId/heartbeat', ...auth, logContentHeartbeat);
 router.post('/content/:contentId/close', ...auth, logContentClose);
 
-router.get('/assessment/:assessmentId', ...auth, getAssessment);
-router.post('/assessment/:assessmentId/submit', ...auth, submitAssessment);
+router.get('/assessment/:assessmentId', ...auth, requireAssessmentSequence, getAssessment);
+router.post('/assessment/:assessmentId/submit', ...auth, requireAssessmentSequence, submitAssessment);
 
 router.get('/questions', ...auth, getMyQuestions);
 router.post('/questions', ...auth, raiseQuestion);
