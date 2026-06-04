@@ -2,6 +2,7 @@ import { prisma } from '../utils/db.js';
 import { createSession, deleteSession } from '../utils/session.js';
 import { hashPassword, verifyPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
+import { notifyPasswordReset } from '../utils/notify.js';
 
 // ── Coordinator Login (PIN-based, no Google required) ─────────────────────────
 export async function coordinatorLogin(req, res) {
@@ -118,13 +119,58 @@ export async function adminLogin(req, res) {
 }
 
 // ── Trainee Login ─────────────────────────────────────────────────────────────
+// Accepts: Employee ID, LMS ID (LMSxxxxxx), Email, or Mobile number
 export async function traineeLogin(req, res) {
   try {
     const { employeeId, password } = req.body;
     if (!employeeId || !password) return res.status(400).json({ ok: false, message: 'Employee ID and password required.' });
 
+    const identifier = employeeId.trim();
+
+    // Resolve employeeId from any supported identifier
+    let resolvedEmployeeId = null;
+
+    // 1. Try direct employeeId match in UserMaster
+    const directMatch = await prisma.userMaster.findFirst({
+      where: { employeeId: { equals: normalize(identifier), mode: 'insensitive' }, active: true },
+      select: { employeeId: true },
+    });
+    if (directMatch) resolvedEmployeeId = directMatch.employeeId;
+
+    // 2. Try LMS ID (format: LMSxxxxxx) — look up in TraineeMaster
+    if (!resolvedEmployeeId && /^LMS/i.test(identifier)) {
+      const byLmsId = await prisma.traineeMaster.findFirst({
+        where: { lmsId: { equals: identifier, mode: 'insensitive' } },
+        select: { employeeId: true },
+      });
+      if (byLmsId) resolvedEmployeeId = byLmsId.employeeId;
+    }
+
+    // 3. Try Email — look up in UserMaster
+    if (!resolvedEmployeeId && identifier.includes('@')) {
+      const byEmail = await prisma.userMaster.findFirst({
+        where: { email: { equals: identifier, mode: 'insensitive' }, active: true },
+        select: { employeeId: true },
+      });
+      if (byEmail) resolvedEmployeeId = byEmail.employeeId;
+    }
+
+    // 4. Try Mobile (10-digit number) — look up in UserMaster
+    if (!resolvedEmployeeId) {
+      const cleanMobile = identifier.replace(/\D/g, '').slice(-10);
+      if (cleanMobile.length === 10) {
+        const byMobile = await prisma.userMaster.findFirst({
+          where: { mobile: { endsWith: cleanMobile }, active: true },
+          select: { employeeId: true },
+        });
+        if (byMobile) resolvedEmployeeId = byMobile.employeeId;
+      }
+    }
+
+    if (!resolvedEmployeeId) return res.status(401).json({ ok: false, message: 'Invalid credentials.' });
+
     const user = await prisma.userMaster.findFirst({
-      where: { employeeId: { equals: normalize(employeeId), mode: 'insensitive' }, active: true },
+      where: { employeeId: resolvedEmployeeId, active: true },
     });
 
     if (!user) return res.status(401).json({ ok: false, message: 'Invalid credentials.' });
@@ -213,6 +259,94 @@ export async function getMyProfile(req, res) {
     }
     res.status(403).json({ ok: false });
   } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Self-service forgot password ──────────────────────────────────────────────
+// Trainee enters their Employee ID / LMS ID / email / mobile.
+// System resets to temp password (last 4 of mobile or "1234") and sends via SMS/email.
+// Returns a generic response to prevent user enumeration.
+export async function traineeForgotPassword(req, res) {
+  try {
+    const { identifier } = req.body;
+    if (!identifier?.trim()) {
+      return res.status(400).json({ ok: false, message: 'Please provide your Employee ID, LMS ID, email, or mobile number.' });
+    }
+
+    const id = identifier.trim();
+    let resolvedEmployeeId = null;
+
+    // Resolve same way as login
+    const directMatch = await prisma.userMaster.findFirst({
+      where: { employeeId: { equals: normalize(id), mode: 'insensitive' }, active: true },
+      select: { employeeId: true },
+    });
+    if (directMatch) resolvedEmployeeId = directMatch.employeeId;
+
+    if (!resolvedEmployeeId && /^LMS/i.test(id)) {
+      const byLmsId = await prisma.traineeMaster.findFirst({
+        where: { lmsId: { equals: id, mode: 'insensitive' } },
+        select: { employeeId: true },
+      });
+      if (byLmsId) resolvedEmployeeId = byLmsId.employeeId;
+    }
+
+    if (!resolvedEmployeeId && id.includes('@')) {
+      const byEmail = await prisma.userMaster.findFirst({
+        where: { email: { equals: id, mode: 'insensitive' }, active: true },
+        select: { employeeId: true },
+      });
+      if (byEmail) resolvedEmployeeId = byEmail.employeeId;
+    }
+
+    if (!resolvedEmployeeId) {
+      const cleanMobile = id.replace(/\D/g, '').slice(-10);
+      if (cleanMobile.length === 10) {
+        const byMobile = await prisma.userMaster.findFirst({
+          where: { mobile: { endsWith: cleanMobile }, active: true },
+          select: { employeeId: true },
+        });
+        if (byMobile) resolvedEmployeeId = byMobile.employeeId;
+      }
+    }
+
+    // Always return the same response to prevent enumeration
+    if (!resolvedEmployeeId) {
+      return res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent.' });
+    }
+
+    const [user, trainee] = await Promise.all([
+      prisma.userMaster.findFirst({ where: { employeeId: resolvedEmployeeId, active: true } }),
+      prisma.traineeMaster.findUnique({ where: { employeeId: resolvedEmployeeId }, select: { traineeName: true, mobile: true, email: true } }),
+    ]);
+
+    if (!user) return res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent.' });
+
+    // Generate temp password — last 4 of mobile or "1234"
+    const mobile = user.mobile || trainee?.mobile;
+    const tempPassword = mobile ? mobile.slice(-4) : '1234';
+
+    const salt = generateSalt();
+    const passwordHash = await hashPassword(tempPassword, salt);
+    await prisma.userMaster.update({
+      where: { id: user.id },
+      data: { passwordHash, salt, forcePasswordReset: true, failedAttempts: 0, locked: false },
+    });
+
+    // Notify via email + SMS — fire and forget
+    notifyPasswordReset({
+      traineeName: trainee?.traineeName || resolvedEmployeeId,
+      mobile: mobile,
+      email: user.email || trainee?.email,
+      tempPassword,
+    }).catch(err => console.error('[AUTH] Forgot password notification failed:', err.message));
+
+    await audit({ userIdentity: resolvedEmployeeId, userRole: 'Trainee', action: 'FORGOT_PASSWORD', module: 'Auth', source: 'Self-Service' });
+
+    res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent to your registered mobile/email.' });
+  } catch (err) {
+    console.error('[AUTH] forgotPassword error:', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }

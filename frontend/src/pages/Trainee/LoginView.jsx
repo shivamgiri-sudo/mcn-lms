@@ -10,6 +10,10 @@ export default function LoginView({ onLogin }) {
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPass, setShowPass] = useState(false);
+  const [showForgot, setShowForgot] = useState(false);
+  const [forgotId, setForgotId] = useState('');
+  const [forgotMsg, setForgotMsg] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
 
   async function login(e) {
     e.preventDefault();
@@ -103,10 +107,10 @@ export default function LoginView({ onLogin }) {
 
           <form onSubmit={login}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: dark ? 'rgba(255,255,255,.5)' : '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Employee ID / LMS ID</label>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: dark ? 'rgba(255,255,255,.5)' : '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Employee ID / LMS ID / Email / Mobile</label>
               <input
                 style={{ width: '100%', background: dark ? 'rgba(255,255,255,.07)' : '#f3f4f6', border: `1.5px solid ${dark ? 'rgba(255,255,255,.12)' : '#d1d5db'}`, borderRadius: 10, padding: '11px 14px', color: dark ? '#fff' : '#111827', fontSize: 14, outline: 'none', transition: 'border-color .15s', fontFamily: 'inherit' }}
-                placeholder="EMP1001"
+                placeholder="EMP1001 / LMS001234 / email / mobile"
                 value={empId}
                 onChange={e => setEmpId(e.target.value)}
                 autoComplete="username"
@@ -162,12 +166,83 @@ export default function LoginView({ onLogin }) {
             </button>
           </form>
 
-          <div style={{ marginTop: 24, padding: '14px 16px', background: dark ? 'rgba(255,255,255,.05)' : 'rgba(99,102,241,.06)', borderRadius: 10, border: `1px solid ${dark ? 'rgba(255,255,255,.08)' : 'rgba(99,102,241,.12)'}`, textAlign: 'center' }}>
-            <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.35)' : '#9ca3af' }}>Demo: </span>
-            <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.6)' : '#6b7280', fontFamily: 'monospace' }}>EMP1001 / 1234</span>
+          {/* Forgot password link */}
+          <div style={{ marginTop: 16, textAlign: 'center' }}>
+            <button
+              type="button"
+              onClick={() => { setShowForgot(true); setForgotId(empId); setForgotMsg(''); }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 12.5, color: dark ? 'rgba(99,102,241,.8)' : '#6366f1', textDecoration: 'underline', fontFamily: 'inherit' }}
+            >
+              Forgot password?
+            </button>
+          </div>
+
+          <div style={{ marginTop: 16, padding: '14px 16px', background: dark ? 'rgba(255,255,255,.05)' : 'rgba(99,102,241,.06)', borderRadius: 10, border: `1px solid ${dark ? 'rgba(255,255,255,.08)' : 'rgba(99,102,241,.12)'}`, textAlign: 'center' }}>
+            <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.35)' : '#9ca3af' }}>First login: </span>
+            <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.6)' : '#6b7280' }}>use last 4 digits of your mobile as password</span>
           </div>
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgot && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={e => e.target === e.currentTarget && setShowForgot(false)}>
+          <div style={{ background: dark ? '#1e293b' : '#fff', borderRadius: 16, padding: 28, maxWidth: 400, width: '100%', boxShadow: '0 24px 64px rgba(0,0,0,.4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 17, fontWeight: 800, color: dark ? '#fff' : '#1e3a8a' }}>Reset Password</div>
+                <div style={{ fontSize: 12, color: dark ? 'rgba(255,255,255,.4)' : '#9ca3af', marginTop: 3 }}>A temporary password will be sent to your mobile/email</div>
+              </div>
+              <button onClick={() => setShowForgot(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: dark ? 'rgba(255,255,255,.4)' : '#9ca3af' }}>✕</button>
+            </div>
+
+            {forgotMsg ? (
+              <div style={{ background: forgotMsg.startsWith('✓') ? 'rgba(22,163,74,.1)' : 'rgba(239,68,68,.1)', border: `1px solid ${forgotMsg.startsWith('✓') ? 'rgba(22,163,74,.3)' : 'rgba(239,68,68,.3)'}`, borderRadius: 10, padding: '12px 16px', fontSize: 13, color: forgotMsg.startsWith('✓') ? '#15803d' : '#b91c1c', lineHeight: 1.5 }}>
+                {forgotMsg}
+                {forgotMsg.startsWith('✓') && (
+                  <div style={{ marginTop: 12 }}>
+                    <button className="btn small" onClick={() => setShowForgot(false)} style={{ fontSize: 12 }}>Back to Login</button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <form onSubmit={async e => {
+                e.preventDefault();
+                if (!forgotId.trim()) return;
+                setForgotLoading(true);
+                const res = await api.post('/auth/trainee/forgot-password', { identifier: forgotId.trim() });
+                setForgotLoading(false);
+                setForgotMsg(res.ok ? `✓ ${res.message}` : res.message || 'Something went wrong.');
+              }}>
+                <div style={{ marginBottom: 16 }}>
+                  <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: dark ? 'rgba(255,255,255,.5)' : '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>
+                    Employee ID / LMS ID / Email / Mobile
+                  </label>
+                  <input
+                    style={{ width: '100%', background: dark ? 'rgba(255,255,255,.07)' : '#f3f4f6', border: `1.5px solid ${dark ? 'rgba(255,255,255,.15)' : '#d1d5db'}`, borderRadius: 10, padding: '11px 14px', color: dark ? '#fff' : '#111827', fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+                    placeholder="Enter any identifier"
+                    value={forgotId}
+                    onChange={e => setForgotId(e.target.value)}
+                    autoFocus
+                    required
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={forgotLoading || !forgotId.trim()}
+                  style={{ width: '100%', padding: '12px 0', borderRadius: 10, border: 'none', cursor: forgotLoading ? 'not-allowed' : 'pointer', background: 'linear-gradient(135deg, #3b82f6, #6366f1)', color: '#fff', fontSize: 14, fontWeight: 700, fontFamily: 'inherit' }}
+                >
+                  {forgotLoading ? 'Sending...' : 'Send Temporary Password'}
+                </button>
+                <div style={{ marginTop: 12, fontSize: 11.5, color: dark ? 'rgba(255,255,255,.3)' : '#9ca3af', textAlign: 'center', lineHeight: 1.5 }}>
+                  Your temp password is your mobile last 4 digits. You will be asked to change it on login.
+                </div>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

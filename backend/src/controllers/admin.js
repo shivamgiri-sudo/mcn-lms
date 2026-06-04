@@ -2296,34 +2296,55 @@ export async function deleteBatch(req, res) {
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
     if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
 
-    // Run sequentially — no interactive transaction (avoids 5s Prisma timeout on large batches).
-    // Order: child tables referencing employeeId first, then traineeMaster, then batchMaster last.
-    const empIds = (await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } }))
-      .map(t => t.employeeId);
+    // SOFT-DELETE ONLY — all trainee records, progress, logs, assessments and reports
+    // are preserved for compliance and reporting. Only status flags are changed.
+    //
+    // What changes:
+    //   batchMaster.batchStatus  → 'Deleted'
+    //   traineeMaster.status     → 'Inactive'  (NOT deleted — reports still work)
+    //   userMaster.active        → false        (login disabled, account NOT deleted)
+    //
+    // What is NOT touched:
+    //   contentProgress, assessmentResult, trainingRiskLog, certificationEvidence,
+    //   onboardingLog, attendanceInference, traineeQueryLog, pendingActivityLog —
+    //   all remain fully accessible in Reports and Compliance exports.
 
+    const empIds = (await prisma.traineeMaster.findMany({
+      where: { batchNo },
+      select: { employeeId: true },
+    })).map(t => t.employeeId);
+
+    // Disable login accounts — trainees can no longer log in
     if (empIds.length > 0) {
-      await prisma.videoWatchLog.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.contentProgress.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.courseCompletionReport.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.assessmentAttempt.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.assessmentResult.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.traineeQueryLog.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.trainingRiskLog.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.pendingActivityLog.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.certificationEvidence.deleteMany({ where: { employeeId: { in: empIds } } });
-      await prisma.traineeClassroomMap.deleteMany({ where: { employeeId: { in: empIds } } });
-      // userMaster holds the FK → traineeMaster, must go before traineeMaster
-      await prisma.userMaster.deleteMany({ where: { employeeId: { in: empIds } } });
+      await prisma.userMaster.updateMany({
+        where: { employeeId: { in: empIds } },
+        data: { active: false },
+      });
+      // Mark trainees as Inactive — they still appear in all reports
+      await prisma.traineeMaster.updateMany({
+        where: { batchNo },
+        data: { status: 'Inactive' },
+      });
     }
 
-    await prisma.onboardingLog.deleteMany({ where: { batchNo } });
-    await prisma.attendanceInference.deleteMany({ where: { batchNo } });
-    await prisma.batchClassroomMap.deleteMany({ where: { batchNo } });
-    await prisma.traineeMaster.deleteMany({ where: { batchNo } });
-    await prisma.batchMaster.delete({ where: { batchNo } });
+    // Mark batch as Deleted — it disappears from active views but reports still show it
+    await prisma.batchMaster.update({
+      where: { batchNo },
+      data: { batchStatus: 'Deleted' },
+    });
 
-    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DELETE_BATCH', module: 'Batch', referenceId: batchNo });
-    res.json({ ok: true, message: `Batch ${batchNo} and all related data deleted.` });
+    await audit({
+      userIdentity: req.userId,
+      userRole: 'Admin',
+      action: 'DELETE_BATCH',
+      module: 'Batch',
+      referenceId: batchNo,
+      newValue: { traineeCount: empIds.length, note: 'Soft-delete — all records preserved' },
+    });
+    res.json({
+      ok: true,
+      message: `Batch ${batchNo} removed from active view. ${empIds.length} trainee account(s) deactivated. All records and reports preserved.`,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: err.message });
