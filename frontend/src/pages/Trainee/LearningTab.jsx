@@ -115,7 +115,19 @@ export default function LearningTab({ days, onRefresh }) {
     if (url) {
       const ytEmbed = getYoutubeEmbedUrl(url);
       if (ytEmbed) return { type: 'youtube', url: ytEmbed };
-      if (!url.includes('drive.google.com')) return { type: 'html5', url };
+      if (!url.includes('drive.google.com')) {
+        // Locally uploaded files: video → html5 player, PDF → iframe proxy,
+        // office docs (DOC/PPT/XLS) → download type so we show a download button
+        const ext = url.split('?')[0].split('.').pop().toLowerCase();
+        const isVid = ['mp4', 'webm', 'ogg', 'mov', 'avi'].includes(ext);
+        const isPdf = ext === 'pdf';
+        const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext);
+        if (isVid) return { type: 'html5', url };
+        if (isPdf) return { type: 'proxy', url };
+        if (isOffice) return { type: 'download', url };
+        // Unknown type — try iframe
+        return { type: 'proxy', url };
+      }
     }
     if (c.driveFileId) {
       const proxyUrl = getDriveProxyUrl(c.driveFileId);
@@ -518,6 +530,33 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
           {!media && (
             <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', paddingTop: '22vh', fontSize: 14 }}>
               No content URL configured. Contact admin.
+            </div>
+          )}
+          {media?.type === 'download' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 20, padding: 32, textAlign: 'center' }}>
+              <div style={{ fontSize: 56 }}>📄</div>
+              <div>
+                <div style={{ color: '#f1f5f9', fontWeight: 700, fontSize: 16, marginBottom: 8 }}>{content.contentTitle}</div>
+                <div style={{ color: '#94a3b8', fontSize: 13, lineHeight: 1.6, maxWidth: 380 }}>
+                  This file type ({content.contentType?.toUpperCase() || 'Document'}) cannot be previewed directly in the browser.
+                  Download it to view in the appropriate application.
+                </div>
+              </div>
+              <a
+                href={media.url}
+                download
+                className="btn"
+                style={{ fontSize: 14, padding: '10px 28px' }}
+                onClick={async () => {
+                  // Mark as completed on download
+                  await api.post(`/trainee/content/${content.contentId}/close`, { completed: true, positionSeconds: 0 }, 'trainee');
+                }}
+              >
+                ⬇ Download {content.contentTitle}
+              </a>
+              <a href={media.url} target="_blank" rel="noopener" style={{ fontSize: 12, color: '#64748b' }}>
+                Open in new tab ↗
+              </a>
             </div>
           )}
           {media?.type === 'html5' && isVideo && (
