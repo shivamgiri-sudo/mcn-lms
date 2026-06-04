@@ -35,6 +35,7 @@ import {
   adminMapSingleEmpId, adminBulkMapEmpIds, getTempTrainees,
 } from '../controllers/admin.js';
 import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
+import { getNotifConfig, saveNotifConfig } from '../controllers/notifConfig.js';
 import { contentUpload } from '../utils/upload.js';
 
 const auth = [requireSession, requireRole('admin')];
@@ -181,6 +182,10 @@ router.get('/org/departments', ...auth, listDepartments);
 router.post('/org/departments', ...auth, createDepartment);
 router.put('/org/departments/:id', ...auth, updateDepartment);
 router.delete('/org/departments/:id', ...auth, deleteDepartment);
+
+// Notification Config
+router.get('/notif-config', ...auth, getNotifConfig);
+router.post('/notif-config', ...auth, saveNotifConfig);
 
 // Communication Config
 router.get('/comm-config', ...auth, getCommConfig);

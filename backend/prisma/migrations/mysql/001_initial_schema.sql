@@ -27,6 +27,8 @@ CREATE TABLE IF NOT EXISTS `role_access_matrix` (
   `designation`                  VARCHAR(191) NULL,
   `department`                   VARCHAR(191) NULL,
   `employee_code`                VARCHAR(191) NULL,
+  `email`                        VARCHAR(191) NULL,
+  `mobile`                       VARCHAR(20)  NULL,
   `active`                       TINYINT(1)   NOT NULL DEFAULT 1,
   `can_create_batch`             TINYINT(1)   NOT NULL DEFAULT 0,
   `can_onboard_trainee`          TINYINT(1)   NOT NULL DEFAULT 0,
@@ -839,6 +841,40 @@ CREATE TABLE IF NOT EXISTS `scorm_sessions` (
   UNIQUE KEY `scorm_sessions_package_employee_key` (`package_id`, `employee_id`),
   INDEX `scorm_sessions_employee_id_idx` (`employee_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `notification_config` (
+  `id`                             VARCHAR(36)  NOT NULL DEFAULT 'default',
+  `notify_onboard`                 TINYINT(1)   NOT NULL DEFAULT 1,
+  `notify_password_reset`          TINYINT(1)   NOT NULL DEFAULT 1,
+  `notify_certification`           TINYINT(1)   NOT NULL DEFAULT 1,
+  `notify_batch_assignment`        TINYINT(1)   NOT NULL DEFAULT 1,
+  `notify_module_assigned`         TINYINT(1)   NOT NULL DEFAULT 1,
+  `deadline_reminder_days`         INT          NOT NULL DEFAULT 1,
+  `deadline_reminder_enabled`      TINYINT(1)   NOT NULL DEFAULT 1,
+  `deadline_reminder_time`         VARCHAR(10)  NOT NULL DEFAULT '09:00',
+  `completion_reminder_enabled`    TINYINT(1)   NOT NULL DEFAULT 1,
+  `completion_reminder_days`       INT          NOT NULL DEFAULT 2,
+  `completion_reminder_time`       VARCHAR(10)  NOT NULL DEFAULT '10:00',
+  `daily_coverage_enabled`         TINYINT(1)   NOT NULL DEFAULT 1,
+  `daily_coverage_time`            VARCHAR(10)  NOT NULL DEFAULT '08:00',
+  `daily_coverage_recipients`      TEXT         NOT NULL,
+  `coordinator_alert_enabled`      TINYINT(1)   NOT NULL DEFAULT 1,
+  `coordinator_alert_time`         VARCHAR(10)  NOT NULL DEFAULT '09:00',
+  `coordinator_alert_min_risk`     VARCHAR(20)  NOT NULL DEFAULT 'HIGH',
+  `pending_activity_alert_enabled` TINYINT(1)   NOT NULL DEFAULT 1,
+  `pending_activity_alert_time`    VARCHAR(10)  NOT NULL DEFAULT '09:00',
+  `pending_activity_alert_days`    INT          NOT NULL DEFAULT 1,
+  `updated_at`                     DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  `updated_by`                     VARCHAR(191) NULL,
+  PRIMARY KEY (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO `notification_config` (`id`, `daily_coverage_recipients`) VALUES ('default', '');
+
+-- Safe ALTER for existing deployments
+ALTER TABLE `role_access_matrix`
+  ADD COLUMN IF NOT EXISTS `email`  VARCHAR(191) NULL,
+  ADD COLUMN IF NOT EXISTS `mobile` VARCHAR(20)  NULL;
 
 SET FOREIGN_KEY_CHECKS = 1;
 

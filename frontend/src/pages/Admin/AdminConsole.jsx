@@ -23,6 +23,7 @@ import BroadcastTab from './BroadcastTab.jsx';
 import EmpIdMappingUpload from './EmpIdMappingUpload.jsx';
 import ComplianceExport from './ComplianceExport.jsx';
 import CommConfigTab from './CommConfigTab.jsx';
+import NotificationConfigTab from './NotificationConfigTab.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -51,6 +52,7 @@ const NAV = [
     { id: 'certrules', label: 'Cert Rules', icon: '🎓' },
     { id: 'org', label: 'Organization', icon: '🏢' },
     { id: 'comm-config', label: 'Communications', icon: '📡' },
+    { id: 'notif-config', label: 'Notifications', icon: '🔔' },
   ]},
 ];
 
@@ -152,6 +154,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'broadcast' && <BroadcastTab />}
           {activeId === 'emp-mapping' && <EmpIdMappingUpload />}
           {activeId === 'comm-config' && <CommConfigTab />}
+          {activeId === 'notif-config' && <NotificationConfigTab />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}

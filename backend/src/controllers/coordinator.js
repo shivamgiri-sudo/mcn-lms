@@ -4,7 +4,7 @@ import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
-import { notifyCertification, notifyBatchAssignment } from '../utils/notify.js';
+import { notifyCertification, notifyBatchAssignment, notifyOnboarding } from '../utils/notify.js';
 import { v4 as uuidv4 } from 'uuid';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -446,6 +446,18 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
       status: 'Success',
     },
   });
+
+  // Notify trainee of account creation — fire and forget
+  notifyOnboarding({
+    traineeName,
+    employeeId: normEmpId,
+    mobile: cleanMobile,
+    email: trainee.email,
+    batchNo: batch.batchNo,
+    classroomName: batch.classroomName,
+    process: batch.process,
+    tempPassword,
+  }).catch(err => console.error(`[NOTIFY] Onboarding notification failed for ${normEmpId}:`, err.message));
 
   return { ok: true, data: trainee, message: `${traineeName || normEmpId} onboarded. Temp password is last 4 digits of mobile (or 1234 if no mobile).` };
 }

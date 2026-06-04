@@ -213,6 +213,72 @@ export async function notifyBatchAssignment({ traineeName, mobile, email, batchN
   return results;
 }
 
+export async function notifyOnboarding({ traineeName, employeeId, mobile, email, batchNo, classroomName, process: proc, tempPassword }) {
+  const results = [];
+  const loginUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+  if (email) {
+    results.push(await sendEmail({
+      to: email,
+      subject: `Welcome to MCN LMS — Your login credentials`,
+      html: `<p>Hi <b>${traineeName || employeeId}</b>,</p>
+<p>Your MCN LMS account has been created. Here are your login details:</p>
+<table style="border:1px solid #e2e8f0;border-radius:6px;padding:16px;font-size:14px;width:100%;max-width:400px">
+  <tr><td><b>Employee ID</b></td><td>${employeeId}</td></tr>
+  <tr><td><b>Temporary Password</b></td><td><b>${tempPassword}</b></td></tr>
+  ${batchNo ? `<tr><td><b>Batch</b></td><td>${batchNo}</td></tr>` : ''}
+  ${proc ? `<tr><td><b>Process</b></td><td>${proc}</td></tr>` : ''}
+</table>
+<p style="margin-top:16px">Please log in at <a href="${loginUrl}">${loginUrl}</a> and change your password immediately.</p>
+<p style="color:#6b7280;font-size:12px">— MCN LMS</p>`,
+      text: `Hi ${traineeName || employeeId}, your MCN LMS account is ready. Employee ID: ${employeeId}, Temp Password: ${tempPassword}. Login at ${loginUrl} and change your password.`,
+    }));
+  }
+
+  if (mobile) {
+    results.push(await sendSms({
+      mobile,
+      message: `MCN LMS: Account created. ID: ${employeeId}, Temp PW: ${tempPassword}. Login: ${loginUrl}`,
+    }));
+    results.push(await sendWhatsApp({
+      mobile,
+      message: `MCN LMS account created. Login with ID: ${employeeId}, Temp password: ${tempPassword}`,
+      params: [traineeName || employeeId, employeeId, tempPassword],
+    }));
+  }
+  return results;
+}
+
+export async function notifyModuleAssigned({ traineeName, email, mobile, moduleName, broadcastTitle, dueDate, assignmentType }) {
+  const results = [];
+  const dueDateStr = dueDate ? new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+
+  if (email) {
+    results.push(await sendEmail({
+      to: email,
+      subject: `New module assigned: "${moduleName}" — MCN LMS`,
+      html: `<p>Hi <b>${traineeName}</b>,</p>
+<p>A new module has been assigned to you${broadcastTitle ? `: <b>${broadcastTitle}</b>` : ''}.</p>
+<table style="border:1px solid #e2e8f0;border-radius:6px;padding:16px;font-size:14px;width:100%;max-width:400px">
+  <tr><td><b>Module</b></td><td>${moduleName}</td></tr>
+  <tr><td><b>Type</b></td><td>${assignmentType || 'Mandatory'}</td></tr>
+  ${dueDateStr ? `<tr><td><b>Due Date</b></td><td>${dueDateStr}</td></tr>` : ''}
+</table>
+<p style="margin-top:16px">Log in to MCN LMS to complete this module.</p>
+<p style="color:#6b7280;font-size:12px">— MCN LMS</p>`,
+      text: `Hi ${traineeName}, module "${moduleName}" has been assigned to you${dueDateStr ? `, due ${dueDateStr}` : ''}. Log in to complete it.`,
+    }));
+  }
+
+  if (mobile) {
+    results.push(await sendSms({
+      mobile,
+      message: `MCN LMS: Module "${moduleName}" assigned to you${dueDateStr ? `. Due: ${dueDateStr}` : ''}. Login to complete.`,
+    }));
+  }
+  return results;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function certHtml({ traineeName, employeeId, batchNo, batchName, proc, lob, dateStr }) {

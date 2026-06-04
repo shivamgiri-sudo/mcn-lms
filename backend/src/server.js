@@ -9,6 +9,7 @@ import { fileURLToPath } from 'url';
 import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions } from './utils/session.js';
+import { startScheduler } from './utils/scheduler.js';
 
 import authRoutes from './routes/auth.js';
 import bridgeRoutes from './routes/bridge.js';
@@ -165,6 +166,7 @@ app.listen(PORT, () => {
   runKpiSnapshot();
   setInterval(runKpiSnapshot, 24 * 60 * 60 * 1000);
   scheduleDailyEmail();
+  startScheduler();
   // Clean expired portal sessions every hour to prevent DB bloat
   setInterval(() => {
     cleanExpiredSessions().catch(err => console.error('[Sessions] Cleanup failed:', err.message));

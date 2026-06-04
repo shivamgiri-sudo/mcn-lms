@@ -26,6 +26,8 @@ model RoleAccessMatrix {
   designation                String?
   department                 String?
   employeeCode               String?   @map("employee_code")
+  email                      String?
+  mobile                     String?
   active                     Boolean   @default(true)
   canCreateBatch             Boolean   @default(false) @map("can_create_batch")
   canOnboardTrainee          Boolean   @default(false) @map("can_onboard_trainee")
@@ -792,6 +794,49 @@ model CommunicationConfig {
   updatedBy                       String?  @map("updated_by")
 
   @@map("communication_config")
+}
+
+// ─── NOTIFICATION SCHEDULE CONFIG ─────────────────────────────────────────────
+
+model NotificationConfig {
+  id                          String  @id @default("default")
+
+  // Trainee event notifications
+  notifyOnboard               Boolean @default(true)  @map("notify_onboard")
+  notifyPasswordReset         Boolean @default(true)  @map("notify_password_reset")
+  notifyCertification         Boolean @default(true)  @map("notify_certification")
+  notifyBatchAssignment       Boolean @default(true)  @map("notify_batch_assignment")
+  notifyModuleAssigned        Boolean @default(true)  @map("notify_module_assigned")
+
+  // Deadline reminders — days before due date (0 = disabled)
+  deadlineReminderDays        Int     @default(1)     @map("deadline_reminder_days")
+  deadlineReminderEnabled     Boolean @default(true)  @map("deadline_reminder_enabled")
+  deadlineReminderTime        String  @default("09:00") @map("deadline_reminder_time") // HH:MM IST
+
+  // Module completion reminder to trainee (if stuck incomplete)
+  completionReminderEnabled   Boolean @default(true)  @map("completion_reminder_enabled")
+  completionReminderDays      Int     @default(2)     @map("completion_reminder_days") // days since last activity with <100%
+  completionReminderTime      String  @default("10:00") @map("completion_reminder_time")
+
+  // Daily coverage digest — coordinator/admin
+  dailyCoverageEnabled        Boolean @default(true)  @map("daily_coverage_enabled")
+  dailyCoverageTime           String  @default("08:00") @map("daily_coverage_time")
+  dailyCoverageRecipients     String  @default("")    @db.Text @map("daily_coverage_recipients") // comma-separated emails
+
+  // Coordinator alerts — at-risk trainees
+  coordinatorAlertEnabled     Boolean @default(true)  @map("coordinator_alert_enabled")
+  coordinatorAlertTime        String  @default("09:00") @map("coordinator_alert_time")
+  coordinatorAlertMinRisk     String  @default("HIGH") @map("coordinator_alert_min_risk") // CRITICAL | HIGH | WATCH
+
+  // Pending activities digest — coordinator
+  pendingActivityAlertEnabled Boolean @default(true)  @map("pending_activity_alert_enabled")
+  pendingActivityAlertTime    String  @default("09:00") @map("pending_activity_alert_time")
+  pendingActivityAlertDays    Int     @default(1)     @map("pending_activity_alert_days") // overdue by N days
+
+  updatedAt                   DateTime @default(now()) @updatedAt @map("updated_at")
+  updatedBy                   String?  @map("updated_by")
+
+  @@map("notification_config")
 }
 
 // ─── SCORM ────────────────────────────────────────────────────────────────────

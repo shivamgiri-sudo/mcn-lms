@@ -1,6 +1,7 @@
 import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
+import { notifyPasswordReset, notifyModuleAssigned } from '../utils/notify.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import path from 'path';
@@ -700,6 +701,15 @@ export async function resetTraineePassword(req, res) {
     });
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_PASSWORD', module: 'Accounts', referenceId: employeeId });
+
+    // Notify trainee — fire and forget
+    notifyPasswordReset({
+      traineeName: trainee.traineeName,
+      mobile: trainee.mobile,
+      email: trainee.email,
+      tempPassword: tempPass,
+    }).catch(err => console.error(`[NOTIFY] Password reset notification failed for ${employeeId}:`, err.message));
+
     res.json({ ok: true, message: `Password reset for ${employeeId}. Temp password is last 4 digits of mobile (or 1234 if no mobile).` });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -993,6 +1003,16 @@ export async function broadcastModuleBulk(req, res) {
       referenceId: moduleId,
       newValue: { assigned: unique.length, notFound: notFound.length, scopeType: scopeType || 'individual' },
     });
+
+    // Notify trainees — fire and forget, check config first
+    prisma.notificationConfig.findUnique({ where: { id: 'default' } }).then(cfg => {
+      if (!cfg?.notifyModuleAssigned) return;
+      return Promise.all(unique.map(t =>
+        prisma.traineeMaster.findUnique({ where: { employeeId: t.employeeId }, select: { email: true, mobile: true, traineeName: true } })
+          .then(tr => tr && notifyModuleAssigned({ traineeName: tr.traineeName, email: tr.email, mobile: tr.mobile, moduleName, broadcastTitle, dueDate, assignmentType }))
+          .catch(() => {})
+      ));
+    }).catch(() => {});
 
     res.json({
       ok: true,
