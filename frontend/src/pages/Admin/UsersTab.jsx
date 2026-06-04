@@ -48,6 +48,7 @@ const EMPTY_FORM = {
   loginId: '', pin: '', confirmPin: '', name: '',
   role: 'Coordinator', portalAccess: 'Coordinator',
   branch: '', process: '', lob: '', designation: '', department: '', employeeCode: '',
+  email: '', mobile: '',
   canCreateBatch: true, canOnboardTrainee: true, canUploadLmsReport: false,
   canOverrideAttendance: false, canCloseBatch: false, canViewManagementDashboard: false,
 };
@@ -67,6 +68,11 @@ export default function UsersTab() {
   const [bulkDragging, setBulkDragging] = useState(false);
   const [bulkPreview, setBulkPreview] = useState(null);
   const [bulkLoading, setBulkLoading] = useState(false);
+  // Role change modal
+  const [roleChangeTarget, setRoleChangeTarget] = useState(null);
+  const [newRole, setNewRole] = useState('');
+  const [roleChangePin, setRoleChangePin] = useState('');
+  const [roleChangeLoading, setRoleChangeLoading] = useState(false);
 
   useEffect(() => {
     loadUsers();
@@ -87,6 +93,7 @@ export default function UsersTab() {
       role: u.role || 'Coordinator', portalAccess: u.portalAccess || 'Coordinator',
       branch: u.branch || '', process: u.process || '', lob: u.lob || '',
       designation: u.designation || '', department: u.department || '', employeeCode: u.employeeCode || '',
+      email: u.email || '', mobile: u.mobile || '',
       canCreateBatch: u.canCreateBatch || false,
       canOnboardTrainee: u.canOnboardTrainee || false,
       canUploadLmsReport: u.canUploadLmsReport || false,
@@ -116,6 +123,8 @@ export default function UsersTab() {
       designation: form.designation || null,
       department: form.department || null,
       employeeCode: form.employeeCode || null,
+      email: form.email || null,
+      mobile: form.mobile || null,
       canCreateBatch: form.canCreateBatch,
       canOnboardTrainee: form.canOnboardTrainee,
       canUploadLmsReport: form.canUploadLmsReport,
@@ -147,6 +156,34 @@ export default function UsersTab() {
     const res = await api.delete(`/admin/portal-users/${u.id}`, 'admin');
     if (res.ok) { toast('User deactivated.'); loadUsers(); }
     else toast(res.message || 'Failed.', false);
+  }
+
+  function openRoleChange(u) {
+    setRoleChangeTarget(u);
+    setNewRole(u.role || 'Coordinator');
+    setRoleChangePin('');
+  }
+
+  async function handleRoleChange(e) {
+    e.preventDefault();
+    if (!newRole) return;
+    const crossTable = (roleChangeTarget.role === 'Admin') !== (newRole === 'Admin');
+    if (crossTable && roleChangePin.length < 4) {
+      return toast(`A new ${newRole === 'Admin' ? 'password' : 'PIN'} (min 4 chars) is required when changing to/from Admin.`, false);
+    }
+    setRoleChangeLoading(true);
+    const res = await api.post(`/admin/portal-users/${roleChangeTarget.id}/change-role`, {
+      newRole,
+      newPin: crossTable ? roleChangePin : undefined,
+    }, 'admin');
+    setRoleChangeLoading(false);
+    if (res.ok) {
+      toast(res.message || `Role changed to ${newRole}.`);
+      setRoleChangeTarget(null);
+      loadUsers();
+    } else {
+      toast(res.message || 'Role change failed.', false);
+    }
   }
 
   async function submitPinReset(e) {
@@ -275,6 +312,7 @@ export default function UsersTab() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn xs secondary" onClick={() => openEdit(u)}>Edit</button>
+                      <button className="btn xs secondary" onClick={() => openRoleChange(u)} title="Change role or promote to Admin">⇄ Role</button>
                       <button className="btn xs secondary" onClick={() => { setResetTarget(u); setNewPin(''); }}>{u.role === 'Admin' ? 'Reset Password' : 'Reset PIN'}</button>
                       <button className="btn xs danger" onClick={() => deactivateUser(u)}>Deactivate</button>
                     </div>
@@ -331,6 +369,18 @@ export default function UsersTab() {
                   <div className="field">
                     <label>Employee Code</label>
                     <input className="input" placeholder="e.g. EMP1001" value={form.employeeCode} onChange={e => setForm(p => ({ ...p, employeeCode: e.target.value }))} />
+                  </div>
+                </div>
+
+                <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--muted)', textTransform: 'uppercase', margin: '14px 0 10px', letterSpacing: .5 }}>Contact & Notifications</div>
+                <div className="col-2">
+                  <div className="field">
+                    <label>Email</label>
+                    <input className="input" type="email" placeholder="coord@teammas.in" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} />
+                  </div>
+                  <div className="field">
+                    <label>Mobile</label>
+                    <input className="input" type="tel" placeholder="9876543210" value={form.mobile} onChange={e => setForm(p => ({ ...p, mobile: e.target.value }))} />
                   </div>
                 </div>
 
@@ -512,6 +562,77 @@ export default function UsersTab() {
                   />
                 </div>
                 <button className="btn" type="submit">Set New {resetTarget.role === 'Admin' ? 'Password' : 'PIN'}</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Change Role Modal ── */}
+      {roleChangeTarget && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setRoleChangeTarget(null)}>
+          <div className="modal-box" style={{ maxWidth: 440 }}>
+            <div className="modal-head">
+              <b>Change Role — {roleChangeTarget.loginId}</b>
+              <button className="btn small secondary" onClick={() => setRoleChangeTarget(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={handleRoleChange} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* Current role info */}
+                <div style={{ background: 'var(--card)', borderRadius: 8, padding: '10px 14px', fontSize: 13 }}>
+                  <span style={{ color: 'var(--muted)' }}>Current role: </span>
+                  <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{roleChangeTarget.role}</span>
+                  <span style={{ margin: '0 8px', color: 'var(--muted)' }}>→</span>
+                  <span style={{ fontWeight: 700, color: 'var(--brand)' }}>{newRole}</span>
+                </div>
+
+                <div className="field" style={{ margin: 0 }}>
+                  <label>New Role *</label>
+                  <select className="select" value={newRole} onChange={e => setNewRole(e.target.value)} required>
+                    {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+
+                {/* Cross-table warning + new PIN prompt */}
+                {newRole !== roleChangeTarget.role && (roleChangeTarget.role === 'Admin') !== (newRole === 'Admin') && (
+                  <div style={{ background: 'rgba(234,179,8,.08)', border: '1px solid rgba(234,179,8,.3)', borderRadius: 8, padding: '12px 14px', fontSize: 13 }}>
+                    <div style={{ fontWeight: 700, color: '#92400e', marginBottom: 6 }}>
+                      {newRole === 'Admin'
+                        ? '⚠ Promoting to Admin — this creates an Admin portal account.'
+                        : '⚠ Removing Admin access — this creates a Coordinator portal account.'}
+                    </div>
+                    <div style={{ color: '#78350f', fontSize: 12, lineHeight: 1.5 }}>
+                      {newRole === 'Admin'
+                        ? 'The user will log in via the Admin portal with a password. Their coordinator account will be deactivated.'
+                        : 'The user will log in via the Coordinator portal with a PIN. Their admin account will be deactivated.'}
+                    </div>
+                    <div className="field" style={{ margin: '12px 0 0' }}>
+                      <label style={{ fontSize: 12 }}>New {newRole === 'Admin' ? 'Password' : 'PIN'} for {newRole} access *</label>
+                      <input
+                        className="input"
+                        type="password"
+                        placeholder={`Min 4 characters — ${newRole === 'Admin' ? 'Admin password' : 'Coordinator PIN'}`}
+                        value={roleChangePin}
+                        onChange={e => setRoleChangePin(e.target.value)}
+                        required
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {newRole === roleChangeTarget.role && (
+                  <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
+                    Select a different role to make a change.
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button className="btn" type="submit" disabled={roleChangeLoading || newRole === roleChangeTarget.role} style={{ flex: 1 }}>
+                    {roleChangeLoading ? 'Changing…' : `Change to ${newRole}`}
+                  </button>
+                  <button type="button" className="btn secondary" onClick={() => setRoleChangeTarget(null)}>Cancel</button>
+                </div>
               </form>
             </div>
           </div>

@@ -2492,7 +2492,8 @@ export async function updatePortalUser(req, res) {
   try {
     const { id } = req.params;
     const { name, pin, role, portalAccess, branch, process, lob,
-      canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard, active } = req.body;
+      canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard, active,
+      email, mobile, designation, department, employeeCode } = req.body;
 
     // Check if this is an admin_user_master record
     const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
@@ -2523,6 +2524,11 @@ export async function updatePortalUser(req, res) {
         ...(branch !== undefined && { branch: branch || null }),
         ...(process !== undefined && { process: process || null }),
         ...(lob !== undefined && { lob: lob || null }),
+        ...(designation !== undefined && { designation: designation || null }),
+        ...(department !== undefined && { department: department || null }),
+        ...(employeeCode !== undefined && { employeeCode: employeeCode || null }),
+        ...(email !== undefined && { email: email || null }),
+        ...(mobile !== undefined && { mobile: mobile || null }),
         ...(canCreateBatch !== undefined && { canCreateBatch: !!canCreateBatch }),
         ...(canOnboardTrainee !== undefined && { canOnboardTrainee: !!canOnboardTrainee }),
         ...(canUploadLmsReport !== undefined && { canUploadLmsReport: !!canUploadLmsReport }),
@@ -2536,6 +2542,104 @@ export async function updatePortalUser(req, res) {
     res.json({ ok: true, data: user });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
+  }
+}
+
+/**
+ * POST /admin/portal-users/:id/change-role
+ * Changes a user's role, handling cross-table migration when
+ * moving between Admin (admin_user_master) and non-Admin (role_access_matrix).
+ *
+ * Cases:
+ *  1. Non-Admin → Non-Admin:  simple role field update in role_access_matrix
+ *  2. Non-Admin → Admin:      create in admin_user_master, deactivate role_access_matrix row
+ *  3. Admin → Non-Admin:      create in role_access_matrix, deactivate admin_user_master row
+ *  4. Admin → Admin:          no-op (already Admin)
+ *
+ * Requires newRole and (for cases 2 & 3) a newPin/newPassword for the target table.
+ */
+export async function changeUserRole(req, res) {
+  try {
+    const { id } = req.params;
+    const { newRole, newPin } = req.body;
+    if (!newRole) return res.status(400).json({ ok: false, message: 'newRole is required.' });
+
+    const ADMIN_ROLES = ['Admin'];
+    const isTargetAdmin = ADMIN_ROLES.includes(newRole);
+
+    // Determine source record
+    const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
+    const coordRecord = adminRecord ? null : await prisma.roleAccessMatrix.findUnique({ where: { id } });
+
+    if (!adminRecord && !coordRecord) {
+      return res.status(404).json({ ok: false, message: 'User not found.' });
+    }
+
+    const loginId = adminRecord ? adminRecord.adminId : coordRecord.loginId;
+    const userName = adminRecord ? adminRecord.adminName : coordRecord.name;
+    const isSourceAdmin = !!adminRecord;
+
+    // Case 1: Non-Admin → Non-Admin (simple update)
+    if (!isSourceAdmin && !isTargetAdmin) {
+      await prisma.roleAccessMatrix.update({
+        where: { id },
+        data: { role: newRole, portalAccess: newRole },
+      });
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CHANGE_ROLE', module: 'Users', referenceId: loginId, newValue: { from: coordRecord.role, to: newRole } });
+      return res.json({ ok: true, message: `${loginId} role changed to ${newRole}.` });
+    }
+
+    // Case 4: Admin → Admin (no-op)
+    if (isSourceAdmin && isTargetAdmin) {
+      return res.json({ ok: true, message: `${loginId} is already Admin.` });
+    }
+
+    // Cases 2 & 3 require a new PIN/password for the target table
+    if (!newPin || newPin.length < 4) {
+      return res.status(400).json({ ok: false, message: `A new ${isTargetAdmin ? 'password' : 'PIN'} (min 4 chars) is required when changing to ${newRole}.` });
+    }
+
+    if (!isSourceAdmin && isTargetAdmin) {
+      // Case 2: Coordinator → Admin
+      // Check no admin account already exists with this loginId
+      const existingAdmin = await prisma.adminUserMaster.findFirst({ where: { adminId: loginId } });
+      if (existingAdmin) {
+        return res.status(400).json({ ok: false, message: `An Admin account with login ID "${loginId}" already exists.` });
+      }
+      const salt = generateSalt();
+      const passwordHash = await hashPassword(newPin, salt);
+      await prisma.$transaction([
+        prisma.adminUserMaster.create({
+          data: { adminId: loginId, adminName: userName, passwordHash, salt, role: 'Admin', active: true },
+        }),
+        prisma.roleAccessMatrix.update({
+          where: { id },
+          data: { active: false },
+        }),
+      ]);
+      await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CHANGE_ROLE', module: 'Users', referenceId: loginId, newValue: { from: coordRecord.role, to: 'Admin', note: 'Migrated to admin_user_master' } });
+      return res.json({ ok: true, message: `${loginId} promoted to Admin. They can now log in via the Admin portal with the new password.` });
+    }
+
+    // Case 3: Admin → Non-Admin (Coordinator / Manager / Trainer etc.)
+    const existingCoord = await prisma.roleAccessMatrix.findFirst({ where: { loginId } });
+    if (existingCoord) {
+      // Reactivate if previously deactivated
+      await prisma.roleAccessMatrix.update({
+        where: { id: existingCoord.id },
+        data: { active: true, role: newRole, portalAccess: newRole, pin: newPin },
+      });
+    } else {
+      await prisma.roleAccessMatrix.create({
+        data: { loginId, name: userName, pin: newPin, role: newRole, portalAccess: newRole, active: true },
+      });
+    }
+    await prisma.adminUserMaster.update({ where: { id }, data: { active: false } });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CHANGE_ROLE', module: 'Users', referenceId: loginId, newValue: { from: 'Admin', to: newRole, note: 'Migrated to role_access_matrix' } });
+    return res.json({ ok: true, message: `${loginId} changed to ${newRole}. They can now log in via the Coordinator portal with the new PIN.` });
+  } catch (err) {
+    console.error('[changeUserRole]', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
 

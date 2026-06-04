@@ -24,7 +24,7 @@ import {
   adminBulkAddTrainees, resetAdminPassword,
   setContentLock, unlockContentForTrainee,
   listBranches, getBranchDetail,
-  listPortalUsers, createPortalUser, updatePortalUser, deletePortalUser, resetPortalUserPin,
+  listPortalUsers, createPortalUser, updatePortalUser, changeUserRole, deletePortalUser, resetPortalUserPin,
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
   exportModuleCompletion, exportAssessmentResults, exportAttendanceLog,
@@ -164,6 +164,7 @@ router.get('/portal-users', ...auth, listPortalUsers);
 router.post('/portal-users', ...auth, createPortalUser);
 router.post('/portal-users/bulk', ...auth, bulkCreatePortalUsers);
 router.put('/portal-users/:id', ...auth, updatePortalUser);
+router.post('/portal-users/:id/change-role', ...auth, changeUserRole);
 router.delete('/portal-users/:id', ...auth, deletePortalUser);
 router.post('/portal-users/:id/reset-pin', ...auth, resetPortalUserPin);
 
