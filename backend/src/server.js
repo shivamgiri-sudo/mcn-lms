@@ -21,6 +21,7 @@ import uploadRoutes from './routes/upload.js';
 import reportRoutes from './routes/reports.js';
 import empMappingRoutes from './routes/empMapping.js';
 import complianceRoutes from './routes/compliance.js';
+import scormRoutes from './routes/scorm.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -54,6 +55,8 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+// SCORM packages served as static files — needs directory listing disabled
+app.use('/uploads/scorm', express.static(path.join(__dirname, '..', 'uploads', 'scorm'), { index: false }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/bridge', bridgeRoutes);
@@ -66,6 +69,7 @@ app.use('/api/drive', driveRoutes);
 app.use('/api/upload', uploadRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/emp-mapping', empMappingRoutes);
+app.use('/api/scorm', scormRoutes);
 
 app.get('/api/health', (_req, res) => {
   res.json({

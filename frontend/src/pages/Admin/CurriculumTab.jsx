@@ -43,6 +43,12 @@ function EditClassroomModal({ classroom, onClose, onSaved }) {
   const [bulkFiles, setBulkFiles] = useState([]);
   const [contentMode, setContentMode] = useState('single');
 
+  // SCORM
+  const [scormFile, setScormFile] = useState(null);
+  const [scormTitle, setScormTitle] = useState('');
+  const [scormUploading, setScormUploading] = useState(false);
+  const [scormResult, setScormResult] = useState(null);
+
   // MCQ
   const [assessments, setAssessments] = useState([]);
   const [selectedAssessment, setSelectedAssessment] = useState('');
@@ -229,6 +235,7 @@ function EditClassroomModal({ classroom, onClose, onSaved }) {
     { id: 'modules', label: '+ Add Module' },
     { id: 'drive', label: '☁ Drive Sync' },
     { id: 'content', label: '🎬 Add Content' },
+    { id: 'scorm', label: '📦 SCORM Upload' },
     { id: 'mcq', label: '❓ MCQ Upload' },
     { id: 'faq', label: '📎 FAQ / SOP' },
   ];
@@ -454,6 +461,102 @@ function EditClassroomModal({ classroom, onClose, onSaved }) {
                       </button>
                     </div>
                   )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* SCORM tab */}
+          {tab === 'scorm' && (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', marginBottom: 6 }}>Upload SCORM Package</div>
+              <p style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+                Upload a <b>.zip</b> SCORM 1.2 or SCORM 2004 package. The package is unzipped automatically,
+                the manifest is parsed, and a content item is created in the selected module.
+                Learner progress (score, completion, suspend data) is tracked per-trainee.
+              </p>
+
+              {!selectedMod && (
+                <div className="info-box" style={{ marginBottom: 12 }}>Select a module from the list on the left first.</div>
+              )}
+
+              {selectedMod && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Package Title <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional — auto-detected from manifest)</span></label>
+                    <input className="input" placeholder="e.g. Compliance Awareness Module"
+                      value={scormTitle} onChange={e => setScormTitle(e.target.value)} />
+                  </div>
+
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>SCORM ZIP File</label>
+                    <div
+                      style={{
+                        border: `2px dashed ${scormFile ? 'var(--ok)' : 'var(--line)'}`,
+                        borderRadius: 10, padding: '24px 16px', textAlign: 'center',
+                        cursor: 'pointer', background: scormFile ? 'rgba(22,163,74,.05)' : 'var(--card)',
+                      }}
+                      onClick={() => document.getElementById('scorm-zip-input').click()}
+                    >
+                      {scormFile ? (
+                        <div>
+                          <div style={{ fontSize: 20, marginBottom: 6 }}>📦</div>
+                          <div style={{ fontWeight: 700, color: 'var(--ok)', fontSize: 13 }}>{scormFile.name}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                            {(scormFile.size / 1024 / 1024).toFixed(1)} MB · Click to change
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <div style={{ fontSize: 24, marginBottom: 8 }}>📦</div>
+                          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Click to select SCORM ZIP file</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Max 500 MB · SCORM 1.2 and 2004 supported</div>
+                        </div>
+                      )}
+                    </div>
+                    <input id="scorm-zip-input" type="file" accept=".zip" style={{ display: 'none' }}
+                      onChange={e => { setScormFile(e.target.files[0] || null); setScormResult(null); }} />
+                  </div>
+
+                  {scormResult && (
+                    <div className={`toast ${scormResult.ok ? 'ok' : 'bad'}`}>
+                      {scormResult.ok
+                        ? `✓ "${scormResult.data.title}" uploaded (SCORM ${scormResult.data.scormVersion}). Content item created.`
+                        : scormResult.message}
+                    </div>
+                  )}
+
+                  <button
+                    className="btn"
+                    disabled={!scormFile || scormUploading}
+                    onClick={async () => {
+                      setScormUploading(true); setScormResult(null);
+                      const fd = new FormData();
+                      fd.append('file', scormFile);
+                      fd.append('moduleId', selectedMod.moduleId);
+                      if (scormTitle.trim()) fd.append('contentTitle', scormTitle.trim());
+                      const token = localStorage.getItem('lms_token_admin') || '';
+                      const res = await fetch('/api/scorm/upload', {
+                        method: 'POST',
+                        headers: { Authorization: `Bearer ${token}` },
+                        body: fd,
+                      }).then(r => r.json()).catch(() => ({ ok: false, message: 'Upload failed' }));
+                      setScormUploading(false);
+                      setScormResult(res);
+                      if (res.ok) { setScormFile(null); setScormTitle(''); }
+                    }}
+                  >
+                    {scormUploading ? '⏳ Uploading & extracting…' : '📦 Upload SCORM Package'}
+                  </button>
+
+                  <div style={{ background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', padding: '12px 14px', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                    <b style={{ color: 'var(--ink)' }}>What happens after upload:</b><br />
+                    1. ZIP is extracted to <code>uploads/scorm/SCORM-XXXXXXXX/</code><br />
+                    2. <code>imsmanifest.xml</code> is parsed for title, entry point and version<br />
+                    3. A content item of type <b>scorm</b> is added to this module<br />
+                    4. Learners see a "Launch" button — the SCORM API (1.2 &amp; 2004) runs in-browser<br />
+                    5. Score, completion status and suspend data are saved per-trainee
+                  </div>
                 </div>
               )}
             </div>

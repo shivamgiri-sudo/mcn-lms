@@ -55,3 +55,28 @@ export const csvUpload = multer({
     cb(ok ? null : new Error('CSV files only'), ok);
   },
 });
+
+// SCORM ZIP — saved to temp dir, controller extracts and moves to final location
+const scormStorage = multer.diskStorage({
+  destination(_req, _file, cb) {
+    const dir = path.join(UPLOAD_DIR, 'scorm-tmp');
+    ensureDir(dir);
+    cb(null, dir);
+  },
+  filename(_req, _file, cb) {
+    cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}.zip`);
+  },
+});
+
+const SCORM_MAX_MB = parseInt(process.env.SCORM_MAX_FILE_SIZE_MB || '500', 10);
+
+export const scormUpload = multer({
+  storage: scormStorage,
+  limits: { fileSize: SCORM_MAX_MB * 1024 * 1024 },
+  fileFilter(_req, file, cb) {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const ok = ['application/zip', 'application/x-zip-compressed', 'application/octet-stream'].includes(file.mimetype)
+      || ext === '.zip';
+    cb(ok ? null : new Error('Only ZIP files allowed for SCORM packages'), ok);
+  },
+});

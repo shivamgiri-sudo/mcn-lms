@@ -794,7 +794,53 @@ CREATE TABLE IF NOT EXISTS `communication_config` (
 
 INSERT IGNORE INTO `communication_config` (`id`) VALUES ('default');
 
+-- ─── SCORM ────────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS `scorm_packages` (
+  `id`           VARCHAR(36)   NOT NULL,
+  `package_id`   VARCHAR(191)  NOT NULL,
+  `content_id`   VARCHAR(191)  NOT NULL,
+  `module_id`    VARCHAR(191)  NOT NULL,
+  `title`        VARCHAR(500)  NOT NULL,
+  `scorm_version` VARCHAR(20)  NOT NULL DEFAULT '1.2',
+  `entry_point`  VARCHAR(1000) NOT NULL,
+  `package_path` VARCHAR(1000) NOT NULL,
+  `package_url`  VARCHAR(1000) NOT NULL,
+  `mastery`      INT           NOT NULL DEFAULT 80,
+  `active`       TINYINT(1)    NOT NULL DEFAULT 1,
+  `uploaded_by`  VARCHAR(191)  NULL,
+  `created_at`   DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at`   DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `scorm_packages_package_id_key` (`package_id`),
+  UNIQUE KEY `scorm_packages_content_id_key` (`content_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `scorm_sessions` (
+  `id`                VARCHAR(36)   NOT NULL,
+  `package_id`        VARCHAR(191)  NOT NULL,
+  `employee_id`       VARCHAR(191)  NOT NULL,
+  `completion_status` VARCHAR(50)   NOT NULL DEFAULT 'not attempted',
+  `success_status`    VARCHAR(50)   NOT NULL DEFAULT 'unknown',
+  `score_raw`         FLOAT         NULL,
+  `score_max`         FLOAT         NULL,
+  `score_min`         FLOAT         NULL,
+  `score_scaled`      FLOAT         NULL,
+  `total_time`        VARCHAR(50)   NULL,
+  `suspend_data`      TEXT          NULL,
+  `location`          VARCHAR(500)  NULL,
+  `exit_status`       VARCHAR(50)   NULL,
+  `launch_data`       TEXT          NULL,
+  `attempts`          INT           NOT NULL DEFAULT 0,
+  `last_accessed_at`  DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `created_at`        DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  `updated_at`        DATETIME(3)   NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `scorm_sessions_package_employee_key` (`package_id`, `employee_id`),
+  INDEX `scorm_sessions_employee_id_idx` (`employee_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 SET FOREIGN_KEY_CHECKS = 1;
 
 -- ─── Done ─────────────────────────────────────────────────────
--- All 31 tables created. Run `npx prisma generate` to regenerate the Prisma client.
+-- All 33 tables created. Run `npx prisma generate` to regenerate the Prisma client.

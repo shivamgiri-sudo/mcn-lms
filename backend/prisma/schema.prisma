@@ -793,3 +793,52 @@ model CommunicationConfig {
 
   @@map("communication_config")
 }
+
+// ─── SCORM ────────────────────────────────────────────────────────────────────
+
+model ScormPackage {
+  id              String   @id @default(uuid())
+  packageId       String   @unique @map("package_id")
+  contentId       String   @unique @map("content_id")    // links to content_master
+  moduleId        String   @map("module_id")
+  title           String
+  scormVersion    String   @map("scorm_version")         // "1.2" | "2004"
+  entryPoint      String   @map("entry_point")           // relative path to launch file
+  packagePath     String   @map("package_path")          // disk path to unzipped folder
+  packageUrl      String   @map("package_url")           // served URL prefix
+  mastery         Int      @default(80)                  // pass score %
+  active          Boolean  @default(true)
+  uploadedBy      String?  @map("uploaded_by")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  sessions        ScormSession[]
+
+  @@map("scorm_packages")
+}
+
+model ScormSession {
+  id              String   @id @default(uuid())
+  packageId       String   @map("package_id")
+  employeeId      String   @map("employee_id")
+  completionStatus String  @default("not attempted") @map("completion_status")
+  successStatus   String   @default("unknown") @map("success_status")
+  scoreRaw        Float?   @map("score_raw")
+  scoreMax        Float?   @map("score_max")
+  scoreMin        Float?   @map("score_min")
+  scoreScaled     Float?   @map("score_scaled")
+  totalTime       String?  @map("total_time")            // ISO 8601 / HH:MM:SS string
+  suspendData     String?  @db.Text @map("suspend_data") // large bookmark blob
+  location        String?                                // cmi.location / lesson_location
+  exitStatus      String?  @map("exit_status")
+  launchData      String?  @db.Text @map("launch_data")
+  attempts        Int      @default(0)
+  lastAccessedAt  DateTime @default(now()) @map("last_accessed_at")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  package         ScormPackage @relation(fields: [packageId], references: [packageId])
+
+  @@unique([packageId, employeeId])
+  @@map("scorm_sessions")
+}

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { api } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
+import ScormLauncher from './ScormLauncher.jsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
 
@@ -54,9 +55,16 @@ export default function LearningTab({ days, onRefresh }) {
   }, [viewingContent]);
 
   const [lockedMsg, setLockedMsg] = useState(null);
+  const [scormPackageId, setScormPackageId] = useState(null);
 
   async function openContent(content) {
     setLockedMsg(null);
+    // SCORM content opens in the dedicated launcher, not the regular viewer
+    if (content.contentType === 'scorm') {
+      // Extract packageId from directMediaUrl pattern: /uploads/scorm/SCORM-XXXXXXXX/...
+      const match = (content.directMediaUrl || '').match(/\/scorm\/(SCORM-[A-Z0-9]+)\//);
+      if (match) { setScormPackageId(match[1]); return; }
+    }
     // Show viewer immediately — don't wait for the API round-trip
     if (viewingContent) await stopHeartbeat(true);
     setViewingContent(content);
@@ -233,6 +241,17 @@ export default function LearningTab({ days, onRefresh }) {
           onPauseChange={p => { isPausedRef.current = p; }}
           renderContentUrl={renderContentUrl}
         />
+      )}
+
+      {scormPackageId && (
+        <div className="modal-overlay" style={{ padding: 0, alignItems: 'stretch' }}>
+          <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <ScormLauncher
+              packageId={scormPackageId}
+              onClose={() => { setScormPackageId(null); onRefresh && onRefresh(); }}
+            />
+          </div>
+        </div>
       )}
 
       {assessmentId && (
