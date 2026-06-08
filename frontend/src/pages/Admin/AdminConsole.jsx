@@ -24,6 +24,7 @@ import EmpIdMappingUpload from './EmpIdMappingUpload.jsx';
 import ComplianceExport from './ComplianceExport.jsx';
 import CommConfigTab from './CommConfigTab.jsx';
 import NotificationConfigTab from './NotificationConfigTab.jsx';
+import SystemHealthTab from './SystemHealthTab.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -53,6 +54,7 @@ const NAV = [
     { id: 'org', label: 'Organization', icon: '🏢' },
     { id: 'comm-config', label: 'Communications', icon: '📡' },
     { id: 'notif-config', label: 'Notifications', icon: '🔔' },
+    { id: 'system-health', label: 'System Health', icon: '🛠️' },
   ]},
 ];
 
@@ -155,6 +157,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'emp-mapping' && <EmpIdMappingUpload />}
           {activeId === 'comm-config' && <CommConfigTab />}
           {activeId === 'notif-config' && <NotificationConfigTab />}
+          {activeId === 'system-health' && <SystemHealthTab />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}
