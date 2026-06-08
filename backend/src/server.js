@@ -17,6 +17,7 @@ import coordinatorStabilityRoutes from './routes/coordinatorStability.js';
 import coordinatorRoutes from './routes/coordinator.js';
 import traineeStabilityRoutes from './routes/traineeStability.js';
 import traineeRoutes from './routes/trainee.js';
+import adminStabilityRoutes from './routes/adminStability.js';
 import adminRoutes from './routes/admin.js';
 import diagnosticsRoutes from './routes/diagnostics.js';
 import managementRoutes from './routes/management.js';
@@ -70,6 +71,7 @@ app.use('/api/auth/bridge', bridgeRoutes);
 app.use('/api/coordinator', coordinatorStabilityRoutes);
 app.use('/api/trainee', traineeStabilityRoutes);
 app.use('/api/admin/diagnostics', diagnosticsRoutes);
+app.use('/api/admin', adminStabilityRoutes);
 
 app.use('/api/coordinator', coordinatorRoutes);
 app.use('/api/trainee', traineeRoutes);
