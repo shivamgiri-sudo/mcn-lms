@@ -66,6 +66,11 @@ export default function LearningTab({ days, onRefresh }) {
   async function openContent(content) {
     setLockedMsg(null);
 
+    if (content.accessLocked) {
+      setLockedMsg(content.lockReason || 'Complete the previous required content first.');
+      return;
+    }
+
     if (content.contentType === 'scorm') {
       const match = (content.directMediaUrl || '').match(/\/scorm\/(SCORM-[A-Z0-9]+)\//);
       if (match) {
@@ -183,23 +188,14 @@ export default function LearningTab({ days, onRefresh }) {
           return (
             <div key={day.dayNo} className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div
-                style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '13px 18px', cursor: 'pointer',
-                  background: isOpen ? 'var(--brand)' : 'var(--card)',
-                  color: 'var(--ink)', transition: 'background .15s',
-                }}
+                style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 18px', cursor: 'pointer', background: isOpen ? 'var(--brand)' : 'var(--card)', color: 'var(--ink)', transition: 'background .15s' }}
                 onClick={() => setOpenDays(prev => ({ ...prev, [di]: !isOpen }))}
               >
                 <div className="row" style={{ gap: 12 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 10, background: isOpen ? 'rgba(255,255,255,.15)' : 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 13, flexShrink: 0 }}>
-                    {day.dayNo}
-                  </div>
+                  <div style={{ width: 32, height: 32, borderRadius: 10, background: isOpen ? 'rgba(255,255,255,.15)' : 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 13, flexShrink: 0 }}>{day.dayNo}</div>
                   <div>
                     <b style={{ fontSize: 14 }}>Day {day.dayNo}</b>
-                    <div style={{ fontSize: 11, opacity: .75, marginTop: 1 }}>
-                      {day.modules.length} module{day.modules.length !== 1 ? 's' : ''} · {dayContents} content{dayContents !== 1 ? 's' : ''}
-                    </div>
+                    <div style={{ fontSize: 11, opacity: .75, marginTop: 1 }}>{day.modules.length} module{day.modules.length !== 1 ? 's' : ''} · {dayContents} content{dayContents !== 1 ? 's' : ''}</div>
                   </div>
                 </div>
                 <div className="row" style={{ gap: 10 }}>
@@ -208,27 +204,13 @@ export default function LearningTab({ days, onRefresh }) {
                 </div>
               </div>
 
-              {isOpen && (
-                <div style={{ padding: '14px 16px', background: 'var(--card-solid)' }}>
-                  {day.modules.map(mod => (
-                    <ModuleSection key={mod.moduleId} mod={mod} onOpenContent={openContent} onStartAssessment={id => setAssessmentId(id)} />
-                  ))}
-                </div>
-              )}
+              {isOpen && <div style={{ padding: '14px 16px', background: 'var(--card-solid)' }}>{day.modules.map(mod => <ModuleSection key={mod.moduleId} mod={mod} onOpenContent={openContent} onStartAssessment={id => setAssessmentId(id)} />)}</div>}
             </div>
           );
         })}
       </div>
 
-      {viewingContent && (
-        <ContentViewerModal
-          content={viewingContent}
-          onClose={closeContent}
-          videoRef={videoRef}
-          onPauseChange={p => { isPausedRef.current = p; }}
-          renderContentUrl={renderContentUrl}
-        />
-      )}
+      {viewingContent && <ContentViewerModal content={viewingContent} onClose={closeContent} videoRef={videoRef} onPauseChange={p => { isPausedRef.current = p; }} renderContentUrl={renderContentUrl} />}
 
       {scormPackageId && (
         <div className="modal-overlay" style={{ padding: 0, alignItems: 'stretch' }}>
@@ -244,6 +226,7 @@ export default function LearningTab({ days, onRefresh }) {
 }
 
 function isContentSequentiallyLocked(content, allContents) {
+  if (content.accessLocked) return true;
   if (!content.locked || content.contentOrder <= 1) return false;
   const sorted = [...allContents].filter(c => c.active).sort((a, b) => a.contentOrder - b.contentOrder);
   const idx = sorted.findIndex(c => c.contentId === content.contentId);
@@ -285,8 +268,9 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
             const isDone = prog?.completionStatus === 'Completed';
             const isInProg = prog?.opened && !isDone;
             const seqLocked = isContentSequentiallyLocked(c, activeContents);
+            const lockText = c.lockReason || 'Complete the previous content to unlock';
             return (
-              <div key={c.contentId} className={`content-item${isDone ? ' done' : ''}${seqLocked ? ' locked' : ''}`} onClick={() => !seqLocked && onOpenContent(c)} style={seqLocked ? { opacity: .65, cursor: 'default' } : {}} title={seqLocked ? 'Complete the previous content to unlock' : undefined}>
+              <div key={c.contentId} className={`content-item${isDone ? ' done' : ''}${seqLocked ? ' locked' : ''}`} onClick={() => !seqLocked && onOpenContent(c)} style={seqLocked ? { opacity: .65, cursor: 'default' } : {}} title={seqLocked ? lockText : undefined}>
                 {seqLocked ? <span style={{ fontSize: 16, flexShrink: 0 }}>🔒</span> : <span className="content-type-badge">{c.contentType}</span>}
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
@@ -295,7 +279,8 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
                     {isInProg && <span className="pill info">In Progress</span>}
                     {seqLocked && <span className="pill warn" style={{ fontSize: 10 }}>Locked</span>}
                   </div>
-                  {c.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' }}>{c.description}</p>}
+                  {seqLocked && <p style={{ fontSize: 11.5, color: 'var(--warn)', marginTop: 2 }}>{lockText}</p>}
+                  {!seqLocked && c.description && <p style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' }}>{c.description}</p>}
                 </div>
                 <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 90 }}>
                   <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{prog?.totalSecondsSpent ? formatSeconds(prog.totalSecondsSpent) : c.estimatedMins ? `~${c.estimatedMins}m` : ''}</div>
@@ -328,25 +313,27 @@ function FaqItem({ faq }) {
 
 function AssessmentCard({ assessment, result, onStart }) {
   const passed = result?.result === 'Pass';
+  const locked = !!assessment.accessLocked;
   const attemptsLeft = assessment.attemptLimit - (result?.totalAttempts || 0);
 
   return (
-    <div style={{ border: '1.5px solid #c7d2fe', background: 'linear-gradient(135deg, var(--accent-soft), rgba(255,255,255,.04))', borderRadius: 13, padding: '12px 14px' }}>
+    <div style={{ border: locked ? '1.5px solid var(--warn)' : '1.5px solid #c7d2fe', background: locked ? 'var(--warn-soft)' : 'linear-gradient(135deg, var(--accent-soft), rgba(255,255,255,.04))', borderRadius: 13, padding: '12px 14px', opacity: locked ? .78 : 1 }}>
       <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
         <div>
           <div className="row" style={{ gap: 8, marginBottom: 4 }}>
             <span className="pill accent">Assessment</span>
             <b style={{ fontSize: 13.5 }}>{assessment.assessmentName}</b>
+            {locked && <span className="pill warn">Locked</span>}
           </div>
-          <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-            Pass: {assessment.passingPct}% &nbsp;·&nbsp;{result?.totalAttempts || 0}/{assessment.attemptLimit} attempts used &nbsp;·&nbsp;{assessment.timeLimitMins}m limit
-          </p>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>Pass: {assessment.passingPct}% &nbsp;·&nbsp;{result?.totalAttempts || 0}/{assessment.attemptLimit} attempts used &nbsp;·&nbsp;{assessment.timeLimitMins}m limit</p>
+          {locked && <p style={{ fontSize: 12, color: 'var(--warn)', marginTop: 5 }}>{assessment.lockReason || 'Complete required content first.'}</p>}
           {result && <p style={{ fontSize: 12.5, marginTop: 5, fontWeight: 800, color: passed ? 'var(--ok)' : 'var(--bad)' }}>Best score: {Math.round(result.bestPercentage)}% — {result.result}</p>}
         </div>
         <div className="row" style={{ gap: 8, flexShrink: 0 }}>
           {passed && <span className="pill ok">✓ Passed</span>}
-          {!passed && attemptsLeft <= 0 && <span className="pill bad">No attempts left</span>}
-          {!passed && attemptsLeft > 0 && <button className="btn small accent" onClick={onStart}>{(result?.totalAttempts || 0) > 0 ? 'Retry' : 'Start Assessment'}</button>}
+          {!passed && locked && <span className="pill warn">Complete Content</span>}
+          {!passed && !locked && attemptsLeft <= 0 && <span className="pill bad">No attempts left</span>}
+          {!passed && !locked && attemptsLeft > 0 && <button className="btn small accent" onClick={onStart}>{(result?.totalAttempts || 0) > 0 ? 'Retry' : 'Start Assessment'}</button>}
         </div>
       </div>
     </div>
@@ -379,13 +366,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   async function markComplete(closeAfter = false) {
     if (completionState.saving) return;
     setCompletionState(prev => ({ ...prev, saving: true, error: '' }));
-    const res = await api.post(`/trainee/content/${content.contentId}/close`, {
-      completed: true,
-      completionStatus: 'Completed',
-      positionSeconds: videoRef.current?.currentTime || 0,
-      durationSeconds: videoRef.current?.duration || 0,
-      playerMode: content.playerMode || 'Auto',
-    }, 'trainee');
+    const res = await api.post(`/trainee/content/${content.contentId}/close`, { completed: true, completionStatus: 'Completed', positionSeconds: videoRef.current?.currentTime || 0, durationSeconds: videoRef.current?.duration || 0, playerMode: content.playerMode || 'Auto' }, 'trainee');
 
     if (!res.ok) {
       setCompletionState(prev => ({ ...prev, saving: false, error: res.message || 'Unable to mark complete.' }));
@@ -396,10 +377,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
     if (closeAfter) onClose();
   }
 
-  const modalStyle = fullscreen
-    ? { position: 'fixed', inset: 0, zIndex: 9999, maxWidth: '100vw', width: '100vw', borderRadius: 0, display: 'flex', flexDirection: 'column' }
-    : { maxWidth: 1080, width: '95vw' };
-
+  const modalStyle = fullscreen ? { position: 'fixed', inset: 0, zIndex: 9999, maxWidth: '100vw', width: '100vw', borderRadius: 0, display: 'flex', flexDirection: 'column' } : { maxWidth: 1080, width: '95vw' };
   const contentHeight = fullscreen ? 'calc(100vh - 70px)' : '72vh';
 
   return (
@@ -417,19 +395,13 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
           </div>
           <div className="row" style={{ gap: 8 }}>
             {canMarkComplete && <button className="btn small accent" onClick={() => markComplete(false)} disabled={completionState.saving}>{completionState.saving ? 'Saving…' : '✓ Mark Complete'}</button>}
-            {media && (
-              <a href={media.fileId ? `https://drive.google.com/file/d/${media.fileId}/view` : media.url.replace('/preview', '/view')} target="_blank" rel="noopener" className="btn small secondary" title="Open in new tab" onClick={() => { if (canMarkComplete) markComplete(false); }}>
-                ↗ Open
-              </a>
-            )}
+            {media && <a href={media.fileId ? `https://drive.google.com/file/d/${media.fileId}/view` : media.url.replace('/preview', '/view')} target="_blank" rel="noopener" className="btn small secondary" title="Open in new tab" onClick={() => { if (canMarkComplete) markComplete(false); }}>↗ Open</a>}
             <button className="btn small secondary" onClick={() => setFullscreen(f => !f)} title={fullscreen ? 'Exit fullscreen' : 'Maximize'}>{fullscreen ? '⊡ Exit Full' : '⊞ Maximize'}</button>
             <button className="btn small secondary" onClick={onClose}>✕ Close</button>
           </div>
         </div>
 
-        {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && (
-          <div className="info-box" style={{ fontSize: 13, borderRadius: 0, flexShrink: 0 }}>Last watched: {formatSeconds(progress.lastPositionSeconds)} — content resumes if still open.</div>
-        )}
+        {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && <div className="info-box" style={{ fontSize: 13, borderRadius: 0, flexShrink: 0 }}>Last watched: {formatSeconds(progress.lastPositionSeconds)} — content resumes if still open.</div>}
 
         <div style={{ height: contentHeight, background: '#0f172a', position: 'relative', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)', flex: fullscreen ? 1 : undefined }}>
           {!media && <div style={{ color: '#94a3b8', padding: 24, textAlign: 'center', paddingTop: '22vh', fontSize: 14 }}>No content URL configured. Contact admin.</div>}
@@ -447,31 +419,17 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
             </div>
           )}
 
-          {media?.type === 'html5' && isVideo && (
-            <video ref={videoRef} src={media.url} controls style={{ width: '100%', height: '100%', background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} onPause={() => onPauseChange(true)} onPlay={() => onPauseChange(false)} onLoadedMetadata={e => { if (progress?.lastPositionSeconds > 0) e.target.currentTime = progress.lastPositionSeconds; }} />
-          )}
-
-          {media?.type === 'youtube' && (
-            <iframe src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen referrerPolicy="no-referrer-when-downgrade" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" title={content.contentTitle} />
-          )}
+          {media?.type === 'html5' && isVideo && <video ref={videoRef} src={media.url} controls style={{ width: '100%', height: '100%', background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} onPause={() => onPauseChange(true)} onPlay={() => onPauseChange(false)} onLoadedMetadata={e => { if (progress?.lastPositionSeconds > 0) e.target.currentTime = progress.lastPositionSeconds; }} />}
+          {media?.type === 'youtube' && <iframe src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen referrerPolicy="no-referrer-when-downgrade" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" title={content.contentTitle} />}
 
           {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-              {canMarkComplete && (
-                <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 3 }}>
-                  <button className="btn small accent" onClick={() => markComplete(false)} disabled={completionState.saving}>{completionState.saving ? 'Saving…' : '✓ Mark Complete'}</button>
-                </div>
-              )}
+              {canMarkComplete && <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 3 }}><button className="btn small accent" onClick={() => markComplete(false)} disabled={completionState.saving}>{completionState.saving ? 'Saving…' : '✓ Mark Complete'}</button></div>}
               {iframeLoading && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', zIndex: 2, gap: 16 }}>
                   <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,.1)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                   <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadTimeout ? 'Server is warming up — this may take 30–60 seconds on first load…' : 'Loading content…'}</div>
-                  {loadTimeout && (
-                    <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                      <button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>
-                      {media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}
-                    </div>
-                  )}
+                  {loadTimeout && <div style={{ display: 'flex', gap: 10, marginTop: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>{media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}</div>}
                 </div>
               )}
               <iframe id="lms-content-iframe" src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => setIframeLoading(false)} />
