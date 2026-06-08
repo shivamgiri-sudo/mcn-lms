@@ -59,6 +59,32 @@ function guessContentType(file, fallback = 'document') {
   return fallback;
 }
 
+function mapRepoRow(row) {
+  return {
+    repositoryContentId: row.repository_content_id,
+    title: row.title,
+    contentTitle: row.title,
+    contentType: row.content_type,
+    category: row.category,
+    subCategory: row.sub_category,
+    process: row.process,
+    lob: row.lob,
+    tags: row.tags,
+    sourceType: row.source_type,
+    directMediaUrl: row.direct_media_url,
+    localFilePath: row.local_file_path,
+    driveFileId: row.drive_file_id,
+    driveUrl: row.drive_url,
+    playerMode: row.player_mode,
+    estimatedMins: row.estimated_mins,
+    completionRulePct: row.completion_rule_pct,
+    description: row.description,
+    versionNo: row.version_no,
+    status: row.status,
+    updatedAt: row.updated_at,
+  };
+}
+
 async function computeBatchCounters(batchNo) {
   const [totalTrainees, certified, handoverToOps, ojtReady] = await Promise.all([
     prisma.traineeMaster.count({ where: { batchNo, status: { not: 'Deleted' } } }),
