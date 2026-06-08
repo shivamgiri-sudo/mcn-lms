@@ -11,6 +11,12 @@ async function getOwnedBatch(batchNo, coordinatorLoginId) {
   return prisma.batchMaster.findFirst({ where: { batchNo, coordinatorLoginId } });
 }
 
+function safeDate(value) {
+  if (!value) return undefined;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+
 // Stabilized risk action update: coordinator can update only risks belonging to own batches.
 router.patch('/risks/:id', ...auth, async (req, res) => {
   try {
@@ -31,7 +37,7 @@ router.patch('/risks/:id', ...auth, async (req, res) => {
         status: status || 'Actioned',
         actionBy: req.userId,
         actionAt: new Date(),
-        followUpDate: followUpDate ? new Date(followUpDate) : undefined,
+        followUpDate: safeDate(followUpDate),
         closureRemarks,
       },
     });
@@ -52,11 +58,11 @@ router.patch('/risks/:id', ...auth, async (req, res) => {
   }
 });
 
-// Stabilized certification: idempotent counter update and ownership check.
+// Stabilized certification: race-safe counter update and ownership check.
 router.post('/batches/:batchNo/certification/certify', ...auth, async (req, res) => {
   try {
     const { batchNo } = req.params;
-    const { employeeId } = req.body;
+    const employeeId = String(req.body?.employeeId || '').trim();
     if (!employeeId) return res.status(400).json({ ok: false, message: 'Employee ID required.' });
 
     const [batch, trainee] = await Promise.all([
@@ -72,16 +78,26 @@ router.post('/batches/:batchNo/certification/certify', ...auth, async (req, res)
     }
 
     const updated = await prisma.$transaction(async (tx) => {
-      const traineeUpdate = await tx.traineeMaster.update({
-        where: { employeeId },
+      const traineeUpdate = await tx.traineeMaster.updateMany({
+        where: { employeeId, batchNo, certificationStatus: { not: 'Certified' } },
         data: { certificationStatus: 'Certified' },
       });
+
+      if (traineeUpdate.count === 0) {
+        return null;
+      }
+
       await tx.batchMaster.update({
         where: { batchNo },
         data: { certified: { increment: 1 } },
       });
-      return traineeUpdate;
+
+      return tx.traineeMaster.findUnique({ where: { employeeId } });
     });
+
+    if (!updated) {
+      return res.json({ ok: true, alreadyCertified: true, message: `${employeeId} is already certified.` });
+    }
 
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'CERTIFY_TRAINEE', module: 'Certification', referenceId: employeeId });
 
@@ -103,11 +119,11 @@ router.post('/batches/:batchNo/certification/certify', ...auth, async (req, res)
   }
 });
 
-// Stabilized handover: idempotent counter update and ownership check.
+// Stabilized handover: race-safe counter update and ownership check.
 router.post('/batches/:batchNo/certification/handover', ...auth, async (req, res) => {
   try {
     const { batchNo } = req.params;
-    const { employeeId } = req.body;
+    const employeeId = String(req.body?.employeeId || '').trim();
     if (!employeeId) return res.status(400).json({ ok: false, message: 'Employee ID required.' });
 
     const [batch, trainee] = await Promise.all([
@@ -122,10 +138,27 @@ router.post('/batches/:batchNo/certification/handover', ...auth, async (req, res
       return res.json({ ok: true, alreadyHandedOver: true, message: `${employeeId} is already handed over to OPS.` });
     }
 
-    await prisma.$transaction([
-      prisma.traineeMaster.update({ where: { employeeId }, data: { handoverToOps: true } }),
-      prisma.batchMaster.update({ where: { batchNo }, data: { handoverToOps: { increment: 1 } } }),
-    ]);
+    const updated = await prisma.$transaction(async (tx) => {
+      const traineeUpdate = await tx.traineeMaster.updateMany({
+        where: { employeeId, batchNo, handoverToOps: false },
+        data: { handoverToOps: true },
+      });
+
+      if (traineeUpdate.count === 0) {
+        return false;
+      }
+
+      await tx.batchMaster.update({
+        where: { batchNo },
+        data: { handoverToOps: { increment: 1 } },
+      });
+
+      return true;
+    });
+
+    if (!updated) {
+      return res.json({ ok: true, alreadyHandedOver: true, message: `${employeeId} is already handed over to OPS.` });
+    }
 
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'HANDOVER_TO_OPS', module: 'Certification', referenceId: employeeId });
 
