@@ -14,6 +14,7 @@ The changes are intentionally additive and are mounted as route overrides before
 
 - Added `backend/src/routes/traineeStability.js`.
 - Added `backend/src/routes/coordinatorStability.js`.
+- Added `backend/src/routes/adminStability.js`.
 - Added `backend/src/routes/diagnostics.js`.
 - Mounted the stabilization routes in `backend/src/server.js` before legacy trainee/coordinator/admin handlers.
 
@@ -25,6 +26,8 @@ The changes are intentionally additive and are mounted as route overrides before
 - Trainee profile updates are synchronized to both `trainee_master` and `user_master` safely.
 - Frontend now re-checks `/auth/me` after refresh so first-login / force password reset remains enforced.
 - Frontend API handling now includes timeout and clearer network/server failure messaging.
+- Dashboard now sends backend-driven content and assessment lock metadata: `accessLocked`, `lockReason`, `prerequisiteContentId`, and `prerequisiteTitle`.
+- Trainee learning path now displays backend lock reason instead of only using local sequence guesses.
 
 ### Coordinator fixes
 
@@ -36,6 +39,8 @@ The changes are intentionally additive and are mounted as route overrides before
 
 - Added `GET /api/admin/diagnostics` for admin users.
 - Diagnostics check database connectivity, key environment flags, upload folder write access, frontend build presence, and important table counts.
+- Added `POST /api/admin/reconcile/batch-counters` to repair batch total, certified, handover, and OJT-ready counters from trainee records.
+- Added Admin Console `System Health` tab for diagnostics and batch counter reconciliation.
 
 ## Required validation before production restart
 
@@ -61,14 +66,18 @@ npm run dev
 |---|---|---|
 | Trainee login | First-login user refreshes page before changing password | Password reset remains enforced |
 | Assessment | Open MCQ assessment | Attempt count displays correctly |
+| Assessment | Try opening locked assessment before prior required content | Assessment card shows lock reason and Start button is blocked |
 | Assessment | Submit MCQ and reopen | Attempt count updates correctly |
 | Content | Open/download PDF, PPT, document, or other non-video content | Viewer shows Mark Complete and content becomes 100% |
+| Content | Try opening later locked content | Content row shows backend lock reason and open is blocked |
 | Profile | Update trainee name/email/mobile | Data updates in `trainee_master` and `user_master` |
 | Coordinator | Certify same trainee twice | Batch certified count increments only once |
 | Coordinator | Handover same trainee twice | Batch handover count increments only once |
 | Coordinator | Update own-batch risk | Allowed |
 | Coordinator | Update another coordinator batch risk | Blocked |
 | Admin | Open `/api/admin/diagnostics` with admin token | Health JSON is returned |
+| Admin | Open System Health tab | Diagnostics and reconciliation UI loads |
+| Admin | Run batch counter reconciliation | Changed batches show before/after counts |
 
 ## Notes
 
