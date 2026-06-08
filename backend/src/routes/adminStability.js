@@ -69,6 +69,30 @@ async function ensureContentRepositoryTable() {
   `);
 }
 
+router.get('/trainees/search', ...auth, async (req, res) => {
+  try {
+    const q = clean(req.query?.q);
+    const where = { status: { not: 'Deleted' } };
+    if (q) {
+      where.OR = [
+        { employeeId: { contains: q } },
+        { lmsId: { contains: q } },
+        { traineeName: { contains: q } },
+        { email: { contains: q } },
+        { mobile: { contains: q } },
+        { batchNo: { contains: q } },
+        { branch: { contains: q } },
+        { process: { contains: q } },
+      ];
+    }
+    const trainees = await prisma.traineeMaster.findMany({ where, take: 75, orderBy: { createdAt: 'desc' } });
+    return res.json({ ok: true, data: trainees });
+  } catch (err) {
+    console.error('[adminStability] trainee search failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to search trainee accounts.' });
+  }
+});
+
 router.post('/reconcile/batch-counters', ...auth, async (req, res) => {
   try {
     const requestedBatchNo = String(req.body?.batchNo || '').trim();
@@ -106,17 +130,10 @@ router.post('/lms-users', ...auth, async (req, res) => {
     const employeeId = requestedEmployeeId || `LMS-${Date.now().toString().slice(-8)}${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
     const lmsId = clean(req.body?.lmsId) || employeeId;
 
-    const duplicate = await prisma.traineeMaster.findFirst({
-      where: {
-        status: { not: 'Deleted' },
-        OR: [
-          { employeeId },
-          { lmsId },
-          ...(email ? [{ email: { equals: email, mode: 'insensitive' } }] : []),
-          ...(mobile ? [{ mobile: { endsWith: mobile } }] : []),
-        ],
-      },
-    });
+    const duplicateOr = [{ employeeId }, { lmsId }];
+    if (email) duplicateOr.push({ email });
+    if (mobile) duplicateOr.push({ mobile: { endsWith: mobile } });
+    const duplicate = await prisma.traineeMaster.findFirst({ where: { status: { not: 'Deleted' }, OR: duplicateOr } });
     if (duplicate) return res.status(409).json({ ok: false, message: `User already exists: ${duplicate.employeeId}` });
 
     const tempPassword = clean(req.body?.tempPassword) || (mobile ? mobile.slice(-4) : '1234');
