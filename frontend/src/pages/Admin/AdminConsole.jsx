@@ -6,6 +6,7 @@ import AccountsTab from './AccountsTab.jsx';
 import QuestionsTab from './QuestionsTab.jsx';
 import CertRulesTab from './CertRulesTab.jsx';
 import DriveTab from './DriveTab.jsx';
+import ContentRepositoryTab from './ContentRepositoryTab.jsx';
 import DashboardPage from './DashboardPage.jsx';
 import BatchesPage from './BatchesPage.jsx';
 import BatchDetailPage from './BatchDetailPage.jsx';
@@ -30,6 +31,7 @@ const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
   { section: 'Training', items: [
     { id: 'curriculum', label: 'Curriculum', icon: '📋' },
+    { id: 'content-repository', label: 'Content Repository', icon: '🗂️' },
     { id: 'questions', label: 'Questions & MCQ', icon: '❓' },
     { id: 'broadcast', label: 'Broadcast / Assign', icon: '📢' },
     { id: 'drive', label: 'Drive Sync', icon: '☁️' },
@@ -141,6 +143,7 @@ export default function AdminConsole({ user, onLogout }) {
         <div className="admin-main">
           {activeId === 'dashboard' && <DashboardPage navigate={navigate} />}
           {activeId === 'curriculum' && <CurriculumTab />}
+          {activeId === 'content-repository' && <ContentRepositoryTab />}
           {activeId === 'questions' && <QuestionsTab />}
           {activeId === 'drive' && <DriveTab />}
           {activeId === 'batches' && <BatchesPage navigate={navigate} />}
