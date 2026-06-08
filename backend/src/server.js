@@ -13,9 +13,12 @@ import { startScheduler } from './utils/scheduler.js';
 
 import authRoutes from './routes/auth.js';
 import bridgeRoutes from './routes/bridge.js';
+import coordinatorStabilityRoutes from './routes/coordinatorStability.js';
 import coordinatorRoutes from './routes/coordinator.js';
+import traineeStabilityRoutes from './routes/traineeStability.js';
 import traineeRoutes from './routes/trainee.js';
 import adminRoutes from './routes/admin.js';
+import diagnosticsRoutes from './routes/diagnostics.js';
 import managementRoutes from './routes/management.js';
 import driveRoutes from './routes/drive.js';
 import uploadRoutes from './routes/upload.js';
@@ -61,6 +64,13 @@ app.use('/uploads/scorm', express.static(path.join(__dirname, '..', 'uploads', '
 
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/bridge', bridgeRoutes);
+
+// Production-stabilization overrides must be mounted before the legacy route files.
+// These handlers fix specific deployed issues while preserving the existing controllers.
+app.use('/api/coordinator', coordinatorStabilityRoutes);
+app.use('/api/trainee', traineeStabilityRoutes);
+app.use('/api/admin/diagnostics', diagnosticsRoutes);
+
 app.use('/api/coordinator', coordinatorRoutes);
 app.use('/api/trainee', traineeRoutes);
 app.use('/api/admin', adminRoutes);
@@ -113,7 +123,7 @@ async function runKpiSnapshot() {
   try {
     const period = new Date().toISOString().slice(0, 7);
     const [trainees, batches] = await Promise.all([
-      prisma.traineeMaster.findMany({ where: { status: "Active" } }),
+      prisma.traineeMaster.findMany({ where: { status: 'Active' } }),
       prisma.batchMaster.findMany({ where: { batchStatus: 'Active' } }),
     ]);
     const totalTrainees = trainees.length;
