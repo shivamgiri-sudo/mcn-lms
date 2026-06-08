@@ -1,8 +1,10 @@
 import { Router } from 'express';
+import path from 'path';
 import { prisma } from '../utils/db.js';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { audit } from '../utils/audit.js';
 import { generateId, generateSalt, hashPassword } from '../utils/hash.js';
+import { contentUpload } from '../utils/upload.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('admin')];
@@ -23,6 +25,38 @@ function cleanMobile(value) {
 
 function like(value) {
   return `%${String(value || '').replace(/[%_]/g, '')}%`;
+}
+
+function toInt(value, fallback = 0) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toFloat(value, fallback = 0) {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function toBool(value, fallback = true) {
+  if (value === true || value === 'true' || value === '1' || value === 1 || value === 'Yes') return true;
+  if (value === false || value === 'false' || value === '0' || value === 0 || value === 'No') return false;
+  return fallback;
+}
+
+function repoPathFromFile(file) {
+  if (!file?.filename) return null;
+  return `/uploads/content/${file.filename}`;
+}
+
+function guessContentType(file, fallback = 'document') {
+  const ext = path.extname(file?.originalname || '').toLowerCase();
+  if (['.mp4', '.webm', '.ogg', '.mov'].includes(ext)) return 'video';
+  if (ext === '.pdf') return 'pdf';
+  if (['.ppt', '.pptx'].includes(ext)) return 'ppt';
+  if (['.doc', '.docx'].includes(ext)) return 'document';
+  if (['.xls', '.xlsx'].includes(ext)) return 'spreadsheet';
+  if (['.jpg', '.jpeg', '.png', '.gif'].includes(ext)) return 'image';
+  return fallback;
 }
 
 async function computeBatchCounters(batchNo) {
@@ -69,20 +103,131 @@ async function ensureContentRepositoryTable() {
   `);
 }
 
+async function ensureIndependentModuleTables() {
+  await ensureContentRepositoryTable();
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS independent_module_master (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      module_id VARCHAR(191) NOT NULL UNIQUE,
+      module_name VARCHAR(500) NOT NULL,
+      category VARCHAR(255) NULL,
+      process VARCHAR(255) NULL,
+      lob VARCHAR(255) NULL,
+      description TEXT NULL,
+      estimated_mins INT NOT NULL DEFAULT 0,
+      status VARCHAR(100) NOT NULL DEFAULT 'Active',
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_ind_module_status (status),
+      INDEX idx_ind_module_process_lob (process, lob),
+      INDEX idx_ind_module_category (category)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS independent_module_content_map (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      module_id VARCHAR(191) NOT NULL,
+      repository_content_id VARCHAR(191) NOT NULL,
+      sort_order INT NOT NULL DEFAULT 0,
+      required TINYINT(1) NOT NULL DEFAULT 1,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_ind_module_content (module_id, repository_content_id),
+      INDEX idx_ind_content_module (module_id),
+      INDEX idx_ind_content_repo (repository_content_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  await prisma.$executeRawUnsafe(`
+    CREATE TABLE IF NOT EXISTS independent_module_auto_assign_rule (
+      id VARCHAR(191) NOT NULL PRIMARY KEY,
+      rule_id VARCHAR(191) NOT NULL UNIQUE,
+      module_id VARCHAR(191) NOT NULL,
+      rule_name VARCHAR(500) NOT NULL,
+      scope_type VARCHAR(100) NOT NULL DEFAULT 'All',
+      scope_value VARCHAR(255) NULL,
+      assignment_type VARCHAR(100) NOT NULL DEFAULT 'Mandatory',
+      message TEXT NULL,
+      due_days INT NOT NULL DEFAULT 0,
+      active TINYINT(1) NOT NULL DEFAULT 1,
+      created_by VARCHAR(191) NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_auto_rule_active (active),
+      INDEX idx_auto_rule_scope (scope_type, scope_value),
+      INDEX idx_auto_rule_module (module_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+}
+
+async function getModuleById(moduleId) {
+  await ensureIndependentModuleTables();
+  const rows = await prisma.$queryRawUnsafe('SELECT * FROM independent_module_master WHERE module_id = ? AND status = ?', moduleId, 'Active');
+  return rows?.[0] || null;
+}
+
+async function assignIndependentModuleToUser({ moduleId, employeeId, assignmentType = 'Mandatory', message = null, assignedBy = null, dueDays = 0 }) {
+  const module = await getModuleById(moduleId);
+  if (!module || !employeeId) return { assigned: false, reason: 'Module or employee missing' };
+  const dueDate = dueDays > 0 ? new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000) : null;
+  const existing = await prisma.assignedModule.findFirst({
+    where: { moduleId, assignedTo: employeeId, assignedToType: 'individual', active: true },
+  });
+  if (existing) return { assigned: false, reason: 'Already assigned' };
+  await prisma.assignedModule.create({
+    data: {
+      moduleId,
+      moduleName: module.module_name,
+      broadcastTitle: module.module_name,
+      assignedTo: employeeId,
+      assignedToType: 'individual',
+      assignmentType,
+      message: message || module.description || 'Auto-assigned module for new LMS user.',
+      assignedBy,
+      dueDate,
+      active: true,
+    },
+  });
+  return { assigned: true, moduleId, moduleName: module.module_name };
+}
+
+async function autoAssignModulesForNewUser({ employeeId, branch, process, lob, createdBy }) {
+  await ensureIndependentModuleTables();
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT * FROM independent_module_auto_assign_rule WHERE active = 1 AND (
+      scope_type = 'All'
+      OR (scope_type = 'Branch' AND scope_value = ?)
+      OR (scope_type = 'Process' AND scope_value = ?)
+      OR (scope_type = 'LOB' AND scope_value = ?)
+    ) ORDER BY created_at ASC`,
+    branch || '',
+    process || '',
+    lob || ''
+  );
+  const results = [];
+  for (const rule of rows || []) {
+    const result = await assignIndependentModuleToUser({
+      moduleId: rule.module_id,
+      employeeId,
+      assignmentType: rule.assignment_type || 'Mandatory',
+      message: rule.message,
+      assignedBy: createdBy,
+      dueDays: Number(rule.due_days || 0),
+    });
+    results.push({ ruleId: rule.rule_id, moduleId: rule.module_id, ...result });
+  }
+  return results;
+}
+
 router.get('/trainees/search', ...auth, async (req, res) => {
   try {
     const q = clean(req.query?.q);
     const where = { status: { not: 'Deleted' } };
     if (q) {
       where.OR = [
-        { employeeId: { contains: q } },
-        { lmsId: { contains: q } },
-        { traineeName: { contains: q } },
-        { email: { contains: q } },
-        { mobile: { contains: q } },
-        { batchNo: { contains: q } },
-        { branch: { contains: q } },
-        { process: { contains: q } },
+        { employeeId: { contains: q } }, { lmsId: { contains: q } }, { traineeName: { contains: q } },
+        { email: { contains: q } }, { mobile: { contains: q } }, { batchNo: { contains: q } },
+        { branch: { contains: q } }, { process: { contains: q } },
       ];
     }
     const trainees = await prisma.traineeMaster.findMany({ where, take: 75, orderBy: { createdAt: 'desc' } });
@@ -98,7 +243,6 @@ router.post('/reconcile/batch-counters', ...auth, async (req, res) => {
     const requestedBatchNo = String(req.body?.batchNo || '').trim();
     const where = requestedBatchNo ? { batchNo: requestedBatchNo } : {};
     const batches = await prisma.batchMaster.findMany({ where, orderBy: { lastUpdatedAt: 'desc' } });
-
     if (requestedBatchNo && batches.length === 0) return res.status(404).json({ ok: false, message: `Batch ${requestedBatchNo} not found.` });
 
     const results = [];
@@ -164,8 +308,11 @@ router.post('/lms-users', ...auth, async (req, res) => {
       prisma.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName, email, mobile, branch: payload.branch, process: payload.process, lob: payload.lob, batchNo: payload.batchNo, classroomId: payload.classroomId, active: true, forcePasswordReset: true } }),
     ]);
 
-    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_INDEPENDENT_LMS_USER', module: 'Accounts', referenceId: employeeId, newValue: { lmsId, traineeName } });
-    return res.json({ ok: true, data: { employeeId, lmsId, traineeName, email, mobile, tempPassword }, message: `LMS user created: ${employeeId}` });
+    const autoAssignments = await autoAssignModulesForNewUser({ employeeId, branch: payload.branch, process: payload.process, lob: payload.lob, createdBy: req.userId });
+    const assignedCount = autoAssignments.filter(a => a.assigned).length;
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_INDEPENDENT_LMS_USER', module: 'Accounts', referenceId: employeeId, newValue: { lmsId, traineeName, assignedCount } });
+    return res.json({ ok: true, data: { employeeId, lmsId, traineeName, email, mobile, tempPassword, autoAssignments, assignedCount }, message: `LMS user created: ${employeeId}` });
   } catch (err) {
     console.error('[adminStability] create LMS user failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to create LMS user.' });
@@ -204,27 +351,7 @@ router.post('/content-repository', ...auth, async (req, res) => {
     await prisma.$executeRawUnsafe(
       `INSERT INTO content_repository_master (id, repository_content_id, title, content_type, category, sub_category, process, lob, tags, source_type, direct_media_url, local_file_path, drive_file_id, drive_url, player_mode, estimated_mins, completion_rule_pct, description, version_no, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id,
-      repoId,
-      title,
-      clean(req.body?.contentType) || 'document',
-      clean(req.body?.category),
-      clean(req.body?.subCategory),
-      clean(req.body?.process),
-      clean(req.body?.lob),
-      clean(req.body?.tags),
-      clean(req.body?.sourceType) || 'local',
-      clean(req.body?.directMediaUrl),
-      clean(req.body?.localFilePath),
-      clean(req.body?.driveFileId),
-      clean(req.body?.driveUrl),
-      clean(req.body?.playerMode) || 'Auto',
-      Number(req.body?.estimatedMins || 0),
-      Number(req.body?.completionRulePct || 80),
-      clean(req.body?.description),
-      Number(req.body?.versionNo || 1),
-      'Active',
-      req.userId
+      id, repoId, title, clean(req.body?.contentType) || 'document', clean(req.body?.category), clean(req.body?.subCategory), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.tags), clean(req.body?.sourceType) || 'local', clean(req.body?.directMediaUrl), clean(req.body?.localFilePath), clean(req.body?.driveFileId), clean(req.body?.driveUrl), clean(req.body?.playerMode) || 'Auto', toInt(req.body?.estimatedMins, 0), toFloat(req.body?.completionRulePct, 80), clean(req.body?.description), toInt(req.body?.versionNo, 1), 'Active', req.userId
     );
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repoId, newValue: { title } });
@@ -232,6 +359,29 @@ router.post('/content-repository', ...auth, async (req, res) => {
   } catch (err) {
     console.error('[adminStability] content repository create failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to save repository content.' });
+  }
+});
+
+router.post('/content-repository/upload', ...auth, contentUpload.single('file'), async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    if (!req.file) return res.status(400).json({ ok: false, message: 'File is required.' });
+    const title = clean(req.body?.title) || req.file.originalname;
+    const repoId = `REP-${generateId()}`;
+    const id = generateId('repo-');
+    const publicUrl = repoPathFromFile(req.file);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO content_repository_master (id, repository_content_id, title, content_type, category, sub_category, process, lob, tags, source_type, direct_media_url, local_file_path, player_mode, estimated_mins, completion_rule_pct, description, version_no, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, repoId, title, clean(req.body?.contentType) || guessContentType(req.file), clean(req.body?.category), clean(req.body?.subCategory), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.tags), 'local', publicUrl, req.file.path, clean(req.body?.playerMode) || 'Auto', toInt(req.body?.estimatedMins, 0), toFloat(req.body?.completionRulePct, 80), clean(req.body?.description), toInt(req.body?.versionNo, 1), 'Active', req.userId
+    );
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPLOAD_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repoId, newValue: { title, file: req.file.originalname } });
+    return res.json({ ok: true, data: { repositoryContentId: repoId, directMediaUrl: publicUrl, localFilePath: req.file.path }, message: 'Repository file uploaded.' });
+  } catch (err) {
+    console.error('[adminStability] content repository upload failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to upload repository file.' });
   }
 });
 
@@ -245,6 +395,139 @@ router.delete('/content-repository/:repositoryContentId', ...auth, async (req, r
   } catch (err) {
     console.error('[adminStability] content repository archive failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to archive repository content.' });
+  }
+});
+
+router.get('/independent-modules', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const q = clean(req.query?.q);
+    const params = ['Active'];
+    let sql = 'SELECT * FROM independent_module_master WHERE status = ?';
+    if (q) {
+      sql += ' AND (module_name LIKE ? OR category LIKE ? OR process LIKE ? OR lob LIKE ?)';
+      params.push(like(q), like(q), like(q), like(q));
+    }
+    sql += ' ORDER BY updated_at DESC LIMIT 200';
+    const modules = await prisma.$queryRawUnsafe(sql, ...params);
+    const moduleIds = modules.map(m => m.module_id);
+    let contentRows = [];
+    if (moduleIds.length) {
+      const placeholders = moduleIds.map(() => '?').join(',');
+      contentRows = await prisma.$queryRawUnsafe(
+        `SELECT m.module_id, m.sort_order, m.required, r.* FROM independent_module_content_map m INNER JOIN content_repository_master r ON r.repository_content_id = m.repository_content_id WHERE m.active = 1 AND m.module_id IN (${placeholders}) ORDER BY m.module_id, m.sort_order ASC`,
+        ...moduleIds
+      );
+    }
+    const byModule = {};
+    for (const row of contentRows) {
+      if (!byModule[row.module_id]) byModule[row.module_id] = [];
+      byModule[row.module_id].push({ ...mapRepoRow(row), sortOrder: row.sort_order, required: !!row.required });
+    }
+    return res.json({ ok: true, data: modules.map(m => ({ ...m, contents: byModule[m.module_id] || [] })) });
+  } catch (err) {
+    console.error('[adminStability] independent module list failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to load independent modules.' });
+  }
+});
+
+router.post('/independent-modules', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleName = clean(req.body?.moduleName);
+    if (!moduleName) return res.status(400).json({ ok: false, message: 'Module name is required.' });
+    const moduleId = clean(req.body?.moduleId) || `IMOD-${generateId()}`;
+    const contents = Array.isArray(req.body?.contents) ? req.body.contents : [];
+
+    await prisma.$transaction(async tx => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO independent_module_master (id, module_id, module_name, category, process, lob, description, estimated_mins, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        generateId('im-'), moduleId, moduleName, clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), 'Active', req.userId
+      );
+      for (let i = 0; i < contents.length; i += 1) {
+        const c = contents[i];
+        const repoId = clean(c.repositoryContentId || c.repository_content_id);
+        if (!repoId) continue;
+        await tx.$executeRawUnsafe(
+          `INSERT IGNORE INTO independent_module_content_map (id, module_id, repository_content_id, sort_order, required, active) VALUES (?, ?, ?, ?, ?, 1)`,
+          generateId('imc-'), moduleId, repoId, toInt(c.sortOrder, i + 1), toBool(c.required, true) ? 1 : 0
+        );
+      }
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_INDEPENDENT_MODULE', module: 'IndependentModule', referenceId: moduleId, newValue: { moduleName, contentCount: contents.length } });
+    return res.json({ ok: true, data: { moduleId }, message: 'Independent module created.' });
+  } catch (err) {
+    console.error('[adminStability] independent module create failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to create independent module.' });
+  }
+});
+
+router.post('/independent-modules/:moduleId/assign', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
+    const module = await getModuleById(moduleId);
+    if (!module) return res.status(404).json({ ok: false, message: 'Independent module not found.' });
+    const assignedToType = clean(req.body?.assignedToType) || 'individual';
+    const assignedTo = clean(req.body?.assignedTo);
+    if (!assignedTo) return res.status(400).json({ ok: false, message: 'Assigned To is required.' });
+    const existing = await prisma.assignedModule.findFirst({ where: { moduleId, assignedTo, assignedToType, active: true } });
+    if (existing) return res.json({ ok: true, alreadyAssigned: true, message: 'Module is already assigned.' });
+    const dueDays = toInt(req.body?.dueDays, 0);
+    const dueDate = dueDays > 0 ? new Date(Date.now() + dueDays * 24 * 60 * 60 * 1000) : null;
+    await prisma.assignedModule.create({ data: { moduleId, moduleName: module.module_name, broadcastTitle: module.module_name, assignedTo, assignedToType, assignmentType: clean(req.body?.assignmentType) || 'Mandatory', message: clean(req.body?.message) || module.description, assignedBy: req.userId, dueDate, active: true } });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ASSIGN_INDEPENDENT_MODULE', module: 'IndependentModule', referenceId: moduleId, newValue: { assignedToType, assignedTo } });
+    return res.json({ ok: true, message: 'Independent module assigned.' });
+  } catch (err) {
+    console.error('[adminStability] independent module assign failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to assign independent module.' });
+  }
+});
+
+router.post('/independent-modules/:moduleId/auto-assign-rule', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
+    const module = await getModuleById(moduleId);
+    if (!module) return res.status(404).json({ ok: false, message: 'Independent module not found.' });
+    const scopeType = clean(req.body?.scopeType) || 'All';
+    const scopeValue = scopeType === 'All' ? null : clean(req.body?.scopeValue);
+    if (scopeType !== 'All' && !scopeValue) return res.status(400).json({ ok: false, message: 'Scope value is required.' });
+    const ruleId = `AUTO-${generateId()}`;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO independent_module_auto_assign_rule (id, rule_id, module_id, rule_name, scope_type, scope_value, assignment_type, message, due_days, active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+      generateId('iar-'), ruleId, moduleId, clean(req.body?.ruleName) || `Auto assign ${module.module_name}`, scopeType, scopeValue, clean(req.body?.assignmentType) || 'Mandatory', clean(req.body?.message), toInt(req.body?.dueDays, 0), req.userId
+    );
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_AUTO_ASSIGN_RULE', module: 'IndependentModule', referenceId: ruleId, newValue: { moduleId, scopeType, scopeValue } });
+    return res.json({ ok: true, data: { ruleId }, message: 'Auto-assign rule created.' });
+  } catch (err) {
+    console.error('[adminStability] auto assign rule failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to create auto-assign rule.' });
+  }
+});
+
+router.get('/independent-modules/auto-assign-rules', ...auth, async (_req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const rows = await prisma.$queryRawUnsafe(`SELECT r.*, m.module_name FROM independent_module_auto_assign_rule r LEFT JOIN independent_module_master m ON m.module_id = r.module_id WHERE r.active = 1 ORDER BY r.created_at DESC`);
+    return res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error('[adminStability] auto assign rules list failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to load auto-assign rules.' });
+  }
+});
+
+router.delete('/independent-modules/auto-assign-rules/:ruleId', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const ruleId = clean(req.params.ruleId);
+    await prisma.$executeRawUnsafe('UPDATE independent_module_auto_assign_rule SET active = 0 WHERE rule_id = ?', ruleId);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DISABLE_AUTO_ASSIGN_RULE', module: 'IndependentModule', referenceId: ruleId });
+    return res.json({ ok: true, message: 'Auto-assign rule disabled.' });
+  } catch (err) {
+    console.error('[adminStability] auto assign rule disable failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to disable auto-assign rule.' });
   }
 });
 
