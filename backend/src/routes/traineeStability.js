@@ -231,7 +231,7 @@ router.post('/content/:contentId/close', ...auth, async (req, res) => {
         secondsDelta,
         positionSeconds,
         durationSeconds,
-        completionPct: completedExplicitly ? 100 : undefined,
+        completionPct: completedExplicitly ? 100 : 0,
         playerMode: content.playerMode || 'Auto',
         details: completedExplicitly ? 'Explicit completion from document/download viewer' : null,
       },
@@ -264,7 +264,7 @@ router.patch('/profile', ...auth, async (req, res) => {
 
     await prisma.$transaction([
       prisma.traineeMaster.update({ where: { employeeId }, data }),
-      prisma.userMaster.update({ where: { employeeId }, data }).catch(() => null),
+      prisma.userMaster.updateMany({ where: { employeeId }, data }),
     ]);
 
     return res.json({ ok: true, message: 'Profile updated.' });
