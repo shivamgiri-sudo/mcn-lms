@@ -7,6 +7,7 @@ import QuestionsTab from './QuestionsTab.jsx';
 import CertRulesTab from './CertRulesTab.jsx';
 import DriveTab from './DriveTab.jsx';
 import ContentRepositoryTab from './ContentRepositoryTab.jsx';
+import IndependentModulesTab from './IndependentModulesTab.jsx';
 import DashboardPage from './DashboardPage.jsx';
 import BatchesPage from './BatchesPage.jsx';
 import BatchDetailPage from './BatchDetailPage.jsx';
@@ -32,6 +33,7 @@ const NAV = [
   { section: 'Training', items: [
     { id: 'curriculum', label: 'Curriculum', icon: '📋' },
     { id: 'content-repository', label: 'Content Repository', icon: '🗂️' },
+    { id: 'independent-modules', label: 'Independent Modules', icon: '🧩' },
     { id: 'questions', label: 'Questions & MCQ', icon: '❓' },
     { id: 'broadcast', label: 'Broadcast / Assign', icon: '📢' },
     { id: 'drive', label: 'Drive Sync', icon: '☁️' },
@@ -127,13 +129,8 @@ export default function AdminConsole({ user, onLogout }) {
             <div key={section.section}>
               <div className="sidebar-section">{section.section}</div>
               {section.items.map(item => (
-                <div
-                  key={item.id}
-                  className={`nav-item${activeId === item.id ? ' active' : ''}`}
-                  onClick={() => navigate(item.id)}
-                >
-                  <span>{item.icon}</span>
-                  <span>{item.label}</span>
+                <div key={item.id} className={`nav-item${activeId === item.id ? ' active' : ''}`} onClick={() => navigate(item.id)}>
+                  <span>{item.icon}</span><span>{item.label}</span>
                 </div>
               ))}
             </div>
@@ -144,6 +141,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'dashboard' && <DashboardPage navigate={navigate} />}
           {activeId === 'curriculum' && <CurriculumTab />}
           {activeId === 'content-repository' && <ContentRepositoryTab />}
+          {activeId === 'independent-modules' && <IndependentModulesTab />}
           {activeId === 'questions' && <QuestionsTab />}
           {activeId === 'drive' && <DriveTab />}
           {activeId === 'batches' && <BatchesPage navigate={navigate} />}
@@ -170,19 +168,10 @@ export default function AdminConsole({ user, onLogout }) {
       {showPwModal && (
         <div className="modal-overlay" onClick={() => setShowPwModal(false)}>
           <div className="modal-box" onClick={e => e.stopPropagation()} style={{ maxWidth: 380 }}>
-            <div className="modal-head">
-              <b>Change Admin Password</b>
-              <button className="btn small secondary" onClick={() => setShowPwModal(false)}>✕</button>
-            </div>
+            <div className="modal-head"><b>Change Admin Password</b><button className="btn small secondary" onClick={() => setShowPwModal(false)}>✕</button></div>
             <form onSubmit={handleChangePassword} style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <div className="field">
-                <label>New Password</label>
-                <input className="input" type="password" value={pwForm.password} onChange={e => setPwForm(p => ({ ...p, password: e.target.value }))} placeholder="Min 6 characters" required />
-              </div>
-              <div className="field">
-                <label>Confirm Password</label>
-                <input className="input" type="password" value={pwForm.confirm} onChange={e => setPwForm(p => ({ ...p, confirm: e.target.value }))} placeholder="Repeat password" required />
-              </div>
+              <div className="field"><label>New Password</label><input className="input" type="password" value={pwForm.password} onChange={e => setPwForm(p => ({ ...p, password: e.target.value }))} placeholder="Min 6 characters" required /></div>
+              <div className="field"><label>Confirm Password</label><input className="input" type="password" value={pwForm.confirm} onChange={e => setPwForm(p => ({ ...p, confirm: e.target.value }))} placeholder="Repeat password" required /></div>
               {pwMsg && <div className="toast bad">{pwMsg}</div>}
               <button className="btn" type="submit">Update Password</button>
             </form>
