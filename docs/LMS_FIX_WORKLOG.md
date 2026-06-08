@@ -20,7 +20,7 @@ The changes are intentionally additive and are mounted as route overrides before
 ### Trainee LMS fixes
 
 - Assessment loader returns both `totalAttempts` and `attemptsUsed` to support different frontend builds.
-- Document/download content can now be marked complete through the content close endpoint when the frontend sends explicit completion.
+- Document/download/PDF/proxy content can now be marked complete from the trainee content viewer.
 - Course completion, assessment attempt percentage, and pass percentage are recalculated after content completion.
 - Trainee profile updates are synchronized to both `trainee_master` and `user_master` safely.
 - Frontend now re-checks `/auth/me` after refresh so first-login / force password reset remains enforced.
@@ -62,7 +62,7 @@ npm run dev
 | Trainee login | First-login user refreshes page before changing password | Password reset remains enforced |
 | Assessment | Open MCQ assessment | Attempt count displays correctly |
 | Assessment | Submit MCQ and reopen | Attempt count updates correctly |
-| Content | Open/download PDF, PPT, document, or other non-video content | Completion can become 100% when explicit completion is sent |
+| Content | Open/download PDF, PPT, document, or other non-video content | Viewer shows Mark Complete and content becomes 100% |
 | Profile | Update trainee name/email/mobile | Data updates in `trainee_master` and `user_master` |
 | Coordinator | Certify same trainee twice | Batch certified count increments only once |
 | Coordinator | Handover same trainee twice | Batch handover count increments only once |
@@ -73,4 +73,4 @@ npm run dev
 ## Notes
 
 - These fixes do not remove existing LMS workflows.
-- If the frontend does not yet send `completed: true` for document/download completion, the backend is ready but the corresponding frontend button/event must also call the content close endpoint with that flag.
+- Local build/test is still required before production restart because commits were applied directly through GitHub and were not executed in this environment.
