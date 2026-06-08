@@ -34,6 +34,32 @@ function contentSort(a, b) {
   return (a.contentOrder || 0) - (b.contentOrder || 0);
 }
 
+function mapRepoContent(row) {
+  return {
+    repositoryContentId: row.repository_content_id,
+    title: row.title,
+    contentTitle: row.title,
+    contentType: row.content_type,
+    category: row.category,
+    subCategory: row.sub_category,
+    process: row.process,
+    lob: row.lob,
+    tags: row.tags,
+    sourceType: row.source_type,
+    directMediaUrl: row.direct_media_url,
+    localFilePath: row.local_file_path,
+    driveFileId: row.drive_file_id,
+    driveUrl: row.drive_url,
+    playerMode: row.player_mode,
+    estimatedMins: row.estimated_mins,
+    completionRulePct: row.completion_rule_pct,
+    description: row.description,
+    versionNo: row.version_no,
+    sortOrder: row.sort_order || 0,
+    required: Boolean(row.required),
+  };
+}
+
 function buildContentLockMap(contents, progressMap) {
   const map = new Map();
   const required = [...contents].filter(c => c.active && c.required).sort(contentSort);
@@ -63,15 +89,66 @@ function buildAssessmentLockMeta(assessment, allContent, progressMap) {
   }).sort(contentSort);
 
   const missing = required.find(c => !isComplete(progressMap[c.contentId]));
-  if (!missing) {
-    return { accessLocked: false, lockReason: null, prerequisiteContentId: null, prerequisiteTitle: null };
-  }
+  if (!missing) return { accessLocked: false, lockReason: null, prerequisiteContentId: null, prerequisiteTitle: null };
   return {
     accessLocked: true,
     lockReason: `Complete "${missing.contentTitle}" before attempting this assessment.`,
     prerequisiteContentId: missing.contentId,
     prerequisiteTitle: missing.contentTitle,
   };
+}
+
+async function getDirectAssignments(trainee, empId) {
+  return prisma.assignedModule.findMany({
+    where: {
+      OR: [
+        { assignedTo: empId, assignedToType: 'individual' },
+        { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
+        { assignedTo: trainee.process || '', assignedToType: 'process' },
+        { assignedTo: trainee.branch || '', assignedToType: 'branch' },
+        { assignedToType: 'company' },
+      ],
+      active: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+async function enrichIndependentAssignments(assignments) {
+  if (!assignments?.length) return [];
+  const moduleIds = [...new Set(assignments.map(a => a.moduleId).filter(Boolean))];
+  if (!moduleIds.length) return assignments;
+  try {
+    const placeholders = moduleIds.map(() => '?').join(',');
+    const moduleRows = await prisma.$queryRawUnsafe(
+      `SELECT * FROM independent_module_master WHERE status = 'Active' AND module_id IN (${placeholders})`,
+      ...moduleIds
+    );
+    const knownIndependent = new Set((moduleRows || []).map(m => m.module_id));
+    if (!knownIndependent.size) return assignments;
+
+    const contentRows = await prisma.$queryRawUnsafe(
+      `SELECT m.module_id, m.sort_order, m.required, r.*
+       FROM independent_module_content_map m
+       INNER JOIN content_repository_master r ON r.repository_content_id = m.repository_content_id
+       WHERE m.active = 1 AND r.status = 'Active' AND m.module_id IN (${placeholders})
+       ORDER BY m.module_id, m.sort_order ASC`,
+      ...moduleIds
+    );
+    const byModule = {};
+    for (const row of contentRows || []) {
+      if (!byModule[row.module_id]) byModule[row.module_id] = [];
+      byModule[row.module_id].push(mapRepoContent(row));
+    }
+    return assignments.map(a => ({
+      ...a,
+      independentModule: knownIndependent.has(a.moduleId),
+      contents: byModule[a.moduleId] || [],
+    }));
+  } catch (err) {
+    // Independent module tables may not exist yet on older local DBs. Keep assignments visible.
+    return assignments;
+  }
 }
 
 async function syncCourseAndTraineeStats(employeeId, classroomId) {
@@ -116,21 +193,22 @@ router.get('/dashboard', ...auth, async (req, res) => {
 
     if (!user || !trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
 
+    const directAssignments = await enrichIndependentAssignments(await getDirectAssignments(trainee, empId));
     const classroomId = trainee.classroomId || user.classroomId;
     if (!classroomId) {
       return res.json({
         ok: true,
         dashboard: {
-          trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob },
+          trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob, lastLogin: user.lastLogin },
           classroom: null,
           days: [],
-          summary: {},
-          directAssignments: [],
+          summary: { totalDays: 0, totalModules: 0, totalContents: 0, openedContents: 0, completedContents: 0, completionPercent: 0, totalSecondsSpent: 0, totalAssessments: 0, attemptedAssessments: 0, passedAssessments: 0, mcqCompletionPercent: 0, bestMcqScore: null, overallTrainingProgress: 0, riskStatus: trainee.riskStatus || null, courseCompletionPct: trainee.courseCompletionPct || 0, attendancePct: trainee.attendancePct || 0 },
+          directAssignments,
         },
       });
     }
 
-    const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults, directAssignments] = await Promise.all([
+    const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults] = await Promise.all([
       prisma.classroomMaster.findUnique({ where: { classroomId } }),
       prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ dayNo: 'asc' }, { moduleOrder: 'asc' }] }),
       prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, include: { module: true }, orderBy: { contentOrder: 'asc' } }),
@@ -138,19 +216,6 @@ router.get('/dashboard', ...auth, async (req, res) => {
       prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }] }),
       prisma.contentProgress.findMany({ where: { employeeId: empId, classroomId } }),
       prisma.assessmentResult.findMany({ where: { employeeId: empId, classroomId } }),
-      prisma.assignedModule.findMany({
-        where: {
-          OR: [
-            { assignedTo: empId, assignedToType: 'individual' },
-            { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
-            { assignedTo: trainee.process || '', assignedToType: 'process' },
-            { assignedTo: trainee.branch || '', assignedToType: 'branch' },
-            { assignedToType: 'company' },
-          ],
-          active: true,
-        },
-        orderBy: { createdAt: 'desc' },
-      }),
     ]);
 
     const progressMap = {};
@@ -229,9 +294,7 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
       const progress = await prisma.contentProgress.findMany({ where: { employeeId, contentId: { in: previous.map(c => c.contentId) } } });
       const progressMap = new Map(progress.map(p => [p.contentId, p]));
       const missing = previous.find(c => !isComplete(progressMap.get(c.contentId)));
-      if (missing) {
-        return res.status(403).json({ ok: false, locked: true, message: `Complete "${missing.contentTitle}" first to unlock this content.`, prerequisiteContentId: missing.contentId, prerequisiteTitle: missing.contentTitle });
-      }
+      if (missing) return res.status(403).json({ ok: false, locked: true, message: `Complete "${missing.contentTitle}" first to unlock this content.`, prerequisiteContentId: missing.contentId, prerequisiteTitle: missing.contentTitle });
     }
 
     const existing = await prisma.contentProgress.findUnique({ where: { employeeId_contentId: { employeeId, contentId } } });
@@ -240,13 +303,10 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
       await prisma.contentProgress.update({ where: { id: existing.id }, data: { opened: true, openCount: { increment: 1 }, lastOpenedAt: now } });
     } else {
       const requiredSeconds = content.completionRulePct > 0 && content.estimatedMins > 0 ? Math.round((content.estimatedMins * 60) * (content.completionRulePct / 100)) : 0;
-      await prisma.contentProgress.create({
-        data: { employeeId, classroomId, dayNo: content.module?.dayNo || 0, moduleId: content.moduleId, contentId, opened: true, openCount: 1, firstOpenedAt: now, lastOpenedAt: now, requiredSeconds, completionStatus: 'In Progress', playerMode: content.playerMode || 'Auto' },
-      });
+      await prisma.contentProgress.create({ data: { employeeId, classroomId, dayNo: content.module?.dayNo || 0, moduleId: content.moduleId, contentId, opened: true, openCount: 1, firstOpenedAt: now, lastOpenedAt: now, requiredSeconds, completionStatus: 'In Progress', playerMode: content.playerMode || 'Auto' } });
     }
 
     await prisma.videoWatchLog.create({ data: { employeeId, batchNo: trainee?.batchNo || null, classroomId, dayNo: content.module?.dayNo || 0, moduleId: content.moduleId, contentId, event: 'OPEN', playerMode: content.playerMode || 'Auto' } });
-
     return res.json({ ok: true, locked: false });
   } catch (err) {
     console.error('[traineeStability] content open failed:', err);
@@ -258,23 +318,15 @@ router.get('/assessment/:assessmentId', ...auth, requireAssessmentSequence, asyn
   try {
     const { assessmentId } = req.params;
     const employeeId = req.userId;
-
     const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
     if (!assessment || !assessment.active) return res.status(404).json({ ok: false, message: 'Assessment not found.' });
 
     const attemptsUsed = await prisma.assessmentAttempt.count({ where: { employeeId, assessmentId } });
-    if (attemptsUsed >= assessment.attemptLimit) {
-      return res.json({ ok: false, message: `Max attempts (${assessment.attemptLimit}) reached.`, attempts: attemptsUsed, attemptsUsed });
-    }
+    if (attemptsUsed >= assessment.attemptLimit) return res.json({ ok: false, message: `Max attempts (${assessment.attemptLimit}) reached.`, attempts: attemptsUsed, attemptsUsed });
 
-    const questions = await prisma.questionBank.findMany({
-      where: { assessmentId, active: true },
-      select: { questionId: true, questionText: true, optionA: true, optionB: true, optionC: true, optionD: true, marks: true, difficulty: true },
-    });
-
+    const questions = await prisma.questionBank.findMany({ where: { assessmentId, active: true }, select: { questionId: true, questionText: true, optionA: true, optionB: true, optionC: true, optionD: true, marks: true, difficulty: true } });
     questions.sort(() => Math.random() - 0.5);
     const bestResult = await prisma.assessmentResult.findUnique({ where: { employeeId_assessmentId: { employeeId, assessmentId } } });
-
     return res.json({ ok: true, data: { assessment: { assessmentId: assessment.assessmentId, assessmentName: assessment.assessmentName, passingPct: assessment.passingPct, attemptLimit: assessment.attemptLimit, timeLimitMins: assessment.timeLimitMins, instructions: assessment.instructions, totalAttempts: attemptsUsed, attemptsUsed }, questions, bestResult } });
   } catch (err) {
     console.error('[traineeStability] assessment load failed:', err);
@@ -327,11 +379,9 @@ router.patch('/profile', ...auth, async (req, res) => {
     if (Object.prototype.hasOwnProperty.call(req.body, 'traineeName')) data.traineeName = String(req.body.traineeName || '').trim() || null;
     if (Object.prototype.hasOwnProperty.call(req.body, 'email')) data.email = String(req.body.email || '').trim().toLowerCase() || null;
     if (Object.prototype.hasOwnProperty.call(req.body, 'mobile')) data.mobile = String(req.body.mobile || '').replace(/\D/g, '').slice(-10) || null;
-
     if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No profile fields provided.' });
     const existing = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!existing) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
-
     await prisma.$transaction([prisma.traineeMaster.update({ where: { employeeId }, data }), prisma.userMaster.updateMany({ where: { employeeId }, data })]);
     return res.json({ ok: true, message: 'Profile updated.' });
   } catch (err) {
