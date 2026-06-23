@@ -35,11 +35,12 @@ export async function bridgeAuth(req, res) {
     let lmsUserId = null;
     let userType = 'hrms_guest';
 
-    // ── Priority 1: mobile (last 10 digits, trainees only) ──────────────────
+    // ── Priority 1: mobile (last 10 digits) ─────────────────────────────────
+    // LMS tables with mobile: UserMaster, TraineeMaster, RoleAccessMatrix
     if (!lmsUserId && reqMobile) {
       const cleanMobile = String(reqMobile).replace(/\D/g, '').slice(-10);
       if (cleanMobile.length === 10) {
-        // Check UserMaster first (has auth account), then TraineeMaster
+        // 1a. UserMaster (trainee with auth account)
         const userByMobile = await prisma.userMaster.findFirst({
           where: { mobile: { endsWith: cleanMobile } },
           select: { employeeId: true },
@@ -47,7 +48,10 @@ export async function bridgeAuth(req, res) {
         if (userByMobile) {
           lmsUserId = userByMobile.employeeId;
           userType = 'trainee';
-        } else {
+        }
+
+        // 1b. TraineeMaster (trainee without account yet)
+        if (!lmsUserId) {
           const traineeByMobile = await prisma.traineeMaster.findFirst({
             where: { mobile: { endsWith: cleanMobile } },
             select: { employeeId: true },
@@ -55,6 +59,18 @@ export async function bridgeAuth(req, res) {
           if (traineeByMobile) {
             lmsUserId = traineeByMobile.employeeId;
             userType = 'trainee';
+          }
+        }
+
+        // 1c. RoleAccessMatrix (coordinator)
+        if (!lmsUserId) {
+          const coordByMobile = await prisma.roleAccessMatrix.findFirst({
+            where: { mobile: { endsWith: cleanMobile } },
+            select: { loginId: true },
+          });
+          if (coordByMobile) {
+            lmsUserId = coordByMobile.loginId;
+            userType = 'coordinator';
           }
         }
       }
