@@ -6,18 +6,20 @@ import { createSession } from '../utils/session.js';
  * SSO bridge: validates a token from an external system (HRMS) and returns
  * an LMS session token.
  *
- * MySQL-only setup: looks up the user directly by employee_id or email.
- * Set BRIDGE_SECRET in .env to protect the endpoint from unauthenticated calls.
+ * Lookup priority (first match wins):
+ *   1. mobile  → TraineeMaster.mobile / UserMaster.mobile  (trainee only)
+ *   2. email   → UserMaster.email (trainee) → RoleAccessMatrix.loginId (coordinator) → AdminUserMaster.adminId (admin)
+ *   3. employee_id → UserMaster.employeeId (trainee) → RoleAccessMatrix.loginId (coordinator)
  *
- * Request body: { bridge_token, employee_id?, email? }
+ * Request body: { bridge_token, mobile?, email?, employee_id? }
  * Legacy field 'supabase_token' is accepted as an alias for bridge_token.
  */
 export async function bridgeAuth(req, res) {
   try {
     const bridgeSecret = process.env.BRIDGE_SECRET;
-    const { supabase_token, bridge_token, employee_id, email: reqEmail } = req.body;
+    const { supabase_token, bridge_token, mobile: reqMobile, employee_id, email: reqEmail } = req.body;
 
-    // If a BRIDGE_SECRET is configured, validate the supplied token against it
+    // Validate bridge secret if configured
     if (bridgeSecret) {
       const supplied = bridge_token || supabase_token;
       if (!supplied || supplied !== bridgeSecret) {
@@ -26,32 +28,39 @@ export async function bridgeAuth(req, res) {
     }
 
     // Require at least one lookup field
-    if (!employee_id && !reqEmail) {
-      return res.status(400).json({ ok: false, message: 'Provide employee_id or email.' });
+    if (!reqMobile && !reqEmail && !employee_id) {
+      return res.status(400).json({ ok: false, message: 'Provide mobile, email, or employee_id.' });
     }
 
     let lmsUserId = null;
     let userType = 'hrms_guest';
 
-    // Look up by employee_id first (fastest path)
-    if (employee_id) {
-      const trainee = await prisma.userMaster.findUnique({
-        where: { employeeId: employee_id },
-        select: { employeeId: true },
-      });
-      if (trainee) {
-        lmsUserId = trainee.employeeId;
-        userType = 'trainee';
-      } else {
-        const coord = await prisma.roleAccessMatrix.findFirst({
-          where: { loginId: employee_id },
-          select: { loginId: true },
+    // ── Priority 1: mobile (last 10 digits, trainees only) ──────────────────
+    if (!lmsUserId && reqMobile) {
+      const cleanMobile = String(reqMobile).replace(/\D/g, '').slice(-10);
+      if (cleanMobile.length === 10) {
+        // Check UserMaster first (has auth account), then TraineeMaster
+        const userByMobile = await prisma.userMaster.findFirst({
+          where: { mobile: { endsWith: cleanMobile } },
+          select: { employeeId: true },
         });
-        if (coord) { lmsUserId = coord.loginId; userType = 'coordinator'; }
+        if (userByMobile) {
+          lmsUserId = userByMobile.employeeId;
+          userType = 'trainee';
+        } else {
+          const traineeByMobile = await prisma.traineeMaster.findFirst({
+            where: { mobile: { endsWith: cleanMobile } },
+            select: { employeeId: true },
+          });
+          if (traineeByMobile) {
+            lmsUserId = traineeByMobile.employeeId;
+            userType = 'trainee';
+          }
+        }
       }
     }
 
-    // Fall back to email lookup
+    // ── Priority 2: email ────────────────────────────────────────────────────
     if (!lmsUserId && reqEmail) {
       const traineeByEmail = await prisma.userMaster.findFirst({
         where: { email: { equals: reqEmail, mode: 'insensitive' } },
@@ -75,6 +84,24 @@ export async function bridgeAuth(req, res) {
           });
           if (admin) { lmsUserId = admin.adminId; userType = 'admin'; }
         }
+      }
+    }
+
+    // ── Priority 3: employee_id ──────────────────────────────────────────────
+    if (!lmsUserId && employee_id) {
+      const trainee = await prisma.userMaster.findUnique({
+        where: { employeeId: employee_id },
+        select: { employeeId: true },
+      });
+      if (trainee) {
+        lmsUserId = trainee.employeeId;
+        userType = 'trainee';
+      } else {
+        const coord = await prisma.roleAccessMatrix.findFirst({
+          where: { loginId: employee_id },
+          select: { loginId: true },
+        });
+        if (coord) { lmsUserId = coord.loginId; userType = 'coordinator'; }
       }
     }
 
