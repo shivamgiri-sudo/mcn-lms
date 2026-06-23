@@ -36,7 +36,7 @@ app.use(
   helmet({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     contentSecurityPolicy: false,
-    frameguard: { action: 'sameorigin' },
+    frameguard: false, // allow iframe embedding from HRMS portal
   })
 );
 
