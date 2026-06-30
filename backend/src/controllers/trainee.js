@@ -1,11 +1,15 @@
 import { prisma } from '../utils/db.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { v4 as uuidv4 } from 'uuid';
+import * as cache from '../utils/cache.js';
 
 // ── Learner Dashboard ─────────────────────────────────────────────────────────
 export async function getLearnerDashboard(req, res) {
   try {
     const empId = req.userId;
+
+    const cached = cache.get(`dashboard:${empId}`);
+    if (cached) return res.json(cached);
 
     const [user, trainee] = await Promise.all([
       prisma.userMaster.findUnique({ where: { employeeId: empId } }),
@@ -16,16 +20,31 @@ export async function getLearnerDashboard(req, res) {
 
     const classroomId = trainee.classroomId || user.classroomId;
     if (!classroomId) {
-      return res.json({
+      const directAssignments = await prisma.assignedModule.findMany({
+        where: {
+          OR: [
+            { assignedTo: empId, assignedToType: 'individual' },
+            { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
+            { assignedTo: trainee.process || '', assignedToType: 'process' },
+            { assignedTo: trainee.branch || '', assignedToType: 'branch' },
+            { assignedToType: 'company' },
+          ],
+          active: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      const payload = {
         ok: true,
         dashboard: {
           trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob },
           classroom: null,
           days: [],
           summary: {},
-          directAssignments: [],
+          directAssignments,
         },
-      });
+      };
+      cache.set(`dashboard:${empId}`, payload);
+      return res.json(payload);
     }
 
     const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults] = await Promise.all([
@@ -100,7 +119,7 @@ export async function getLearnerDashboard(req, res) {
       orderBy: { createdAt: 'desc' },
     });
 
-    res.json({
+    const payload = {
       ok: true,
       dashboard: {
         trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob, lastLogin: user.lastLogin },
@@ -109,7 +128,9 @@ export async function getLearnerDashboard(req, res) {
         summary: { totalDays, totalModules, totalContents, openedContents, completedContents, completionPercent, totalSecondsSpent, totalAssessments, attemptedAssessments, passedAssessments, mcqCompletionPercent, bestMcqScore, overallTrainingProgress, riskStatus: trainee.riskStatus || null, courseCompletionPct: trainee.courseCompletionPct || 0, attendancePct: trainee.attendancePct || 0 },
         directAssignments,
       },
-    });
+    };
+    cache.set(`dashboard:${empId}`, payload);
+    res.json(payload);
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -183,6 +204,8 @@ export async function logContentOpen(req, res) {
       });
     }
 
+    cache.delPrefix('dashboard:');
+
     await prisma.videoWatchLog.create({
       data: {
         employeeId: empId,
@@ -241,6 +264,8 @@ export async function logContentHeartbeat(req, res) {
         playerMode,
       },
     });
+
+    cache.delPrefix('dashboard:');
 
     if (cappedDelta > 0) {
       await prisma.videoWatchLog.create({
@@ -301,6 +326,8 @@ export async function logContentClose(req, res) {
         },
       });
     }
+
+    cache.delPrefix('dashboard:');
 
     res.json({ ok: true });
   } catch (err) {
@@ -480,6 +507,8 @@ export async function submitAssessment(req, res) {
 
     // FIX 2: Sync TraineeMaster stats after assessment submit
     await syncTraineeMasterStats(empId, assessment.classroomId);
+
+    cache.delPrefix('dashboard:');
 
     // Mark mcqActivity on today's attendance inference record
     if (traineeForBatch?.batchNo) {

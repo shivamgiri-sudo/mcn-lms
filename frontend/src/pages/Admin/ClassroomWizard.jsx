@@ -11,7 +11,7 @@ export default function ClassroomWizard({ onClose, onCreated }) {
   // Step 1 — basic info
   const [processOptions, setProcessOptions] = useState([]);
   const [lobOptions, setLobOptions] = useState([]);
-  const [info, setInfo] = useState({ classroomName: '', process: '', lob: '', description: '', driveFolderId: '' });
+  const [info, setInfo] = useState({ classroomName: '', process: '', lob: '', branch: '', description: '', driveFolderId: '' });
 
   // Step 2 — modules/content
   const [days, setDays] = useState([]); // [{dayNo, title, desc, contents:[{...}]}]
@@ -425,6 +425,10 @@ export default function ClassroomWizard({ onClose, onCreated }) {
                   <input className="input" list="lob-list" placeholder="Type or select" value={info.lob} onChange={e => setInfo(p => ({ ...p, lob: e.target.value }))} />
                   <datalist id="lob-list">{lobOptions.map(o => <option key={o} value={o} />)}</datalist>
                 </div>
+              </div>
+              <div className="field">
+                <label>Branch</label>
+                <input className="input" placeholder="e.g. Bangalore, Mumbai" value={info.branch} onChange={e => setInfo(p => ({ ...p, branch: e.target.value }))} />
               </div>
               <div className="field">
                 <label>Google Drive Folder ID <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional — enables Drive sync)</span></label>

@@ -6,6 +6,7 @@ import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { notifyCertification, notifyBatchAssignment, notifyOnboarding } from '../utils/notify.js';
 import { v4 as uuidv4 } from 'uuid';
+import * as cache from '../utils/cache.js';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 export async function getDashboard(req, res) {
@@ -140,6 +141,10 @@ export async function createBatch(req, res) {
     let classroomName = null;
     if (classroomId) {
       const cl = await prisma.classroomMaster.findUnique({ where: { classroomId } });
+      if (!cl) return res.status(400).json({ ok: false, message: 'Classroom not found.' });
+      if (coord.branch && cl.branch && cl.branch !== coord.branch) {
+        return res.status(403).json({ ok: false, message: 'You cannot assign classrooms from a different branch.' });
+      }
       classroomName = cl?.classroomName;
     }
 
@@ -320,6 +325,8 @@ export async function enrollExistingTrainee(req, res) {
     });
 
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'ENROLL_EXISTING', module: 'Trainee', referenceId: normId, newValue: { batchNo } });
+
+    cache.delPrefix('dashboard:');
 
     notifyBatchAssignment({
       traineeName: trainee.traineeName,
@@ -783,7 +790,10 @@ export async function getProcessLobList(req, res) {
 
 export async function getClassrooms(req, res) {
   try {
-    const classrooms = await prisma.classroomMaster.findMany({ where: { active: true }, orderBy: { classroomName: 'asc' } });
+    const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: req.userId } });
+    const where = { active: true };
+    if (coord?.branch) where.branch = coord.branch;
+    const classrooms = await prisma.classroomMaster.findMany({ where, orderBy: { classroomName: 'asc' } });
     res.json({ ok: true, data: classrooms });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });

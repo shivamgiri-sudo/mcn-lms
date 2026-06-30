@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
+import { validate, batchSchema, traineeSchema, querySchema } from '../utils/validate.js';
 import {
   getDashboard, getBatches, createBatch, getBatchDetails,
   addTrainee, bulkAddTrainees, enrollExistingTrainee, searchTrainees,
@@ -18,7 +19,7 @@ const router = Router();
 
 router.get('/dashboard', ...auth, getDashboard);
 router.get('/batches', ...auth, getBatches);
-router.post('/batches', ...auth, createBatch);
+router.post('/batches', ...auth, validate(batchSchema), createBatch);
 router.get('/batches/:batchNo', ...auth, getBatchDetails);
 
 router.get('/trainees/search', ...auth, searchTrainees);
@@ -45,6 +46,12 @@ router.get('/classrooms', ...auth, getClassrooms);
 router.post('/batches/:batchNo/close', ...auth, closeBatchByCoordinator);
 
 router.post('/trainees/:employeeId/map-emp-id', ...auth, coordMapEmpId);
+
+// Certificate generation
+router.get('/certificates/:employeeId/generate', ...auth, async (req, res) => {
+  const { generateCertificate } = await import('../controllers/admin.js');
+  return generateCertificate(req, res);
+});
 
 // Reports (coordinator-scoped)
 router.get('/reports/trainee-progress', ...auth, coordExportTrainees);

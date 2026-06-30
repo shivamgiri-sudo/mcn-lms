@@ -183,6 +183,19 @@ app.listen(PORT, () => {
   setInterval(() => {
     cleanExpiredSessions().catch(err => console.error('[Sessions] Cleanup failed:', err.message));
   }, 60 * 60 * 1000);
+
+  // Video watch log TTL cleanup — remove rows older than 90 days, runs every 6 hours
+  async function cleanVideoWatchLogs() {
+    const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    try {
+      const del = await prisma.videoWatchLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      if (del.count > 0) console.log(`[Cleanup] Deleted ${del.count} video watch log rows older than 90 days`);
+    } catch (e) {
+      console.error('[Cleanup] Video watch log error:', e.message);
+    }
+  }
+  cleanVideoWatchLogs();
+  setInterval(cleanVideoWatchLogs, 6 * 60 * 60 * 1000);
 });
 
 export default app;

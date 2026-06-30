@@ -1,0 +1,104 @@
+import { z } from 'zod';
+
+export const loginSchema = z.object({
+  loginId: z.string().min(1, 'Login ID required'),
+  pin: z.string().min(1, 'PIN required'),
+});
+
+export const adminLoginSchema = z.object({
+  adminId: z.string().min(1, 'Admin ID required'),
+  password: z.string().min(1, 'Password required'),
+});
+
+export const traineeLoginSchema = z.object({
+  employeeId: z.string().min(1, 'Employee ID required'),
+  password: z.string().min(1, 'Password required'),
+});
+
+export const forgotPasswordSchema = z.object({
+  identifier: z.string().min(1, 'Identifier required'),
+});
+
+export const classroomSchema = z.object({
+  classroomName: z.string().min(1, 'Classroom name required'),
+  process: z.string().optional().nullable(),
+  lob: z.string().optional().nullable(),
+  description: z.string().optional().nullable(),
+  driveFolderId: z.string().optional().nullable(),
+  driveFolderUrl: z.string().optional().nullable(),
+});
+
+export const moduleSchema = z.object({
+  dayNo: z.number().int().positive('Day number must be positive'),
+  moduleTitle: z.string().min(1, 'Module title required'),
+  moduleOrder: z.number().int().optional().default(0),
+  required: z.boolean().optional().default(true),
+  description: z.string().optional().nullable(),
+});
+
+export const contentSchema = z.object({
+  contentType: z.string().optional().default('video'),
+  contentTitle: z.string().optional(),
+  driveFileId: z.string().optional().nullable(),
+  driveUrl: z.string().optional().nullable(),
+  directMediaUrl: z.string().optional().nullable(),
+  playerMode: z.string().optional().default('Auto'),
+  contentOrder: z.number().int().optional(),
+  required: z.boolean().optional().default(true),
+  estimatedMins: z.number().int().optional().default(0),
+  completionRulePct: z.number().min(0).max(100).optional().default(80),
+  description: z.string().optional().nullable(),
+});
+
+export const assessmentSchema = z.object({
+  assessmentName: z.string().min(1, 'Assessment name required'),
+  classroomId: z.string().min(1, 'Classroom required'),
+  dayNo: z.number().int().optional().nullable(),
+  moduleId: z.string().optional().nullable(),
+  sortOrder: z.number().int().optional().default(0),
+  passingPct: z.number().min(0).max(100).optional().default(60),
+  attemptLimit: z.number().int().min(1).optional().default(3),
+  timeLimitMins: z.number().int().min(1).optional().default(30),
+  instructions: z.string().optional().nullable(),
+});
+
+export const batchSchema = z.object({
+  batchNo: z.string().min(1, 'Batch number required'),
+  batchName: z.string().min(1, 'Batch name required'),
+  batchType: z.string().optional().default('NHT'),
+  branch: z.string().optional().nullable(),
+  process: z.string().optional().nullable(),
+  lob: z.string().optional().nullable(),
+  startDate: z.string().optional().nullable(),
+  endDate: z.string().optional().nullable(),
+  expectedTrainees: z.number().int().optional().default(0),
+  remarks: z.string().optional().nullable(),
+});
+
+export const traineeSchema = z.object({
+  traineeName: z.string().min(1, 'Name required'),
+  email: z.string().email().optional().nullable().or(z.literal('')),
+  mobile: z.string().optional().nullable(),
+  batchNo: z.string().optional().nullable(),
+  branch: z.string().optional().nullable(),
+  process: z.string().optional().nullable(),
+  lob: z.string().optional().nullable(),
+  classroomId: z.string().optional().nullable(),
+});
+
+export const querySchema = z.object({
+  question: z.string().min(1, 'Question required'),
+  category: z.string().optional().default('Process Doubt'),
+});
+
+export function validate(schema) {
+  return (req, res, next) => {
+    const result = schema.safeParse(req.body);
+    if (!result.success) {
+      const first = result.error.errors[0];
+      return res.status(400).json({ ok: false, message: first?.message || 'Validation error', errors: result.error.errors });
+    }
+    req.validated = result.data;
+    next();
+  };
+}

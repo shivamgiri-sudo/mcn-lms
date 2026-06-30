@@ -53,6 +53,8 @@ export default function QuestionsTab() {
   const [csvPreview, setCsvPreview] = useState(null);
   const [msg, setMsg] = useState('');
   const [deleteModal, setDeleteModal] = useState(null);
+  const [editModal, setEditModal] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [aSearch, setASearch] = useState({ name: '', classroomId: '' });
 
   useEffect(() => {
@@ -78,7 +80,7 @@ export default function QuestionsTab() {
   async function createAssessment(e) {
     e.preventDefault();
     const res = await api.post('/admin/assessments', aForm, 'admin');
-    if (res.ok) { setShowCreate(false); setMsg('Assessment created.'); api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data)); }
+    if (res.ok) { setShowCreate(false); setMsg('Assessment created.'); refreshAssessments(); }
     else setMsg(res.message || 'Failed.');
   }
 
@@ -105,17 +107,35 @@ export default function QuestionsTab() {
     try {
       const questions = JSON.parse(bulkJson);
       const res = await api.post(`/admin/assessments/${selected.assessmentId}/questions/upload`, { questions }, 'admin');
-      if (res.ok) { setMsg(res.message); setBulkJson(''); setShowBulk(false); api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data)); }
+      if (res.ok) { setMsg(res.message); setBulkJson(''); setShowBulk(false); api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data)); refreshAssessments(); }
       else setMsg(res.message || 'Failed.');
     } catch {
       setMsg('Invalid JSON format.');
     }
   }
 
+  function refreshAssessments() {
+    api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data));
+  }
+
   async function deleteQuestion(questionId) {
     if (!window.confirm('Deactivate this question?')) return;
     await api.delete(`/admin/questions/${questionId}`, 'admin');
     api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data));
+    refreshAssessments();
+  }
+
+  async function saveEditedQuestion(form) {
+    setSavingEdit(true);
+    const res = await api.put(`/admin/questions/${editModal.questionId}`, form, 'admin');
+    setSavingEdit(false);
+    if (res.ok) {
+      setEditModal(null);
+      setMsg('Question updated.');
+      api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data));
+    } else {
+      setMsg(res.message || 'Failed to update question.');
+    }
   }
 
   function downloadTemplate() {
@@ -153,6 +173,7 @@ export default function QuestionsTab() {
       setMsg(`Uploaded ${res.count} questions${res.errors?.length ? `, ${res.errors.length} errors` : ''}.`);
       setCsvFile(null); setCsvPreview(null); setShowBulk(false);
       api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data));
+      refreshAssessments();
     } else setMsg(res.message || 'Upload failed.');
   }
 
@@ -348,7 +369,10 @@ export default function QuestionsTab() {
                       <td style={{padding:'8px',fontSize:'12px',fontWeight:'700'}}>{q.correctOption}</td>
                       <td style={{padding:'8px',fontSize:'12px'}}>{q.marks}</td>
                       <td style={{padding:'8px',fontSize:'12px'}}>{q.difficulty}</td>
-                      <td style={{padding:'8px'}}><button className="btn small danger" onClick={() => deleteQuestion(q.questionId)}>Delete</button></td>
+                      <td style={{padding:'8px', display:'flex', gap:4}}>
+                        <button className="btn small secondary" onClick={() => setEditModal(q)}>Edit</button>
+                        <button className="btn small danger" onClick={() => deleteQuestion(q.questionId)}>Delete</button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -367,9 +391,73 @@ export default function QuestionsTab() {
           onConfirm={() => deleteAssessmentConfirmed(deleteModal.assessment.assessmentId)}
         />
       )}
+
+      {editModal && (
+        <EditQuestionModal
+          question={editModal}
+          saving={savingEdit}
+          onClose={() => setEditModal(null)}
+          onSave={saveEditedQuestion}
+        />
+      )}
     </div>
   );
 }
+
+function EditQuestionModal({ question, saving, onClose, onSave }) {
+  const [form, setForm] = useState({
+    questionText: question.questionText || '',
+    optionA: question.optionA || '',
+    optionB: question.optionB || '',
+    optionC: question.optionC || '',
+    optionD: question.optionD || '',
+    correctOption: question.correctOption || 'A',
+    marks: question.marks || 1,
+    difficulty: question.difficulty || 'Easy',
+    explanation: question.explanation || '',
+  });
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 600 }}>
+        <div className="modal-head">
+          <b>Edit Question</b>
+          <button className="btn small secondary" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <form onSubmit={e => { e.preventDefault(); onSave(form); }} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div className="field"><label>Question Text *</label><textarea className="input" rows={3} value={form.questionText} onChange={e => setForm(p => ({ ...p, questionText: e.target.value }))} required /></div>
+            <div className="col-2">
+              <div className="field"><label>Option A *</label><input className="input" value={form.optionA} onChange={e => setForm(p => ({ ...p, optionA: e.target.value }))} required /></div>
+              <div className="field"><label>Option B *</label><input className="input" value={form.optionB} onChange={e => setForm(p => ({ ...p, optionB: e.target.value }))} required /></div>
+              <div className="field"><label>Option C</label><input className="input" value={form.optionC} onChange={e => setForm(p => ({ ...p, optionC: e.target.value }))} /></div>
+              <div className="field"><label>Option D</label><input className="input" value={form.optionD} onChange={e => setForm(p => ({ ...p, optionD: e.target.value }))} /></div>
+            </div>
+            <div className="col-2">
+              <div className="field">
+                <label>Correct Option *</label>
+                <select className="select" value={form.correctOption} onChange={e => setForm(p => ({ ...p, correctOption: e.target.value }))}>
+                  {['A', 'B', 'C', 'D'].map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              </div>
+              <div className="field"><label>Marks</label><input className="input" type="number" min="0" value={form.marks} onChange={e => setForm(p => ({ ...p, marks: Number(e.target.value) }))} /></div>
+              <div className="field">
+                <label>Difficulty</label>
+                <select className="select" value={form.difficulty} onChange={e => setForm(p => ({ ...p, difficulty: e.target.value }))}>
+                  {['Easy', 'Medium', 'Hard'].map(d => <option key={d} value={d}>{d}</option>)}
+                </select>
+              </div>
+              <div className="field"><label>Explanation</label><input className="input" value={form.explanation} onChange={e => setForm(p => ({ ...p, explanation: e.target.value }))} /></div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button className="btn" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+              <button className="btn secondary" type="button" onClick={onClose}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
 
 function DeleteAssessmentModal({ assessment, error, onCancel, onConfirm }) {
   const [step, setStep] = useState(1);

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { requireContentSequence, requireAssessmentSequence } from '../middleware/learningAccess.js';
+import { validate, querySchema } from '../utils/validate.js';
 import {
   getLearnerDashboard,
   logContentOpen, logContentHeartbeat, logContentClose,
@@ -23,7 +24,7 @@ router.get('/assessment/:assessmentId', ...auth, requireAssessmentSequence, getA
 router.post('/assessment/:assessmentId/submit', ...auth, requireAssessmentSequence, submitAssessment);
 
 router.get('/questions', ...auth, getMyQuestions);
-router.post('/questions', ...auth, raiseQuestion);
+router.post('/questions', ...auth, validate(querySchema), raiseQuestion);
 
 router.get('/assigned-modules', ...auth, getAssignedModules);
 

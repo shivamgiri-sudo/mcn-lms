@@ -1,6 +1,6 @@
 import { prisma } from '../utils/db.js';
-import { createSession, deleteSession } from '../utils/session.js';
-import { hashPassword, verifyPassword, generateSalt, normalize } from '../utils/hash.js';
+import { createSession, deleteSession, deleteAllSessions } from '../utils/session.js';
+import { hashPassword, verifyPassword, generateSalt, normalize, verifyCredential, hashCredential, isHashedCredential } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { notifyPasswordReset } from '../utils/notify.js';
 
@@ -11,7 +11,7 @@ export async function coordinatorLogin(req, res) {
     if (!loginId || !pin) return res.status(400).json({ ok: false, message: 'Login ID and PIN required.' });
 
     const user = await prisma.roleAccessMatrix.findFirst({
-      where: { loginId: { equals: loginId, mode: 'insensitive' }, active: true },
+      where: { loginId: { equals: loginId }, active: true },
     });
 
     if (!user) {
@@ -23,7 +23,8 @@ export async function coordinatorLogin(req, res) {
       return res.status(403).json({ ok: false, message: 'Account locked. Contact admin.' });
     }
 
-    if (String(user.pin).trim() !== String(pin).trim()) {
+    const pinValid = await verifyCredential(pin, user.pin);
+    if (!pinValid) {
       const failed = user.failedAttempts + 1;
       await prisma.roleAccessMatrix.update({
         where: { id: user.id },
@@ -33,9 +34,13 @@ export async function coordinatorLogin(req, res) {
       return res.status(401).json({ ok: false, message: 'Invalid login ID or PIN.' });
     }
 
+    let updateData = { failedAttempts: 0, lastLogin: new Date() };
+    if (!isHashedCredential(user.pin)) {
+      updateData.pin = await hashCredential(pin);
+    }
     await prisma.roleAccessMatrix.update({
       where: { id: user.id },
-      data: { failedAttempts: 0, lastLogin: new Date() },
+      data: updateData,
     });
 
     const token = await createSession(user.loginId, 'coordinator');
@@ -91,7 +96,7 @@ export async function adminLogin(req, res) {
     if (!adminId || !password) return res.status(400).json({ ok: false, message: 'Admin ID and password required.' });
 
     const admin = await prisma.adminUserMaster.findFirst({
-      where: { adminId: { equals: adminId, mode: 'insensitive' }, active: true },
+      where: { adminId: { equals: adminId }, active: true },
     });
 
     if (!admin) return res.status(401).json({ ok: false, message: 'Invalid credentials.' });
@@ -132,7 +137,7 @@ export async function traineeLogin(req, res) {
 
     // 1. Try direct employeeId match in UserMaster
     const directMatch = await prisma.userMaster.findFirst({
-      where: { employeeId: { equals: normalize(identifier), mode: 'insensitive' }, active: true },
+      where: { employeeId: normalize(identifier), active: true },
       select: { employeeId: true },
     });
     if (directMatch) resolvedEmployeeId = directMatch.employeeId;
@@ -140,7 +145,7 @@ export async function traineeLogin(req, res) {
     // 2. Try LMS ID (format: LMSxxxxxx) — look up in TraineeMaster
     if (!resolvedEmployeeId && /^LMS/i.test(identifier)) {
       const byLmsId = await prisma.traineeMaster.findFirst({
-        where: { lmsId: { equals: identifier, mode: 'insensitive' } },
+        where: { lmsId: identifier },
         select: { employeeId: true },
       });
       if (byLmsId) resolvedEmployeeId = byLmsId.employeeId;
@@ -149,7 +154,7 @@ export async function traineeLogin(req, res) {
     // 3. Try Email — look up in UserMaster
     if (!resolvedEmployeeId && identifier.includes('@')) {
       const byEmail = await prisma.userMaster.findFirst({
-        where: { email: { equals: identifier, mode: 'insensitive' }, active: true },
+        where: { email: identifier, active: true },
         select: { employeeId: true },
       });
       if (byEmail) resolvedEmployeeId = byEmail.employeeId;
@@ -227,7 +232,11 @@ export async function traineeChangePassword(req, res) {
       data: { passwordHash, salt, forcePasswordReset: false },
     });
 
-    res.json({ ok: true, message: 'Password changed successfully.' });
+    await deleteAllSessions(user.employeeId);
+
+    const newToken = await createSession(user.employeeId, 'trainee');
+
+    res.json({ ok: true, token: newToken, message: 'Password changed successfully.' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -279,14 +288,14 @@ export async function traineeForgotPassword(req, res) {
 
     // Resolve same way as login
     const directMatch = await prisma.userMaster.findFirst({
-      where: { employeeId: { equals: normalize(id), mode: 'insensitive' }, active: true },
+      where: { employeeId: normalize(id), active: true },
       select: { employeeId: true },
     });
     if (directMatch) resolvedEmployeeId = directMatch.employeeId;
 
     if (!resolvedEmployeeId && /^LMS/i.test(id)) {
       const byLmsId = await prisma.traineeMaster.findFirst({
-        where: { lmsId: { equals: id, mode: 'insensitive' } },
+        where: { lmsId: id },
         select: { employeeId: true },
       });
       if (byLmsId) resolvedEmployeeId = byLmsId.employeeId;
@@ -294,7 +303,7 @@ export async function traineeForgotPassword(req, res) {
 
     if (!resolvedEmployeeId && id.includes('@')) {
       const byEmail = await prisma.userMaster.findFirst({
-        where: { email: { equals: id, mode: 'insensitive' }, active: true },
+        where: { email: id, active: true },
         select: { employeeId: true },
       });
       if (byEmail) resolvedEmployeeId = byEmail.employeeId;

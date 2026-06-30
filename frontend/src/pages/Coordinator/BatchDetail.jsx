@@ -682,10 +682,25 @@ function CertificationTab({ batchNo, trainees }) {
     return <span className="pill" style={{ opacity: 0.7 }}>Pending</span>;
   }
 
+  async function openCertificate(employeeId) {
+    const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
+    const token = localStorage.getItem('lms_token_coordinator') || '';
+    try {
+      const res = await fetch(`${BASE}/coordinator/certificates/${employeeId}/generate`, { headers: { Authorization: `Bearer ${token}` } });
+      const html = await res.text();
+      const w = window.open('', '_blank');
+      if (w) { w.document.write(html); w.document.close(); w.print(); }
+    } catch (e) {
+      setMsg('Failed to open certificate.');
+    }
+  }
+
   function actionButtons(t) {
-    if (t.handoverToOps) return <span style={{ color: '#4ade80', fontSize: 13 }}>✓ Done</span>;
+    if (t.handoverToOps) {
+      return <div style={{ display: 'flex', gap: 4 }}><span style={{ color: '#4ade80', fontSize: 13 }}>✓ Done</span><button className="btn small" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => openCertificate(t.employeeId)}>Cert.</button></div>;
+    }
     if (t.certificationStatus === 'Certified') {
-      return <button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => handover(t.employeeId)}>→ Handover</button>;
+      return <div style={{ display: 'flex', gap: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => handover(t.employeeId)}>→ Handover</button><button className="btn small" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => openCertificate(t.employeeId)}>Cert.</button></div>;
     }
     if (t.certificationStatus === 'Attrition' || t.certificationStatus === 'Not Certified') {
       return null;

@@ -197,6 +197,11 @@ model TraineeMaster {
   batch       BatchMaster? @relation(fields: [batchNo], references: [batchNo])
   userAccount UserMaster?
 
+  @@index([batchNo])
+  @@index([branch])
+  @@index([process, lob])
+  @@index([certificationStatus])
+  @@index([riskStatus])
   @@map("trainee_master")
 }
 
@@ -253,6 +258,7 @@ model ClassroomMaster {
   classroomName  String   @map("classroom_name")
   process        String?
   lob            String?
+  branch         String?
   active         Boolean  @default(true)
   description    String?  @db.Text
   driveFolderId  String?  @map("drive_folder_id")
@@ -264,6 +270,7 @@ model ClassroomMaster {
   assessments          AssessmentMaster[]
   traineeClassroomMaps TraineeClassroomMap[]
 
+  @@index([branch])
   @@map("classroom_master")
 }
 
@@ -435,6 +442,8 @@ model AssessmentResult {
 
   assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
 
+  @@index([employeeId, classroomId])
+  @@index([classroomId])
   @@unique([employeeId, assessmentId])
   @@map("assessment_results")
 }
@@ -462,6 +471,8 @@ model ContentProgress {
   playerMode           String    @default("Auto") @map("player_mode")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
+  @@index([employeeId, classroomId])
+  @@index([classroomId])
   @@unique([employeeId, contentId])
   @@map("content_progress")
 }
@@ -483,6 +494,8 @@ model VideoWatchLog {
   details         String?  @db.Text
   createdAt       DateTime @default(now()) @map("created_at")
 
+  @@index([employeeId, classroomId])
+  @@index([createdAt])
   @@map("video_watch_log")
 }
 
@@ -509,6 +522,8 @@ model TraineeQueryLog {
   createdAt          DateTime  @default(now()) @map("created_at")
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
+  @@index([employeeId])
+  @@index([status])
   @@map("trainee_query_log")
 }
 
@@ -566,6 +581,8 @@ model TrainingRiskLog {
   lastUpdatedAt  DateTime  @updatedAt @map("last_updated_at")
   createdAt      DateTime  @default(now()) @map("created_at")
 
+  @@index([employeeId])
+  @@index([status, severity])
   @@map("training_risk_log")
 }
 
@@ -695,6 +712,10 @@ model AuditLog {
   source       String   @default("Portal")
   createdAt    DateTime @default(now()) @map("created_at")
 
+  @@index([action])
+  @@index([userIdentity])
+  @@index([createdAt])
+  @@index([module])
   @@map("audit_log")
 }
 
@@ -821,7 +842,7 @@ model NotificationConfig {
   // Daily coverage digest — coordinator/admin
   dailyCoverageEnabled        Boolean @default(true)  @map("daily_coverage_enabled")
   dailyCoverageTime           String  @default("08:00") @map("daily_coverage_time")
-  dailyCoverageRecipients     String  @default("")    @db.Text @map("daily_coverage_recipients") // comma-separated emails
+  dailyCoverageRecipients     String  @default("")    @db.VarChar(2000) @map("daily_coverage_recipients") // comma-separated emails
 
   // Coordinator alerts — at-risk trainees
   coordinatorAlertEnabled     Boolean @default(true)  @map("coordinator_alert_enabled")

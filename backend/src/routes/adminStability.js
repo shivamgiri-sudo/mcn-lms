@@ -557,4 +557,111 @@ router.delete('/independent-modules/auto-assign-rules/:ruleId', ...auth, async (
   }
 });
 
+router.put('/content-repository/:repositoryContentId', ...auth, async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    const repositoryContentId = clean(req.params.repositoryContentId);
+    const existing = await prisma.$queryRawUnsafe('SELECT * FROM content_repository_master WHERE repository_content_id = ? AND status = ?', repositoryContentId, 'Active');
+    if (!existing?.[0]) return res.status(404).json({ ok: false, message: 'Repository content not found.' });
+    const fields = {
+      title: clean(req.body?.title),
+      content_type: clean(req.body?.contentType),
+      category: clean(req.body?.category),
+      sub_category: clean(req.body?.subCategory),
+      process: clean(req.body?.process),
+      lob: clean(req.body?.lob),
+      tags: clean(req.body?.tags),
+      source_type: clean(req.body?.sourceType),
+      direct_media_url: clean(req.body?.directMediaUrl),
+      local_file_path: clean(req.body?.localFilePath),
+      drive_file_id: clean(req.body?.driveFileId),
+      drive_url: clean(req.body?.driveUrl),
+      player_mode: clean(req.body?.playerMode),
+      estimated_mins: req.body?.estimatedMins !== undefined ? toInt(req.body.estimatedMins) : undefined,
+      completion_rule_pct: req.body?.completionRulePct !== undefined ? toFloat(req.body.completionRulePct) : undefined,
+      description: clean(req.body?.description),
+    };
+    const setClauses = [];
+    const params = [];
+    for (const [col, val] of Object.entries(fields)) {
+      if (val !== undefined) { setClauses.push(`${col} = ?`); params.push(val); }
+    }
+    if (!setClauses.length) return res.status(400).json({ ok: false, message: 'No fields to update.' });
+    params.push(repositoryContentId);
+    await prisma.$executeRawUnsafe(`UPDATE content_repository_master SET ${setClauses.join(', ')} WHERE repository_content_id = ?`, ...params);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repositoryContentId, newValue: fields });
+    return res.json({ ok: true, message: 'Repository content updated.' });
+  } catch (err) {
+    console.error('[adminStability] content repository update failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to update repository content.' });
+  }
+});
+
+router.put('/independent-modules/:moduleId', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
+    const existing = await prisma.$queryRawUnsafe('SELECT * FROM independent_module_master WHERE module_id = ? AND status = ?', moduleId, 'Active');
+    if (!existing?.[0]) return res.status(404).json({ ok: false, message: 'Independent module not found.' });
+    const moduleName = clean(req.body?.moduleName);
+    if (moduleName) {
+      await prisma.$executeRawUnsafe('UPDATE independent_module_master SET module_name = ?, category = ?, process = ?, lob = ?, description = ?, estimated_mins = ? WHERE module_id = ?',
+        moduleName, clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), moduleId);
+    } else {
+      await prisma.$executeRawUnsafe('UPDATE independent_module_master SET category = ?, process = ?, lob = ?, description = ?, estimated_mins = ? WHERE module_id = ?',
+        clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), moduleId);
+    }
+    const contents = Array.isArray(req.body?.contents) ? req.body.contents : null;
+    if (contents) {
+      await prisma.$executeRawUnsafe('UPDATE independent_module_content_map SET active = 0 WHERE module_id = ?', moduleId);
+      for (let i = 0; i < contents.length; i += 1) {
+        const c = contents[i];
+        const repoId = clean(c.repositoryContentId || c.repository_content_id);
+        if (!repoId) continue;
+        await prisma.$executeRawUnsafe(
+          `INSERT INTO independent_module_content_map (id, module_id, repository_content_id, sort_order, required, active) VALUES (?, ?, ?, ?, ?, 1) ON DUPLICATE KEY UPDATE sort_order = VALUES(sort_order), required = VALUES(required), active = 1`,
+          generateId('imc-'), moduleId, repoId, toInt(c.sortOrder, i + 1), toBool(c.required, true) ? 1 : 0
+        );
+      }
+    }
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_INDEPENDENT_MODULE', module: 'IndependentModule', referenceId: moduleId, newValue: { moduleName } });
+    return res.json({ ok: true, message: 'Independent module updated.' });
+  } catch (err) {
+    console.error('[adminStability] independent module update failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to update independent module.' });
+  }
+});
+
+router.delete('/independent-modules/:moduleId', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
+    const existing = await prisma.$queryRawUnsafe('SELECT * FROM independent_module_master WHERE module_id = ? AND status = ?', moduleId, 'Active');
+    if (!existing?.[0]) return res.status(404).json({ ok: false, message: 'Independent module not found.' });
+    await prisma.$executeRawUnsafe('UPDATE independent_module_master SET status = ? WHERE module_id = ?', 'Archived', moduleId);
+    await prisma.$executeRawUnsafe('UPDATE independent_module_content_map SET active = 0 WHERE module_id = ?', moduleId);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ARCHIVE_INDEPENDENT_MODULE', module: 'IndependentModule', referenceId: moduleId });
+    return res.json({ ok: true, message: 'Independent module archived.' });
+  } catch (err) {
+    console.error('[adminStability] independent module delete failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to archive independent module.' });
+  }
+});
+
+router.delete('/independent-modules/:moduleId/contents/:repositoryContentId', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
+    const repositoryContentId = clean(req.params.repositoryContentId);
+    const existing = await prisma.$queryRawUnsafe('SELECT * FROM independent_module_content_map WHERE module_id = ? AND repository_content_id = ? AND active = 1', moduleId, repositoryContentId);
+    if (!existing?.[0]) return res.status(404).json({ ok: false, message: 'Content mapping not found.' });
+    await prisma.$executeRawUnsafe('UPDATE independent_module_content_map SET active = 0 WHERE module_id = ? AND repository_content_id = ?', moduleId, repositoryContentId);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'REMOVE_INDEPENDENT_MODULE_CONTENT', module: 'IndependentModule', referenceId: `${moduleId}:${repositoryContentId}` });
+    return res.json({ ok: true, message: 'Content removed from module.' });
+  } catch (err) {
+    console.error('[adminStability] independent module remove content failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to remove content from module.' });
+  }
+});
+
 export default router;

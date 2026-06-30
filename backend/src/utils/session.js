@@ -25,6 +25,10 @@ export async function deleteSession(token) {
   await prisma.portalSession.deleteMany({ where: { token } });
 }
 
+export async function deleteAllSessions(userId) {
+  await prisma.portalSession.deleteMany({ where: { userId } });
+}
+
 export async function cleanExpiredSessions() {
   await prisma.portalSession.deleteMany({ where: { expiresAt: { lt: new Date() } } });
 }

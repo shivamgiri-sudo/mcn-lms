@@ -27,6 +27,8 @@ import ComplianceExport from './ComplianceExport.jsx';
 import CommConfigTab from './CommConfigTab.jsx';
 import NotificationConfigTab from './NotificationConfigTab.jsx';
 import SystemHealthTab from './SystemHealthTab.jsx';
+import AuditLogTab from './AuditLogTab.jsx';
+import BulkImportTab from './BulkImportTab.jsx';
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -51,6 +53,10 @@ const NAV = [
   ]},
   { section: 'Compliance', items: [
     { id: 'compliance-audit', label: 'Compliance Audit', icon: '🔒' },
+    { id: 'audit-logs', label: 'Audit Logs', icon: '📋' },
+  ]},
+  { section: 'Import', items: [
+    { id: 'bulk-import', label: 'Bulk Import', icon: '📥' },
   ]},
   { section: 'Config', items: [
     { id: 'processlob', label: 'Process & LOB', icon: '⚙️' },

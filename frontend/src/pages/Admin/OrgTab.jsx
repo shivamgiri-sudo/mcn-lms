@@ -1,6 +1,132 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
+function HrmsMapping({ onToast }) {
+  const [status, setStatus] = useState(null);
+  const [detected, setDetected] = useState([]);
+  const [config, setConfig] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState('');
+
+  async function load() {
+    setLoading(true);
+    const [s, d, c] = await Promise.all([
+      api.get('/admin/hrms/status', 'admin'),
+      api.get('/admin/hrms/detect', 'admin'),
+      api.get('/admin/hrms/config', 'admin'),
+    ]);
+    if (s.ok) setStatus(s.data);
+    if (d.ok) setDetected(d.data || []);
+    if (c.ok) setConfig(c.data);
+    setLoading(false);
+  }
+
+  useEffect(() => { load(); }, []);
+
+  function getEntityConfig(entity) {
+    return config?.[entity] || { table: '', cols: {} };
+  }
+
+  function setEntityTable(entity, table) {
+    const detectedTable = detected.find(d => d.table === table);
+    const guess = detectedTable?.guess;
+    const newConfig = { ...config };
+    newConfig[entity] = { table, cols: guess?.cols || {} };
+    setConfig(newConfig);
+  }
+
+  function setEntityCol(entity, target, source) {
+    const newConfig = { ...config };
+    if (!newConfig[entity]) newConfig[entity] = { table: '', cols: {} };
+    newConfig[entity].cols = { ...newConfig[entity].cols, [target]: source };
+    setConfig(newConfig);
+  }
+
+  async function saveConfig() {
+    if (!config) return;
+    const res = await api.put('/admin/hrms/config', { mapping: config }, 'admin');
+    if (res.ok) onToast('HRMS mapping config saved.', true);
+    else onToast(res.message || 'Failed to save config.', false);
+  }
+
+  async function doSync(entity) {
+    const endpoint = { branch: 'branches', department: 'departments', designation: 'designations' }[entity];
+    setSyncing(entity);
+    const res = await api.post(`/admin/hrms/sync/${endpoint}`, {}, 'admin');
+    setSyncing('');
+    if (res.ok) onToast(`${entity}: ${res.message}`, true);
+    else onToast(res.message || `Failed to sync ${entity}.`, false);
+  }
+
+  const entities = [
+    { key: 'branch', label: 'Branch', cols: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }, { key: 'active', label: 'Active' }] },
+    { key: 'department', label: 'Department', cols: [{ key: 'name', label: 'Name' }, { key: 'active', label: 'Active' }] },
+    { key: 'designation', label: 'Designation', cols: [{ key: 'title', label: 'Title' }, { key: 'active', label: 'Active' }] },
+  ];
+
+  const statusIcon = status?.reachable ? '\u2705' : '\u274C';
+
+  return (
+    <div className="card" style={{ padding: 16 }}>
+      <h3 style={{ marginTop: 0 }}>HRMS Sync Configuration</h3>
+
+      <div style={{ display: 'flex', gap: 16, alignItems: 'center', marginBottom: 16, fontSize: 13 }}>
+        <span>{statusIcon} <b>mas_hrms</b>: {status?.reachable ? `Connected (${status.tables} tables)` : status?.message || 'Checking...'}</span>
+        <button className="btn xs secondary" onClick={load} disabled={loading}>Refresh Status</button>
+      </div>
+
+      {status?.tablesList?.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          Available tables: {status.tablesList.join(', ')}
+        </div>
+      )}
+
+      {entities.map(entity => {
+        const ecfg = getEntityConfig(entity.key);
+        const tableCols = detected.find(d => d.table === ecfg.table)?.columns || [];
+        return (
+          <div key={entity.key} style={{ marginBottom: 16, padding: 12, background: 'var(--bg2, #f5f5f5)', borderRadius: 8 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <b>{entity.label}</b>
+              <button className="btn xs accent" disabled={syncing === entity.key} onClick={() => doSync(entity.key)}>
+                {syncing === entity.key ? 'Syncing...' : `Sync Now`}
+              </button>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <div className="field">
+                <label style={{ fontSize: 12 }}>Source Table</label>
+                <select className="input" value={ecfg.table} onChange={e => setEntityTable(entity.key, e.target.value)}>
+                  <option value="">(select table)</option>
+                  {(detected.length ? detected : (status?.tablesList || []).map(t => ({ table: t, columns: [] }))).map(d => (
+                    <option key={d.table} value={d.table}>{d.table}</option>
+                  ))}
+                </select>
+              </div>
+              {ecfg.table && (
+                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${entity.cols.length}, 1fr)`, gap: 8 }}>
+                  {entity.cols.map(col => (
+                    <div key={col.key} className="field">
+                      <label style={{ fontSize: 12 }}>{col.label} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>&#8594; {col.key}</span></label>
+                      <select className="input" value={ecfg.cols?.[col.key] || ''} onChange={e => setEntityCol(entity.key, col.key, e.target.value)}>
+                        <option value="">(map column)</option>
+                        {tableCols.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
+
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button className="btn" onClick={saveConfig}>Save Mapping Config</button>
+      </div>
+    </div>
+  );
+}
+
 function MasterTable({ title, icon, items, columns, onAdd, onEdit, onDelete, loading }) {
   return (
     <div style={{ background: 'var(--card)', borderRadius: 16, border: '1px solid var(--line)', overflow: 'hidden' }}>
@@ -237,6 +363,8 @@ export default function OrgTab() {
           onDelete={item => handleDelete('department', item)}
         />
       </div>
+
+      <HrmsMapping onToast={(text, ok) => toast(text, ok)} />
 
       {modal && (
         <FieldModal

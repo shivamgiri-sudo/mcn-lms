@@ -141,12 +141,6 @@ async function main() {
     update: {},
   });
 
-  // Link module to assessment
-  await prisma.moduleMaster.update({
-    where: { moduleId: 'MOD-DEMO-01' },
-    data: { assessmentId: 'ASS-DEMO-01' },
-  });
-
   // Demo questions
   const questions = [
     { questionId: 'QST-D1-1', questionText: 'What is the primary goal of customer service?', optionA: 'Profit maximization', optionB: 'Customer satisfaction', optionC: 'Cost reduction', optionD: 'Employee retention', correctOption: 'B' },

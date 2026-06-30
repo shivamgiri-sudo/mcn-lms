@@ -57,7 +57,7 @@ export async function mapEmployeeId({ mobile, permanentEmpId, triggeredBy, trigg
       await tx.certificationEvidence.updateMany({ where: { employeeId: oldEmpId }, data: { employeeId: normPerm } });
       await tx.assignedModule.updateMany({ where: { assignedTo: oldEmpId, assignedToType: 'individual' }, data: { assignedTo: normPerm } });
       await tx.attendanceInference.updateMany({ where: { employeeId: oldEmpId }, data: { employeeId: normPerm } });
-      await tx.loginSessionLog.updateMany({ where: { employeeId: oldEmpId }, data: { employeeId: normPerm } });
+      await tx.loginSessionLog.updateMany({ where: { userId: oldEmpId }, data: { userId: normPerm } });
       await tx.traineeClassroomMap.updateMany({ where: { employeeId: oldEmpId }, data: { employeeId: normPerm } });
 
       await tx.traineeMaster.update({

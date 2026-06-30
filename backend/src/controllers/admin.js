@@ -1,6 +1,7 @@
 import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
+import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned } from '../utils/notify.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
@@ -157,8 +158,11 @@ export async function getAdminDashboard(req, res) {
 // ── Classrooms ────────────────────────────────────────────────────────────────
 export async function listClassrooms(req, res) {
   try {
+    const { branch } = req.query;
+    const where = { active: true };
+    if (branch) where.branch = branch;
     const classrooms = await prisma.classroomMaster.findMany({
-      where: { active: true },
+      where,
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { modules: true } } },
     });
@@ -170,12 +174,12 @@ export async function listClassrooms(req, res) {
 
 export async function createClassroom(req, res) {
   try {
-    const { classroomName, process, lob, description, driveFolderId, driveFolderUrl } = req.body;
+    const { classroomName, process, lob, branch, description, driveFolderId, driveFolderUrl } = req.body;
     if (!classroomName) return res.status(400).json({ ok: false, message: 'Classroom name required.' });
 
     const classroomId = `CL-${generateId()}`;
     const cl = await prisma.classroomMaster.create({
-      data: { classroomId, classroomName, process, lob, description, driveFolderId, driveFolderUrl },
+      data: { classroomId, classroomName, process, lob, branch: branch || null, description, driveFolderId, driveFolderUrl },
     });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_CLASSROOM', module: 'Curriculum', referenceId: classroomId });
     res.json({ ok: true, data: cl });
@@ -206,29 +210,29 @@ export async function deleteClassroom(req, res) {
       return res.status(400).json({ ok: false, message: 'Classroom name does not match. Deletion cancelled.' });
     }
 
-    // Collect IDs needed for child deletes
     const modules = await prisma.moduleMaster.findMany({ where: { classroomId }, select: { moduleId: true } });
     const moduleIds = modules.map(m => m.moduleId);
     const assessments = await prisma.assessmentMaster.findMany({ where: { classroomId }, select: { assessmentId: true } });
     const assessmentIds = assessments.map(a => a.assessmentId);
 
-    // Sequential deletes — no transaction (avoids 5s timeout on large classrooms)
-    await prisma.contentProgress.deleteMany({ where: { classroomId } });
-    await prisma.videoWatchLog.deleteMany({ where: { classroomId } });
-    await prisma.courseCompletionReport.deleteMany({ where: { classroomId } });
-    await prisma.assessmentResult.deleteMany({ where: { classroomId } });
-    if (assessmentIds.length) {
-      await prisma.assessmentAttempt.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
-      await prisma.questionBank.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
-    }
-    await prisma.assessmentMaster.deleteMany({ where: { classroomId } });
-    if (moduleIds.length) {
-      await prisma.faqMaster.deleteMany({ where: { moduleId: { in: moduleIds } } });
-      await prisma.contentMaster.deleteMany({ where: { moduleId: { in: moduleIds } } });
-    }
-    await prisma.moduleMaster.deleteMany({ where: { classroomId } });
-    await prisma.traineeClassroomMap.deleteMany({ where: { classroomId } });
-    await prisma.classroomMaster.delete({ where: { classroomId } });
+    await prisma.$transaction(async tx => {
+      await tx.contentProgress.deleteMany({ where: { classroomId } });
+      await tx.videoWatchLog.deleteMany({ where: { classroomId } });
+      await tx.courseCompletionReport.deleteMany({ where: { classroomId } });
+      await tx.assessmentResult.deleteMany({ where: { classroomId } });
+      if (assessmentIds.length) {
+        await tx.assessmentAttempt.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+        await tx.questionBank.deleteMany({ where: { assessmentId: { in: assessmentIds } } });
+      }
+      await tx.assessmentMaster.deleteMany({ where: { classroomId } });
+      if (moduleIds.length) {
+        await tx.faqMaster.deleteMany({ where: { moduleId: { in: moduleIds } } });
+        await tx.contentMaster.deleteMany({ where: { moduleId: { in: moduleIds } } });
+      }
+      await tx.moduleMaster.deleteMany({ where: { classroomId } });
+      await tx.traineeClassroomMap.deleteMany({ where: { classroomId } });
+      await tx.classroomMaster.delete({ where: { classroomId } });
+    });
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'DELETE_CLASSROOM', module: 'Curriculum', referenceId: classroomId, details: cl.classroomName });
     res.json({ ok: true, message: `Classroom "${cl.classroomName}" deleted permanently.` });
@@ -710,7 +714,7 @@ export async function resetTraineePassword(req, res) {
       tempPassword: tempPass,
     }).catch(err => console.error(`[NOTIFY] Password reset notification failed for ${employeeId}:`, err.message));
 
-    res.json({ ok: true, message: `Password reset for ${employeeId}. Temp password is last 4 digits of mobile (or 1234 if no mobile).` });
+    res.json({ ok: true, message: `Password reset for ${employeeId}. Trainee notified with new credentials.` });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
@@ -2283,8 +2287,10 @@ export async function resetAdminPassword(req, res) {
       where: { adminId: req.userId },
       data: { passwordHash, salt, failedAttempts: 0, locked: false },
     });
+    await deleteAllSessions(req.userId);
+    const newToken = await createSession(req.userId, 'admin');
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_OWN_PASSWORD', module: 'Auth' });
-    res.json({ ok: true, message: 'Password updated.' });
+    res.json({ ok: true, token: newToken, message: 'Password updated.' });
   } catch (err) {
     res.status(500).json({ ok: false, message: err.message });
   }
@@ -3035,6 +3041,165 @@ export async function getBatchContentProgress(req, res) {
     });
 
     res.json({ ok: true, data: { totalTrainees, modules: modulesOut, assessments: assessmentsOut } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Audit Log Viewer ──────────────────────────────────────────────────────────
+export async function listAuditLogs(req, res) {
+  try {
+    const { action, module, userIdentity, userRole, status, page = 1, limit = 50 } = req.query;
+    const where = {};
+    if (action) where.action = { contains: action };
+    if (module) where.module = { contains: module };
+    if (userIdentity) where.userIdentity = { contains: userIdentity };
+    if (userRole) where.userRole = { contains: userRole };
+    if (status) where.status = status;
+    const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
+    const take = Math.min(parseInt(limit, 10), 200);
+    const [data, total] = await Promise.all([
+      prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take }),
+      prisma.auditLog.count({ where }),
+    ]);
+    res.json({ ok: true, data, total, page: parseInt(page, 10), totalPages: Math.ceil(total / take) });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function getAuditLogDetail(req, res) {
+  try {
+    const log = await prisma.auditLog.findUnique({ where: { id: req.params.id } });
+    if (!log) return res.status(404).json({ ok: false, message: 'Log not found.' });
+    res.json({ ok: true, data: log });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Certificate Generator ─────────────────────────────────────────────────────
+export async function generateCertificate(req, res) {
+  try {
+    const { employeeId } = req.params;
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+    if (trainee.certificationStatus !== 'Certified' && trainee.certificationStatus !== 'HandedOver') {
+      return res.status(400).json({ ok: false, message: 'Trainee is not certified.' });
+    }
+    const batch = trainee.batchNo ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } }) : null;
+    const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Certificate - ${trainee.traineeName}</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { width: 297mm; height: 210mm; display: flex; align-items: center; justify-content: center;
+    font-family: 'Segoe UI', Roboto, Arial, sans-serif; background: #f0f2f5; }
+  .cert { width: 275mm; height: 185mm; background: #fff; border-radius: 12px;
+    box-shadow: 0 8px 32px rgba(0,0,0,.15); padding: 40px 50px; position: relative;
+    border: 6px double #1a56db; display: flex; flex-direction: column; justify-content: center; }
+  .cert h1 { font-size: 32px; color: #1a56db; text-align: center; letter-spacing: 2px; margin-bottom: 8px; }
+  .cert .subtitle { text-align: center; font-size: 14px; color: #666; margin-bottom: 24px; }
+  .cert .presented { text-align: center; font-size: 15px; color: #444; margin-bottom: 6px; }
+  .cert .name { text-align: center; font-size: 38px; font-weight: 800; color: #111; margin: 8px 0; }
+  .cert .for-text { text-align: center; font-size: 15px; color: #444; line-height: 1.7; }
+  .cert .details { text-align: center; font-size: 14px; color: #555; margin-top: 16px; }
+  .cert .footer { display: flex; justify-content: space-between; margin-top: 30px; padding-top: 16px; border-top: 2px solid #e5e7eb; font-size: 12px; color: #888; }
+  .cert .stamp { position: absolute; bottom: 50px; right: 70px; width: 80px; height: 80px;
+    border: 2px solid #1a56db; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-size: 10px; color: #1a56db; font-weight: 700; text-align: center; transform: rotate(-15deg); }
+</style></head><body>
+<div class="cert">
+  <h1>MCN LMS</h1>
+  <div class="subtitle">Learning Management System</div>
+  <div class="presented">This is to certify that</div>
+  <div class="name">${trainee.traineeName}</div>
+  <div class="for-text">has successfully completed the training program<br>
+    ${trainee.process ? `Process: <b>${trainee.process}</b>` : ''}${trainee.lob ? ` &middot; LOB: <b>${trainee.lob}</b>` : ''}<br>
+    ${batch ? `Batch: <b>${batch.batchName || batch.batchNo}</b>` : ''}
+  </div>
+  <div class="details">Certification Status: <b>${trainee.certificationStatus}</b></div>
+  <div class="footer"><span>Certificate ID: MCN-${employeeId}-${Date.now().toString(36).toUpperCase()}</span><span>Date: ${today}</span></div>
+  <div class="stamp">MCN LMS<br>VERIFIED</div>
+</div></body></html>`;
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// ── Bulk Trainee Import ───────────────────────────────────────────────────────
+export async function bulkImportPreview(req, res) {
+  try {
+    const { records, skipDuplicates } = req.body;
+    if (!Array.isArray(records) || records.length === 0) return res.status(400).json({ ok: false, message: 'records[] required.' });
+    if (records.length > 500) return res.status(400).json({ ok: false, message: 'Max 500 records per batch.' });
+    const employeeIds = records.map(r => r.employeeId).filter(Boolean);
+    const existing = employeeIds.length ? await prisma.traineeMaster.findMany({
+      where: { employeeId: { in: employeeIds }, status: { not: 'Deleted' } },
+      select: { employeeId: true },
+    }) : [];
+    const existingSet = new Set(existing.map(e => e.employeeId));
+    const lmsIds = records.map(r => r.lmsId).filter(Boolean);
+    const existingLms = lmsIds.length ? await prisma.traineeMaster.findMany({
+      where: { lmsId: { in: lmsIds } },
+      select: { lmsId: true },
+    }) : [];
+    const existingLmsSet = new Set(existingLms.map(e => e.lmsId));
+    const preview = records.map(r => ({
+      ...r,
+      _duplicate: existingSet.has(r.employeeId) || (r.lmsId && existingLmsSet.has(r.lmsId)),
+      _errors: [],
+    }));
+    res.json({ ok: true, data: preview, existingCount: existingSet.size });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function bulkImportExecute(req, res) {
+  try {
+    const { records, skipDuplicates } = req.body;
+    if (!Array.isArray(records) || records.length === 0) return res.status(400).json({ ok: false, message: 'records[] required.' });
+    if (records.length > 500) return res.status(400).json({ ok: false, message: 'Max 500 records per batch.' });
+    const created = [];
+    const skipped = [];
+    const errors = [];
+    const now = Date.now();
+    for (const r of records) {
+      try {
+        const employeeId = r.employeeId || `LMS-${now}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+        if (skipDuplicates) {
+          const dup = await prisma.traineeMaster.findFirst({ where: { employeeId, status: { not: 'Deleted' } } });
+          if (dup) { skipped.push(employeeId); continue; }
+        }
+        const lmsId = r.lmsId || `LMS${String(created.length + 1).padStart(6, '0')}`;
+        const tempPassword = r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-4) : '1234';
+        const salt = generateSalt();
+        const passwordHash = await hashPassword(tempPassword, salt);
+        const traineePayload = {
+          employeeId, lmsId, traineeName: r.traineeName || r.name,
+          email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null,
+          batchNo: r.batchNo, branch: r.branch, process: r.process, lob: r.lob,
+          classroomId: r.classroomId, classroomName: r.classroomName,
+          status: 'Active', source: 'BulkImport', empIdType: 'PERMANENT', createdBy: req.userId,
+        };
+        await prisma.$transaction([
+          prisma.traineeMaster.create({ data: traineePayload }),
+          prisma.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName: r.traineeName || r.name, email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null, batchNo: r.batchNo, branch: r.branch, process: r.process, lob: r.lob, classroomId: r.classroomId, active: true, forcePasswordReset: true } }),
+        ]);
+        created.push(employeeId);
+      } catch (e) {
+        errors.push({ record: r.employeeId || r.traineeName, error: e.message });
+      }
+    }
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'BULK_IMPORT_TRAINEES', module: 'Accounts', newValue: { created: created.length, skipped: skipped.length, errors: errors.length } });
+    res.json({ ok: true, created: created.length, skipped: skipped.length, errors, message: `${created.length} trainee(s) created.${skipped.length ? ` ${skipped.length} skipped.` : ''}${errors.length ? ` ${errors.length} error(s).` : ''}` });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });

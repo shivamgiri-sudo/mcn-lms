@@ -38,3 +38,8 @@ Thumbs.db
 .superpowers/
 docs/superpowers/
 frontend/.env.production
+
+mysql-data/
+backend/prisma/mysql_backup/
+*.err
+*.pid

@@ -425,14 +425,28 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
           {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
               {canMarkComplete && <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 3 }}><button className="btn small accent" onClick={() => markComplete(false)} disabled={completionState.saving}>{completionState.saving ? 'Saving…' : '✓ Mark Complete'}</button></div>}
-              {iframeLoading && (
+              {(iframeLoading || iframeError) && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', zIndex: 2, gap: 16 }}>
-                  <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,.1)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
-                  <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadTimeout ? 'Server is warming up — this may take 30–60 seconds on first load…' : 'Loading content…'}</div>
-                  {loadTimeout && <div style={{ display: 'flex', gap: 10, marginTop: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>{media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}</div>}
+                  {iframeError ? (
+                    <>
+                      <div style={{ fontSize: 48, marginBottom: 8 }}>⚠️</div>
+                      <div style={{ color: '#f87171', fontSize: 14, fontWeight: 700 }}>Unable to load content</div>
+                      <div style={{ color: '#94a3b8', fontSize: 13 }}>The file may be restricted or unavailable.</div>
+                      <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                        <button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setIframeError(false); setLoadTimeout(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>
+                        {media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,.1)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
+                      <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadTimeout ? 'Server is warming up — this may take 30–60 seconds on first load…' : 'Loading content…'}</div>
+                      {loadTimeout && <div style={{ display: 'flex', gap: 10, marginTop: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>{media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}</div>}
+                    </>
+                  )}
                 </div>
               )}
-              <iframe id="lms-content-iframe" src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => setIframeLoading(false)} />
+              <iframe id="lms-content-iframe" src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
             </div>
           )}
         </div>

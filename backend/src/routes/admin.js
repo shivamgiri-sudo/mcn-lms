@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
+import { validate, classroomSchema, moduleSchema, contentSchema, assessmentSchema, batchSchema, traineeSchema } from '../utils/validate.js';
 import {
   getAdminDashboard,
   listClassrooms, createClassroom, updateClassroom, deleteClassroom,
@@ -33,10 +34,14 @@ import {
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   adminMapSingleEmpId, adminBulkMapEmpIds, getTempTrainees,
+  listAuditLogs, getAuditLogDetail, generateCertificate,
+  bulkImportPreview, bulkImportExecute,
 } from '../controllers/admin.js';
 import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
 import { getNotifConfig, saveNotifConfig } from '../controllers/notifConfig.js';
 import { contentUpload } from '../utils/upload.js';
+import { syncBranches, syncDepartments, syncDesignations, detectHRMSTables, hrmsStatus } from '../controllers/hrmsSeed.js';
+import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigController.js';
 
 const auth = [requireSession, requireRole('admin')];
 const router = Router();
@@ -46,12 +51,12 @@ router.post('/reset-password', ...auth, resetAdminPassword);
 
 // Curriculum
 router.get('/classrooms', ...auth, listClassrooms);
-router.post('/classrooms', ...auth, createClassroom);
+router.post('/classrooms', ...auth, validate(classroomSchema), createClassroom);
 router.put('/classrooms/:classroomId', ...auth, updateClassroom);
 router.delete('/classrooms/:classroomId', ...auth, deleteClassroom);
 
 router.get('/classrooms/:classroomId/modules', ...auth, listModules);
-router.post('/classrooms/:classroomId/modules', ...auth, createModule);
+router.post('/classrooms/:classroomId/modules', ...auth, validate(moduleSchema), createModule);
 router.put('/modules/:moduleId', ...auth, updateModule);
 router.delete('/modules/:moduleId', ...auth, deleteModule);
 
@@ -73,7 +78,7 @@ router.delete('/faqs/:faqId', ...auth, deleteFaq);
 
 // Assessments
 router.get('/assessments', ...auth, listAssessments);
-router.post('/assessments', ...auth, createAssessment);
+router.post('/assessments', ...auth, validate(assessmentSchema), createAssessment);
 router.put('/assessments/:assessmentId', ...auth, updateAssessment);
 router.delete('/assessments/:assessmentId', ...auth, deleteAssessment);
 
@@ -130,7 +135,7 @@ router.delete('/process-lob/:id', ...auth, deleteProcessLob);
 
 // Batches
 router.get('/batches', ...auth, listBatches);
-router.post('/batches', ...auth, adminCreateBatch);
+router.post('/batches', ...auth, validate(batchSchema), adminCreateBatch);
 router.post('/batches/:batchNo/trainees/bulk', ...auth, adminBulkAddTrainees);
 router.get('/batches/:batchNo', ...auth, getBatchDetail);
 router.get('/batches/:batchNo/analytics', ...auth, getBatchAnalytics);
@@ -194,5 +199,25 @@ router.post('/comm-config', ...auth, saveCommConfig);
 router.post('/comm-config/test-email', ...auth, testEmailConfig);
 router.post('/comm-config/test-sms', ...auth, testSmsConfig);
 router.post('/comm-config/test-whatsapp', ...auth, testWhatsAppConfig);
+
+// Audit Log Viewer
+router.get('/audit-logs', ...auth, listAuditLogs);
+router.get('/audit-logs/:id', ...auth, getAuditLogDetail);
+
+// Certificate Generator
+router.get('/certificates/:employeeId/generate', ...auth, generateCertificate);
+
+// Bulk Trainee Import
+router.post('/trainees/import/preview', ...auth, bulkImportPreview);
+router.post('/trainees/import/execute', ...auth, bulkImportExecute);
+
+// HRMS Sync — seed org master data from mas_hrms database
+router.get('/hrms/status', ...auth, hrmsStatus);
+router.get('/hrms/detect', ...auth, detectHRMSTables);
+router.post('/hrms/sync/branches', ...auth, syncBranches);
+router.post('/hrms/sync/departments', ...auth, syncDepartments);
+router.post('/hrms/sync/designations', ...auth, syncDesignations);
+router.get('/hrms/config', ...auth, getHrmsConfig);
+router.put('/hrms/config', ...auth, setHrmsConfig);
 
 export default router;
