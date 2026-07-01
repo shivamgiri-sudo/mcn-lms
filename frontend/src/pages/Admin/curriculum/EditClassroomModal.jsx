@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api, uploadFile } from '../../utils/api.js';
+import { api, uploadFile } from '../../../utils/api.js';
 
 function parseCsvRows(rawCsv) {
   const rows = [];
