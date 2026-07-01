@@ -12,6 +12,25 @@ export async function requireSession(req, res, next) {
   req.session = session;
   req.userId = session.userId;
   req.userType = session.userType;
+  req.userBranch = null;
+
+  if (session.userType === 'admin') {
+    const admin = await prisma.adminUserMaster.findUnique({ where: { adminId: session.userId }, select: { branch: true, adminName: true, role: true } });
+    if (admin) {
+      req.userBranch = admin.branch || null;
+      req.adminInfo = admin;
+    }
+  } else if (session.userType === 'coordinator') {
+    const coord = await prisma.roleAccessMatrix.findFirst({
+      where: { loginId: session.userId, active: true },
+      select: { branch: true, name: true, role: true, canCreateBatch: true, canOnboardTrainee: true, canUploadLmsReport: true, canOverrideAttendance: true, canCloseBatch: true, canViewManagementDashboard: true },
+    });
+    if (coord) {
+      req.userBranch = coord.branch || null;
+      req.coordinator = coord;
+    }
+  }
+
   next();
 }
 

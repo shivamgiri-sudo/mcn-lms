@@ -93,30 +93,32 @@ async function syncBatchClassroomAssignment({ batch, classroomId, classroomName,
 
 export async function getAdminDashboard(req, res) {
   try {
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+
     const [classrooms, trainees, batches, openQueries, atRisk] = await Promise.all([
-      prisma.classroomMaster.count({ where: { active: true } }),
-      prisma.traineeMaster.count({ where: { status: 'Active' } }),
-      prisma.batchMaster.count({ where: { batchStatus: 'Active' } }),
+      prisma.classroomMaster.count({ where: { active: true, ...branchFilter } }),
+      prisma.traineeMaster.count({ where: { status: 'Active', ...branchFilter } }),
+      prisma.batchMaster.count({ where: { batchStatus: 'Active', ...branchFilter } }),
       prisma.traineeQueryLog.count({ where: { status: 'Open' } }),
-      prisma.traineeMaster.count({ where: { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] } } }),
+      prisma.traineeMaster.count({ where: { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] }, ...branchFilter } }),
     ]);
 
     const activeBatches = await prisma.batchMaster.findMany({
-      where: { batchStatus: 'Active' },
+      where: { batchStatus: 'Active', ...branchFilter },
       orderBy: { createdAt: 'desc' },
       take: 5,
       select: { batchNo: true, batchName: true, coordinatorName: true, startDate: true, endDate: true, totalTrainees: true, certified: true, process: true, lob: true },
     });
 
     const coordinators = await prisma.batchMaster.findMany({
-      where: { batchStatus: 'Active', coordinatorLoginId: { not: null } },
+      where: { batchStatus: 'Active', coordinatorLoginId: { not: null }, ...branchFilter },
       select: { coordinatorLoginId: true, coordinatorName: true, batchNo: true, batchName: true },
       distinct: ['coordinatorLoginId'],
       take: 10,
     });
 
     const atRiskTrainees = await prisma.traineeMaster.findMany({
-      where: { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH', 'MEDIUM'] } },
+      where: { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH', 'MEDIUM'] }, ...branchFilter },
       orderBy: [{ riskStatus: 'asc' }, { courseCompletionPct: 'asc' }],
       take: 20,
       select: { employeeId: true, traineeName: true, batchNo: true, riskStatus: true, courseCompletionPct: true, attendancePct: true, assessmentPassPct: true },
@@ -124,7 +126,7 @@ export async function getAdminDashboard(req, res) {
 
     const riskCounts = await prisma.traineeMaster.groupBy({
       by: ['riskStatus'],
-      where: { status: 'Active' },
+      where: { status: 'Active', ...branchFilter },
       _count: { riskStatus: true },
     });
 
@@ -161,6 +163,7 @@ export async function listClassrooms(req, res) {
     const { branch } = req.query;
     const where = { active: true };
     if (branch) where.branch = branch;
+    else if (req.userBranch) where.branch = req.userBranch;
     const classrooms = await prisma.classroomMaster.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -670,12 +673,13 @@ export async function searchTrainees(req, res) {
     const { q } = req.query;
     const where = {
       status: { not: 'Deleted' },
+      ...(req.userBranch ? { branch: req.userBranch } : {}),
       ...(q ? {
         OR: [
-          { employeeId: { contains: q, mode: 'insensitive' } },
-          { traineeName: { contains: q, mode: 'insensitive' } },
-          { email: { contains: q, mode: 'insensitive' } },
-          { batchNo: { contains: q, mode: 'insensitive' } },
+          { employeeId: { contains: q } },
+          { traineeName: { contains: q } },
+          { email: { contains: q } },
+          { batchNo: { contains: q } },
         ],
       } : {}),
     };
@@ -1596,8 +1600,9 @@ export async function saveProcessLob(req, res) {
 // ── Batch list ────────────────────────────────────────────────────────────────
 export async function listBatches(req, res) {
   try {
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
     const batches = await prisma.batchMaster.findMany({
-      where: { batchStatus: { not: 'Archived' } },
+      where: { batchStatus: { not: 'Archived' }, ...branchFilter },
       orderBy: { createdAt: 'desc' },
     });
     const batchNos = batches.map(b => b.batchNo);
@@ -2442,7 +2447,7 @@ export async function listPortalUsers(req, res) {
       prisma.adminUserMaster.findMany({
         where: { active: true },
         orderBy: { adminName: 'asc' },
-        select: { id: true, adminId: true, adminName: true, role: true, active: true, lastLogin: true, createdAt: true },
+        select: { id: true, adminId: true, adminName: true, role: true, branch: true, active: true, lastLogin: true, createdAt: true },
       }),
     ]);
     // Normalise admin_user_master rows to the same shape as role_access_matrix
@@ -2452,6 +2457,7 @@ export async function listPortalUsers(req, res) {
       name: a.adminName,
       role: 'Admin',
       portalAccess: 'Admin',
+      branch: a.branch || null,
       active: a.active,
       lastLogin: a.lastLogin,
       createdAt: a.createdAt,
@@ -2486,7 +2492,7 @@ export async function createPortalUser(req, res) {
       const salt = generateSalt();
       const passwordHash = await hashPassword(pin, salt);
       const admin = await prisma.adminUserMaster.create({
-        data: { adminId: cleanLoginId, adminName: name.trim(), passwordHash, salt, role: 'Admin', active: true },
+        data: { adminId: cleanLoginId, adminName: name.trim(), passwordHash, salt, role: 'Admin', active: true, branch: branch || null },
       });
       await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_ADMIN_USER', module: 'Users', referenceId: cleanLoginId });
       return res.json({ ok: true, data: { loginId: admin.adminId, name: admin.adminName, role: 'Admin' }, message: `Admin ${cleanLoginId} created. They can log into the Admin portal with this password.` });
@@ -2527,6 +2533,7 @@ export async function updatePortalUser(req, res) {
     if (adminRecord) {
       const data = {};
       if (name !== undefined) data.adminName = name;
+      if (branch !== undefined) data.branch = branch || null;
       if (active !== undefined) data.active = !!active;
       if (pin !== undefined && pin.length >= 4) {
         // generateSalt and hashPassword are statically imported at top of file

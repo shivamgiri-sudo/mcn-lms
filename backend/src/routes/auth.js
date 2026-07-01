@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
-import { coordinatorLogin, coordinatorLogout, adminLogin, adminLogout, traineeLogout, traineeChangePassword, traineeForgotPassword, getMyProfile } from '../controllers/auth.js';
+import { coordinatorLogin, coordinatorLogout, adminLogin, adminLogout, traineeLogout, traineeChangePassword, traineeForgotPassword, adminForgotPassword, coordinatorForgotPassword, getMyProfile } from '../controllers/auth.js';
 import { traineeLoginStable } from '../controllers/authStability.js';
 import { requireSession } from '../middleware/auth.js';
 import { validate, loginSchema, adminLoginSchema, traineeLoginSchema, forgotPasswordSchema } from '../utils/validate.js';
@@ -17,6 +17,8 @@ router.post('/trainee/login', loginLimiter, validate(traineeLoginSchema), traine
 router.post('/trainee/logout', requireSession, traineeLogout);
 router.post('/trainee/change-password', requireSession, traineeChangePassword);
 router.post('/trainee/forgot-password', loginLimiter, validate(forgotPasswordSchema), traineeForgotPassword);
+router.post('/admin/forgot-password', loginLimiter, adminForgotPassword);
+router.post('/coordinator/forgot-password', loginLimiter, coordinatorForgotPassword);
 router.get('/me', requireSession, getMyProfile);
 
 export default router;

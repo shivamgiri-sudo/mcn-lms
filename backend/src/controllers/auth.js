@@ -115,7 +115,7 @@ export async function adminLogin(req, res) {
     return res.json({
       ok: true,
       token,
-      user: { adminId: admin.adminId, name: admin.adminName, role: admin.role },
+      user: { adminId: admin.adminId, name: admin.adminName, role: admin.role, branch: admin.branch || null },
     });
   } catch (err) {
     console.error(err);
@@ -356,6 +356,57 @@ export async function traineeForgotPassword(req, res) {
     res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent to your registered mobile/email.' });
   } catch (err) {
     console.error('[AUTH] forgotPassword error:', err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function adminForgotPassword(req, res) {
+  try {
+    const { adminId } = req.body;
+    if (!adminId?.trim()) return res.status(400).json({ ok: false, message: 'Admin ID is required.' });
+
+    const admin = await prisma.adminUserMaster.findFirst({ where: { adminId: adminId.trim(), active: true } });
+    if (!admin) return res.json({ ok: true, message: 'If the account exists, a temporary password has been generated.' });
+
+    const tempPassword = `reset${Math.random().toString(36).slice(2, 8)}`;
+    const salt = generateSalt();
+    const passwordHash = await hashPassword(tempPassword, salt);
+    await prisma.adminUserMaster.update({
+      where: { id: admin.id },
+      data: { passwordHash, salt, failedAttempts: 0, locked: false },
+    });
+
+    await audit({ userIdentity: admin.adminId, userRole: 'Admin', action: 'FORGOT_PASSWORD', module: 'Auth', source: 'Self-Service' });
+
+    res.json({ ok: true, tempPassword, message: 'Temporary password generated. Use it to log in and change your password immediately.' });
+  } catch (err) {
+    console.error('[AUTH] adminForgotPassword error:', err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function coordinatorForgotPassword(req, res) {
+  try {
+    const { loginId } = req.body;
+    if (!loginId?.trim()) return res.status(400).json({ ok: false, message: 'Login ID is required.' });
+
+    const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: loginId.trim(), active: true } });
+    if (!coord) return res.json({ ok: true, message: 'If the account exists, a temporary PIN has been generated.' });
+
+    const tempPin = Math.floor(1000 + Math.random() * 9000).toString();
+    const salt = generateSalt();
+    const pinHash = await hashPassword(tempPin, salt);
+    const storedPin = `v1$bcrypt$${salt}$${pinHash}`;
+    await prisma.roleAccessMatrix.update({
+      where: { id: coord.id },
+      data: { pin: storedPin, failedAttempts: 0, locked: false },
+    });
+
+    await audit({ userIdentity: coord.loginId, userRole: 'Coordinator', action: 'FORGOT_PASSWORD', module: 'Auth', source: 'Self-Service' });
+
+    res.json({ ok: true, message: 'If the account exists, a temporary PIN has been generated. Please contact your administrator.' });
+  } catch (err) {
+    console.error('[AUTH] coordinatorForgotPassword error:', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }

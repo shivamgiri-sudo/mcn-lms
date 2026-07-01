@@ -214,6 +214,7 @@ model AdminUserMaster {
   salt           String
   adminName      String?   @map("admin_name")
   role           String    @default("Admin")
+  branch         String?   @map("branch")
   active         Boolean   @default(true)
   failedAttempts Int       @default(0) @map("failed_attempts")
   locked         Boolean   @default(false)

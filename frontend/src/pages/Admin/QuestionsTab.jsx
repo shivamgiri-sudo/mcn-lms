@@ -458,6 +458,7 @@ function EditQuestionModal({ question, saving, onClose, onSave }) {
       </div>
     </div>
   );
+}
 
 function DeleteAssessmentModal({ assessment, error, onCancel, onConfirm }) {
   const [step, setStep] = useState(1);
