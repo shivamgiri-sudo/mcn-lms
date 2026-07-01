@@ -30,6 +30,8 @@ import SystemHealthTab from './SystemHealthTab.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
 
+const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health']);
+
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
   { section: 'Training', items: [
@@ -75,6 +77,8 @@ export default function AdminConsole({ user, onLogout }) {
   const [pwForm, setPwForm] = useState({ password: '', confirm: '' });
   const [pwMsg, setPwMsg] = useState('');
 
+  const isSuper = !user?.branch;
+
   async function handleChangePassword(e) {
     e.preventDefault();
     if (pwForm.password.length < 6) return setPwMsg('Password must be at least 6 characters.');
@@ -118,7 +122,7 @@ export default function AdminConsole({ user, onLogout }) {
           </div>
         )}
         <div className="nav-right">
-          <span className="nav-user">👤 {user?.adminId || 'Admin'}</span>
+          <span className="nav-user">👤 {user?.adminId || 'Admin'}{user?.branch ? <span style={{marginLeft:8,fontSize:10,opacity:.6,background:'rgba(128,128,128,.15)',padding:'2px 6px',borderRadius:4}}>{user.branch}</span> : null}</span>
           <button
             onClick={toggleTheme}
             title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
@@ -131,16 +135,20 @@ export default function AdminConsole({ user, onLogout }) {
 
       <div className="admin-body">
         <div className="sidebar">
-          {NAV.map(section => (
-            <div key={section.section}>
-              <div className="sidebar-section">{section.section}</div>
-              {section.items.map(item => (
-                <div key={item.id} className={`nav-item${activeId === item.id ? ' active' : ''}`} onClick={() => navigate(item.id)}>
-                  <span>{item.icon}</span><span>{item.label}</span>
-                </div>
-              ))}
-            </div>
-          ))}
+          {NAV.map(section => {
+            const items = isSuper ? section.items : section.items.filter(i => !SUPER_ONLY.has(i.id));
+            if (!items.length) return null;
+            return (
+              <div key={section.section}>
+                <div className="sidebar-section">{section.section}</div>
+                {items.map(item => (
+                  <div key={item.id} className={`nav-item${activeId === item.id ? ' active' : ''}`} onClick={() => navigate(item.id)}>
+                    <span>{item.icon}</span><span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })}
         </div>
 
         <div className="admin-main">

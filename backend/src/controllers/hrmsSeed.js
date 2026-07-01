@@ -1,8 +1,9 @@
 import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
 import { loadMapping } from '../utils/hrmsConfig.js';
+import { queryHrms } from '../utils/hrmsDb.js';
 
-const HRMS_DB = process.env.HRMS_DB || 'mas_hrms';
+const HRMS_DB = process.env.HRMS_DB_NAME || 'mas_hrms';
 
 function mapRow(item, cols) {
   const row = {};
@@ -21,20 +22,19 @@ function statusToBool(val) {
 }
 
 async function detectTables() {
-  const tables = await prisma.$queryRawUnsafe(
+  const rows = await queryHrms(
     `SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = ? AND TABLE_TYPE = 'BASE TABLE'`,
-    HRMS_DB
+    [HRMS_DB]
   );
-  return tables.map(r => r.TABLE_NAME);
+  return rows.map(r => r.TABLE_NAME);
 }
 
 async function detectColumns(table) {
-  const cols = await prisma.$queryRawUnsafe(
+  const rows = await queryHrms(
     `SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?`,
-    HRMS_DB,
-    table
+    [HRMS_DB, table]
   );
-  return cols.map(r => r.COLUMN_NAME);
+  return rows.map(r => r.COLUMN_NAME);
 }
 
 async function tryGuessConfig(tableName, cols) {
@@ -68,7 +68,7 @@ async function syncFromHRMS(entity, reqUserId) {
     throw new Error(`Table '${cfg.table}' not found in ${HRMS_DB}. Available tables: ${all || '(empty)'}`);
   }
 
-  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM \`${HRMS_DB}\`.\`${sourceTable}\``);
+  const rows = await queryHrms(`SELECT * FROM \`${sourceTable}\``);
   if (!rows || rows.length === 0) {
     return { synced: 0, skipped: 0, errors: [], message: `No rows found in ${HRMS_DB}.${sourceTable}` };
   }

@@ -1083,7 +1083,8 @@ function csvRes(res, filename, headers, rows) {
 export async function exportTrainees(req, res) {
   try {
     const { batchNo, classroomId, status } = req.query;
-    const where = {};
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const where = { ...branchFilter };
     if (batchNo) where.batchNo = batchNo;
     if (classroomId) where.classroomId = classroomId;
     // status filter: 'Active', 'Inactive', or omitted for all (excludes Deleted)
@@ -1137,7 +1138,8 @@ export async function exportTrainees(req, res) {
 // ── 2. Batch Summary ───────────────────────────────────────────────────────────
 export async function exportBatchSummary(req, res) {
   try {
-    const batches = await prisma.batchMaster.findMany({ orderBy: { createdAt: 'desc' } });
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const batches = await prisma.batchMaster.findMany({ where: { ...branchFilter }, orderBy: { createdAt: 'desc' } });
     const batchNos = batches.map(b => b.batchNo);
     const [stats, riskCounts, certCounts] = await Promise.all([
       prisma.traineeMaster.groupBy({
@@ -1192,7 +1194,8 @@ export async function exportBatchSummary(req, res) {
 export async function exportAtRisk(req, res) {
   try {
     const { batchNo } = req.query;
-    const where = { riskStatus: { in: ['CRITICAL', 'HIGH', 'WATCH'] } };
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const where = { riskStatus: { in: ['CRITICAL', 'HIGH', 'WATCH'] }, ...branchFilter };
     if (batchNo) where.batchNo = batchNo;
 
     const [trainees, batches, risks] = await Promise.all([
@@ -1242,7 +1245,8 @@ export async function exportAtRisk(req, res) {
 export async function exportModuleCompletion(req, res) {
   try {
     const { batchNo, classroomId } = req.query;
-    const traineeWhere = {};
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const traineeWhere = { ...branchFilter };
     if (batchNo) traineeWhere.batchNo = batchNo;
     if (classroomId) traineeWhere.classroomId = classroomId;
 
@@ -1312,7 +1316,8 @@ export async function exportModuleCompletion(req, res) {
 export async function exportAssessmentResults(req, res) {
   try {
     const { batchNo, classroomId, assessmentId } = req.query;
-    const traineeWhere = {};
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const traineeWhere = { ...branchFilter };
     if (batchNo) traineeWhere.batchNo = batchNo;
     if (classroomId) traineeWhere.classroomId = classroomId;
 
@@ -1374,7 +1379,8 @@ export async function exportAssessmentResults(req, res) {
 export async function exportAttendanceLog(req, res) {
   try {
     const { batchNo, dateFrom, dateTo } = req.query;
-    const where = {};
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const where = { ...branchFilter };
     if (batchNo) where.batchNo = batchNo;
     if (dateFrom || dateTo) {
       where.date = {};
@@ -1417,7 +1423,8 @@ export async function exportAttendanceLog(req, res) {
 export async function exportCertificationEvidence(req, res) {
   try {
     const { batchNo } = req.query;
-    const traineeWhere = {};
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const traineeWhere = { ...branchFilter };
     if (batchNo) traineeWhere.batchNo = batchNo;
 
     const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true, certificationStatus: true } });
@@ -1466,7 +1473,8 @@ export async function exportCertificationEvidence(req, res) {
 export async function exportBroadcastAssignments(req, res) {
   try {
     const { scopeType } = req.query;
-    const where = scopeType ? { assignedToType: scopeType } : {};
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const where = { ...branchFilter, ...(scopeType ? { assignedToType: scopeType } : {}) };
     const assignments = await prisma.assignedModule.findMany({ where, orderBy: { createdAt: 'desc' } });
 
     const headers = ['Broadcast Title', 'Module Name', 'Scope Type', 'Scope Value (Target)', 'Assignment Type', 'Status (Active)', 'Assigned By', 'Assigned At', 'Due Date', 'Message'];

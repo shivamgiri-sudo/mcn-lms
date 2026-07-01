@@ -30,7 +30,8 @@ function buildDateRange(field, dateFrom, dateTo) {
 
 export async function previewCompliance(req, res) {
   try {
-    const { dateFrom, dateTo, branch, process: proc } = req.query;
+    const { dateFrom, dateTo, branch: queryBranch, process: proc } = req.query;
+    const effectiveBranch = req.userBranch || queryBranch;
 
     if (dateFrom && isNaN(new Date(dateFrom))) {
       return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
@@ -40,10 +41,10 @@ export async function previewCompliance(req, res) {
     }
 
     const traineeWhere = {};
-    if (branch) traineeWhere.branch = branch;
+    if (effectiveBranch) traineeWhere.branch = effectiveBranch;
     if (proc) traineeWhere.process = proc;
 
-    const scopedTrainees = (branch || proc)
+    const scopedTrainees = (effectiveBranch || proc)
       ? await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true } })
       : null;
     const empIds = scopedTrainees ? scopedTrainees.map(t => t.employeeId) : null;
@@ -89,9 +90,10 @@ export async function previewCompliance(req, res) {
 
 export async function exportTrainees(req, res) {
   try {
-    const { branch, process: proc } = req.query;
+    const { branch: queryBranch, process: proc } = req.query;
+    const effectiveBranch = req.userBranch || queryBranch;
     const where = {};
-    if (branch) where.branch = branch;
+    if (effectiveBranch) where.branch = effectiveBranch;
     if (proc) where.process = proc;
 
     const trainees = await prisma.traineeMaster.findMany({
@@ -143,7 +145,8 @@ export async function exportTrainees(req, res) {
 
 export async function exportAttendanceLogin(req, res) {
   try {
-    const { dateFrom, dateTo, branch, process: proc } = req.query;
+    const { dateFrom, dateTo, branch: queryBranch, process: proc } = req.query;
+    const effectiveBranch = req.userBranch || queryBranch;
 
     if (dateFrom && isNaN(new Date(dateFrom))) {
       return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
@@ -153,17 +156,19 @@ export async function exportAttendanceLogin(req, res) {
     }
 
     const traineeWhere = {};
-    if (branch) traineeWhere.branch = branch;
+    if (effectiveBranch) traineeWhere.branch = effectiveBranch;
     if (proc) traineeWhere.process = proc;
     const allTrainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } });
     const traineeMap = new Map(allTrainees.map(t => [t.employeeId, t]));
     const empIds = allTrainees.map(t => t.employeeId);
 
+    const scoped = effectiveBranch || proc;
+
     const attWhere = { ...buildDateRange('date', dateFrom, dateTo) };
-    if (branch || proc) attWhere.employeeId = { in: empIds };
+    if (scoped) attWhere.employeeId = { in: empIds };
 
     const loginWhere = { ...buildDateRange('createdAt', dateFrom, dateTo) };
-    if (branch || proc) loginWhere.userId = { in: empIds };
+    if (scoped) loginWhere.userId = { in: empIds };
 
     const [attendance, logins] = await Promise.all([
       prisma.attendanceInference.findMany({ where: attWhere, orderBy: { date: 'asc' } }),
@@ -206,7 +211,8 @@ export async function exportAttendanceLogin(req, res) {
 
 export async function exportLearning(req, res) {
   try {
-    const { dateFrom, dateTo, branch, process: proc } = req.query;
+    const { dateFrom, dateTo, branch: queryBranch, process: proc } = req.query;
+    const effectiveBranch = req.userBranch || queryBranch;
 
     if (dateFrom && isNaN(new Date(dateFrom))) {
       return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
@@ -216,17 +222,19 @@ export async function exportLearning(req, res) {
     }
 
     const traineeWhere = {};
-    if (branch) traineeWhere.branch = branch;
+    if (effectiveBranch) traineeWhere.branch = effectiveBranch;
     if (proc) traineeWhere.process = proc;
     const allTrainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } });
     const traineeMap = new Map(allTrainees.map(t => [t.employeeId, t]));
     const empIds = allTrainees.map(t => t.employeeId);
 
+    const scoped = effectiveBranch || proc;
+
     const contentWhere = { ...buildDateRange('lastOpenedAt', dateFrom, dateTo) };
-    if (branch || proc) contentWhere.employeeId = { in: empIds };
+    if (scoped) contentWhere.employeeId = { in: empIds };
 
     const attemptWhere = { ...buildDateRange('startedAt', dateFrom, dateTo) };
-    if (branch || proc) attemptWhere.employeeId = { in: empIds };
+    if (scoped) attemptWhere.employeeId = { in: empIds };
 
     const [content, attempts] = await Promise.all([
       prisma.contentProgress.findMany({ where: contentWhere, orderBy: { lastOpenedAt: 'asc' } }),
@@ -272,7 +280,8 @@ export async function exportLearning(req, res) {
 
 export async function exportRiskEscalation(req, res) {
   try {
-    const { dateFrom, dateTo, branch, process: proc } = req.query;
+    const { dateFrom, dateTo, branch: queryBranch, process: proc } = req.query;
+    const effectiveBranch = req.userBranch || queryBranch;
 
     if (dateFrom && isNaN(new Date(dateFrom))) {
       return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
@@ -282,14 +291,16 @@ export async function exportRiskEscalation(req, res) {
     }
 
     const traineeWhere = {};
-    if (branch) traineeWhere.branch = branch;
+    if (effectiveBranch) traineeWhere.branch = effectiveBranch;
     if (proc) traineeWhere.process = proc;
     const allTrainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } });
     const traineeMap = new Map(allTrainees.map(t => [t.employeeId, t]));
     const empIds = allTrainees.map(t => t.employeeId);
 
+    const scoped = effectiveBranch || proc;
+
     const dateRange = buildDateRange('createdAt', dateFrom, dateTo);
-    const empFilter = (branch || proc) ? { employeeId: { in: empIds } } : {};
+    const empFilter = scoped ? { employeeId: { in: empIds } } : {};
 
     const [risks, pending, queries] = await Promise.all([
       prisma.trainingRiskLog.findMany({ where: { ...dateRange, ...empFilter }, orderBy: { createdAt: 'asc' } }),
@@ -343,7 +354,8 @@ export async function exportRiskEscalation(req, res) {
 
 export async function exportCertification(req, res) {
   try {
-    const { dateFrom, dateTo, branch, process: proc } = req.query;
+    const { dateFrom, dateTo, branch: queryBranch, process: proc } = req.query;
+    const effectiveBranch = req.userBranch || queryBranch;
 
     if (dateFrom && isNaN(new Date(dateFrom))) {
       return res.status(400).json({ ok: false, message: 'Invalid dateFrom — expected ISO date e.g. 2026-01-15' });
@@ -353,14 +365,16 @@ export async function exportCertification(req, res) {
     }
 
     const traineeWhere = {};
-    if (branch) traineeWhere.branch = branch;
+    if (effectiveBranch) traineeWhere.branch = effectiveBranch;
     if (proc) traineeWhere.process = proc;
     const allTrainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true, certificationStatus: true } });
     const traineeMap = new Map(allTrainees.map(t => [t.employeeId, t]));
     const empIds = allTrainees.map(t => t.employeeId);
 
+    const scoped = effectiveBranch || proc;
+
     const evidenceDateRange = buildDateRange('conductedAt', dateFrom, dateTo);
-    const empFilter = (branch || proc) ? { employeeId: { in: empIds } } : {};
+    const empFilter = scoped ? { employeeId: { in: empIds } } : {};
 
     const [evidence, results] = await Promise.all([
       prisma.certificationEvidence.findMany({ where: { ...evidenceDateRange, ...empFilter }, orderBy: { conductedAt: 'asc' } }),
