@@ -8,6 +8,7 @@ const DEFAULT_MAPPING = {
   branch: { table: 'branches', cols: { name: 'branch_name', code: 'branch_code', city: 'city', state: 'state', active: 'status' } },
   department: { table: 'departments', cols: { name: 'department_name', active: 'status' } },
   designation: { table: 'designations', cols: { title: 'designation_title', active: 'status' } },
+  processlob: { table: 'process_lob_master', cols: { process: 'process', lob: 'lob', active: 'active' } },
 };
 
 export function loadMapping() {

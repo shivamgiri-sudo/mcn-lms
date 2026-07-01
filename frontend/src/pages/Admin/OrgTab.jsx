@@ -50,7 +50,7 @@ function HrmsMapping({ onToast }) {
   }
 
   async function doSync(entity) {
-    const endpoint = { branch: 'branches', department: 'departments', designation: 'designations' }[entity];
+    const endpoint = { branch: 'branches', department: 'departments', designation: 'designations', processlob: 'processlob' }[entity];
     setSyncing(entity);
     const res = await api.post(`/admin/hrms/sync/${endpoint}`, {}, 'admin');
     setSyncing('');
@@ -62,6 +62,7 @@ function HrmsMapping({ onToast }) {
     { key: 'branch', label: 'Branch', cols: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }, { key: 'active', label: 'Active' }] },
     { key: 'department', label: 'Department', cols: [{ key: 'name', label: 'Name' }, { key: 'active', label: 'Active' }] },
     { key: 'designation', label: 'Designation', cols: [{ key: 'title', label: 'Title' }, { key: 'active', label: 'Active' }] },
+    { key: 'processlob', label: 'Process & LOB', cols: [{ key: 'process', label: 'Process' }, { key: 'lob', label: 'LOB' }, { key: 'active', label: 'Active' }] },
   ];
 
   const statusIcon = status?.reachable ? '\u2705' : '\u274C';

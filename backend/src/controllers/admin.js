@@ -918,6 +918,12 @@ export async function broadcastModule(req, res) {
     if (!moduleId || !moduleName || !scope) {
       return res.status(400).json({ ok: false, message: 'moduleId, moduleName and scope are required.' });
     }
+    if (req.userBranch && scope === 'branch' && scopeValue !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only broadcast to your own branch.' });
+    }
+    if (req.userBranch && scope === 'company') {
+      return res.status(403).json({ ok: false, message: 'Branch admin cannot broadcast to entire company.' });
+    }
     const data = {
       moduleId,
       moduleName,
@@ -956,8 +962,10 @@ export async function broadcastModuleBulk(req, res) {
 
     if (Array.isArray(employeeIds) && employeeIds.length > 0) {
       // Mode 1: specific employee IDs
+      const empWhere = { employeeId: { in: employeeIds }, status: { not: 'Deleted' } };
+      if (req.userBranch) empWhere.branch = req.userBranch;
       const found = await prisma.traineeMaster.findMany({
-        where: { employeeId: { in: employeeIds }, status: { not: 'Deleted' } },
+        where: empWhere,
         select: { employeeId: true, traineeName: true },
       });
       const foundIds = new Set(found.map(t => t.employeeId));
@@ -965,11 +973,16 @@ export async function broadcastModuleBulk(req, res) {
       trainees = found;
     } else if (scopeType && Array.isArray(scopeValues) && scopeValues.length > 0) {
       // Mode 2: expand by scope (batch / process / branch)
+      if (req.userBranch && scopeType === 'branch') {
+        const invalid = scopeValues.filter(v => v !== req.userBranch);
+        if (invalid.length) return res.status(403).json({ ok: false, message: `You can only assign to your own branch: ${req.userBranch}` });
+      }
       const where = { status: { not: 'Deleted' } };
       if (scopeType === 'batch') where.batchNo = { in: scopeValues };
       else if (scopeType === 'process') where.process = { in: scopeValues };
       else if (scopeType === 'branch') where.branch = { in: scopeValues };
       else return res.status(400).json({ ok: false, message: 'scopeType must be batch, process, or branch.' });
+      if (req.userBranch) where.branch = req.userBranch;
 
       trainees = await prisma.traineeMaster.findMany({
         where,
@@ -1568,8 +1581,9 @@ export async function syncHistoricalKpi(req, res) {
 // Returns distinct branch + process values from active trainees — used by Broadcast page
 export async function getBroadcastTargets(req, res) {
   try {
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
     const trainees = await prisma.traineeMaster.findMany({
-      where: { status: 'Active' },
+      where: { status: 'Active', ...branchFilter },
       select: { branch: true, process: true, lob: true },
     });
     const branches = [...new Set(trainees.map(t => t.branch).filter(Boolean))].sort();
@@ -3153,6 +3167,9 @@ export async function bulkImportPreview(req, res) {
     const { records, skipDuplicates } = req.body;
     if (!Array.isArray(records) || records.length === 0) return res.status(400).json({ ok: false, message: 'records[] required.' });
     if (records.length > 500) return res.status(400).json({ ok: false, message: 'Max 500 records per batch.' });
+    if (req.userBranch) {
+      for (const r of records) { r.branch = req.userBranch; }
+    }
     const employeeIds = records.map(r => r.employeeId).filter(Boolean);
     const existing = employeeIds.length ? await prisma.traineeMaster.findMany({
       where: { employeeId: { in: employeeIds }, status: { not: 'Deleted' } },
@@ -3182,6 +3199,9 @@ export async function bulkImportExecute(req, res) {
     const { records, skipDuplicates } = req.body;
     if (!Array.isArray(records) || records.length === 0) return res.status(400).json({ ok: false, message: 'records[] required.' });
     if (records.length > 500) return res.status(400).json({ ok: false, message: 'Max 500 records per batch.' });
+    if (req.userBranch) {
+      for (const r of records) { r.branch = req.userBranch; }
+    }
     const created = [];
     const skipped = [];
     const errors = [];

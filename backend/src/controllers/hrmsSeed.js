@@ -151,6 +151,56 @@ export async function syncDesignations(req, res) {
   }
 }
 
+export async function syncProcessLob(req, res) {
+  try {
+    const mapping = loadMapping();
+    const cfg = mapping.processlob;
+    if (!cfg) throw new Error('Process/LOB mapping not configured. Save mapping config in Organization tab.');
+
+    const tables = await detectTables();
+    const sourceTable = tables.find(t => t.toLowerCase() === cfg.table) ||
+      tables.find(t => t.toLowerCase().includes('process')) ||
+      tables.find(t => t.toLowerCase().includes('lob'));
+
+    if (!sourceTable) {
+      const all = tables.join(', ');
+      throw new Error(`Table '${cfg.table}' not found in ${HRMS_DB}. Available tables: ${all || '(empty)'}`);
+    }
+
+    const rows = await queryHrms(`SELECT * FROM \`${sourceTable}\``);
+    if (!rows || rows.length === 0) {
+      return res.json({ ok: true, synced: 0, skipped: 0, errors: [], message: `No rows found in ${HRMS_DB}.${sourceTable}` });
+    }
+
+    const processCol = cfg.cols.process || 'process';
+    const lobCol = cfg.cols.lob || 'lob';
+    const activeCol = cfg.cols.active || 'active';
+    let synced = 0, skipped = 0, errors = [];
+
+    for (const row of rows) {
+      try {
+        const process = String(row[processCol] || '').trim();
+        const lob = String(row[lobCol] || '').trim();
+        if (!process || !lob) { skipped++; continue; }
+        const active = statusToBool(row[activeCol]);
+        await prisma.processLobMaster.upsert({
+          where: { process_lob: { process, lob } },
+          create: { process, lob, active },
+          update: { active },
+        });
+        synced++;
+      } catch (err) {
+        errors.push({ name: row[processCol] || '?', error: err.message });
+      }
+    }
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'HRMS_SYNC', module: 'ProcessLOB', referenceId: 'processlob', details: `Synced ${synced}, skipped ${skipped}, errors ${errors.length}` });
+    res.json({ ok: true, message: `Synced ${synced} process/LOB pair(s) from ${HRMS_DB}.${sourceTable}. Skipped ${skipped}.`, synced, skipped, errors });
+  } catch (err) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+}
+
 export async function detectHRMSTables(req, res) {
   try {
     const tables = await detectTables();

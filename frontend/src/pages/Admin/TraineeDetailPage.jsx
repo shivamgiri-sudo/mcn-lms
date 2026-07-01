@@ -200,7 +200,7 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
           <div className="glass-panel">
             <div className="panel-title">Trainee Info</div>
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'12px'}}>
-              {[['Employee ID',trainee.employeeId],['Batch',trainee.batchNo||'—'],['Status',trainee.status],['Risk',trainee.riskStatus],['Certification',trainee.certificationStatus],['OJT Ready',trainee.ojtReady?'Yes':'No']].map(([k,v]) => (
+              {[['Employee ID',trainee.employeeId],['Batch',trainee.batchNo||'—'],['Branch',trainee.branch||'—'],['Process',trainee.process||'—'],['LOB',trainee.lob||'—'],['Status',trainee.status],['Risk',trainee.riskStatus],['Certification',trainee.certificationStatus],['OJT Ready',trainee.ojtReady?'Yes':'No']].map(([k,v]) => (
                 <div key={k} style={{background: 'var(--card)',borderRadius:'10px',padding:'10px 12px'}}>
                   <div style={{fontSize:'10px',color:'var(--muted-2)',textTransform:'uppercase',letterSpacing:'.05em',fontWeight:'700'}}>{k}</div>
                   <div style={{fontSize:'13px',fontWeight:'700',color:'var(--ink)',marginTop:'4px'}}>{String(v)}</div>
