@@ -3,6 +3,7 @@ import TraineePage from './pages/Trainee/TraineePage.jsx';
 import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';
 import ManagementPage from './pages/Management/ManagementPage.jsx';
+import InfographicsPage from './pages/Infographics/InfographicsPage.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
 
 export default function App() {
@@ -10,6 +11,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/lms" replace />} />
+      <Route path="/infographics" element={<InfographicsPage />} />
       <Route path="/lms/*" element={<TraineePage />} />
       <Route path="/coordinator/*" element={<CoordinatorPage />} />
       <Route path="/admin/*" element={<AdminPage />} />
