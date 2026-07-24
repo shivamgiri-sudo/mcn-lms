@@ -49,19 +49,32 @@ export default function LearningToolsDock() {
   const location = useLocation();
   const rootRef = useRef(null);
   const [open, setOpen] = useState(false);
+  const [sessionVersion, setSessionVersion] = useState(0);
   const available = useMemo(
     () => Object.entries(ROLE_TOKENS)
       .filter(([, token]) => Boolean(localStorage.getItem(token)))
       .map(([role]) => role),
-    [location.pathname],
+    [location.pathname, sessionVersion],
   );
   const [role, setRole] = useState(() => roleFromPath(location.pathname, available));
 
   useEffect(() => {
+    function refreshSessions() {
+      setSessionVersion(value => value + 1);
+    }
+    window.addEventListener('lms:token-changed', refreshSessions);
+    window.addEventListener('storage', refreshSessions);
+    return () => {
+      window.removeEventListener('lms:token-changed', refreshSessions);
+      window.removeEventListener('storage', refreshSessions);
+    };
+  }, []);
+
+  useEffect(() => {
     const next = roleFromPath(location.pathname, available);
     if (next && !available.includes(role)) setRole(next);
-    if (location.pathname === '/reset-password') setOpen(false);
-  }, [location.pathname, available.join('|')]);
+    if (!available.length || location.pathname === '/reset-password') setOpen(false);
+  }, [location.pathname, sessionVersion, role, available]);
 
   useEffect(() => {
     function closeOnOutside(event) {
