@@ -1,4 +1,5 @@
 import { prisma } from '../utils/db.js';
+import { getSession } from '../utils/session.js';
 
 function bearerToken(req) {
   const header = String(req.headers.authorization || '');
@@ -13,12 +14,13 @@ export async function requireSession(req, res, next) {
     const token = bearerToken(req);
     if (!token) return res.status(401).json({ ok: false, message: 'Unauthorized' });
 
-    const session = await prisma.portalSession.findUnique({ where: { token } });
-    if (!session || session.expiresAt < new Date()) {
+    const session = await getSession(token);
+    if (!session) {
       return res.status(401).json({ ok: false, message: 'Session expired. Please login again.' });
     }
 
     req.session = session;
+    req.sessionToken = token;
     req.userId = session.userId;
     req.userType = session.userType;
     req.userBranch = null;
