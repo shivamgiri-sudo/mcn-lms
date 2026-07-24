@@ -1,0 +1,165 @@
+name: LMS Phase 4 CI
+
+on:
+  pull_request:
+    branches: [agent/lms-coaching-certification-v2]
+  push:
+    branches: [agent/lms-instructor-led-training]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase4-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Instructor-led training backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_ci
+      SESSION_SECRET: phase4-session-secret-that-is-longer-than-32-characters
+      FRONTEND_URL: http://localhost:5173
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Apply foundation and lifecycle migrations
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < prisma/migrations/20260724090000_secure_password_recovery/migration.sql
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < prisma/migrations/20260724170000_instructor_led_training/migration.sql
+      - name: Verify ILT schema and permissions
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N -e "
+            SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema='lms_ci'
+               AND table_name IN (
+                 'ilt_policy','ilt_venue','ilt_instructor','ilt_session',
+                 'ilt_session_instructor','ilt_session_prerequisite','ilt_session_skill_map',
+                 'ilt_session_enrollment','ilt_enrollment_event','ilt_session_attendance',
+                 'ilt_session_resource','ilt_session_feedback'
+               );
+            SELECT COUNT(*) FROM permission_master WHERE permission_key LIKE 'ilt.%';
+            SELECT COUNT(*) FROM information_schema.statistics
+             WHERE table_schema='lms_ci' AND table_name='ilt_session_enrollment'
+               AND index_name='uq_ilt_session_employee' AND non_unique=0;
+            SELECT COUNT(*) FROM information_schema.check_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN ('chk_ilt_session_time','chk_ilt_feedback_rating','chk_ilt_attendance_pct');
+          " lms_ci | tee phase4-schema-check.txt
+          test "$(sed -n '1p' phase4-schema-check.txt)" = "12"
+          test "$(sed -n '2p' phase4-schema-check.txt)" = "8"
+          test "$(sed -n '3p' phase4-schema-check.txt)" = "1"
+          test "$(sed -n '4p' phase4-schema-check.txt)" = "3"
+      - name: Verify enrolment uniqueness and data constraints
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO ilt_venue
+              (venue_id, venue_code, venue_name, branch, capacity, created_by)
+            VALUES ('10000000-0000-0000-0000-000000000001','CI-ROOM','CI Room','Noida',2,'ci');
+            INSERT INTO ilt_instructor
+              (instructor_id,user_id,user_type,instructor_name,branch,created_by)
+            VALUES ('20000000-0000-0000-0000-000000000001','CI-COORD','coordinator','CI Instructor','Noida','ci');
+            INSERT INTO ilt_session
+              (session_id,session_code,title,branch,venue_id,start_at,end_at,capacity,created_by)
+            VALUES ('30000000-0000-0000-0000-000000000001','CI-ILT-1','CI Session','Noida',
+                    '10000000-0000-0000-0000-000000000001',
+                    DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 1 DAY),
+                    DATE_ADD(UTC_TIMESTAMP(3), INTERVAL 2 DAY),2,'ci');
+            INSERT INTO ilt_session_instructor
+              (id,session_id,instructor_id,instructor_role,confirmation_status)
+            VALUES ('40000000-0000-0000-0000-000000000001',
+                    '30000000-0000-0000-0000-000000000001',
+                    '20000000-0000-0000-0000-000000000001','LEAD','CONFIRMED');
+            INSERT INTO ilt_session_enrollment
+              (enrollment_id,session_id,employee_id,status,source)
+            VALUES ('50000000-0000-0000-0000-000000000001',
+                    '30000000-0000-0000-0000-000000000001','EMP-CI','CONFIRMED','ADMIN');
+          "
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO ilt_session_enrollment
+              (enrollment_id,session_id,employee_id,status,source)
+            VALUES ('50000000-0000-0000-0000-000000000002',
+                    '30000000-0000-0000-0000-000000000001','EMP-CI','WAITLISTED','ADMIN');
+          "; then
+            echo 'Duplicate session enrolment was incorrectly accepted.' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO ilt_session_feedback
+              (feedback_id,session_id,employee_id,rating)
+            VALUES ('60000000-0000-0000-0000-000000000001',
+                    '30000000-0000-0000-0000-000000000001','EMP-CI',6);
+          "; then
+            echo 'Invalid feedback rating was incorrectly accepted.' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO ilt_session_attendance
+              (attendance_id,session_id,employee_id,attendance_pct)
+            VALUES ('70000000-0000-0000-0000-000000000001',
+                    '30000000-0000-0000-0000-000000000001','EMP-CI',120);
+          "; then
+            echo 'Invalid attendance percentage was incorrectly accepted.' >&2
+            exit 1
+          fi
+      - name: Check backend syntax and regressions
+        run: |
+          find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+          npm test
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    name: Phase 4 frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --ignore-scripts
+      - name: Build production frontend
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
