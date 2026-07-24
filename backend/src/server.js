@@ -12,8 +12,10 @@ import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
+import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 
 import passwordStabilityRoutes from './routes/passwordStability.js';
+import certificationHooks from './routes/certificationHooks.js';
 import authRoutes from './routes/auth.js';
 import bridgeRoutes from './routes/bridge.js';
 import coordinatorStabilityRoutes from './routes/coordinatorStability.js';
@@ -32,6 +34,7 @@ import complianceRoutes from './routes/compliance.js';
 import scormRoutes from './routes/scorm.js';
 import talentRoutes from './routes/talent.js';
 import talentEvidenceRoutes from './routes/talentEvidence.js';
+import developmentRoutes from './routes/development.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -118,7 +121,6 @@ async function readiness(_req, res) {
   } catch {
     checks.database = false;
   }
-
   try {
     if (!fs.existsSync(contentUploadDir)) fs.mkdirSync(contentUploadDir, { recursive: true });
     fs.accessSync(contentUploadDir, fs.constants.W_OK);
@@ -126,7 +128,6 @@ async function readiness(_req, res) {
   } catch {
     checks.uploadStorage = false;
   }
-
   if (process.env.SERVE_FRONTEND !== 'false') checks.frontend = fs.existsSync(frontendDist);
   const ok = Object.values(checks).every(Boolean);
   return res.status(ok ? 200 : 503).json({ ok, service: 'lms-platform', checks, time: new Date().toISOString() });
@@ -136,6 +137,7 @@ app.get('/api/health/ready', readiness);
 app.get('/api/health', readiness);
 
 app.use('/api', passwordStabilityRoutes);
+app.use('/api', certificationHooks);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/bridge', bridgeRoutes);
 app.use('/api/coordinator', coordinatorStabilityRoutes);
@@ -154,6 +156,7 @@ app.use('/api/emp-mapping', empMappingRoutes);
 app.use('/api/scorm', scormRoutes);
 app.use('/api/talent', talentEvidenceRoutes);
 app.use('/api/talent', talentRoutes);
+app.use('/api/development', developmentRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));
@@ -187,22 +190,19 @@ async function runKpiSnapshot() {
       }),
       prisma.traineeMaster.count({ where: { status: 'Active', certificationStatus: 'Certified' } }),
     ]);
-
     await prisma.historicalTrainingKpi.upsert({
       where: { period_branch_process_lob: { period, branch: '', process: '', lob: '' } },
       create: {
         period, branch: '', process: '', lob: '', totalTrainees, activeBatches,
         avgCoursePct: Math.round(averages._avg.courseCompletionPct || 0),
         avgMcqPct: Math.round(averages._avg.assessmentPassPct || 0),
-        avgAttendancePct: Math.round(averages._avg.attendancePct || 0),
-        certifiedCount,
+        avgAttendancePct: Math.round(averages._avg.attendancePct || 0), certifiedCount,
       },
       update: {
         totalTrainees, activeBatches,
         avgCoursePct: Math.round(averages._avg.courseCompletionPct || 0),
         avgMcqPct: Math.round(averages._avg.assessmentPassPct || 0),
-        avgAttendancePct: Math.round(averages._avg.attendancePct || 0),
-        certifiedCount,
+        avgAttendancePct: Math.round(averages._avg.attendancePct || 0), certifiedCount,
       },
     });
     console.log(`[KPI] Snapshot saved for ${period}`);
@@ -219,6 +219,28 @@ async function runTalentGovernanceCleanup() {
     }
   } catch (error) {
     console.warn('[Talent] Verification expiry cleanup skipped:', error.message);
+  }
+}
+
+async function runCertificationLifecycleSync() {
+  try {
+    const employees = await prisma.traineeMaster.findMany({
+      where: { status: 'Active', certificationStatus: { in: ['Certified', 'Expired', 'Revoked'] } },
+      select: { employeeId: true },
+      take: 5000,
+    });
+    let failures = 0;
+    for (const employee of employees) {
+      try {
+        await syncCertificationLifecycleForEmployee(employee.employeeId, 'certification-worker');
+      } catch (error) {
+        failures += 1;
+        console.warn(`[Certification] ${employee.employeeId} sync failed:`, error.message);
+      }
+    }
+    console.log(`[Certification] Synchronized ${employees.length - failures}/${employees.length} learners.`);
+  } catch (error) {
+    console.warn('[Certification] Lifecycle sync skipped:', error.message);
   }
 }
 
@@ -245,21 +267,20 @@ function startBackgroundWork() {
     console.log('[WORKER] In-process schedules are disabled. Run one designated worker with LMS_RUN_SCHEDULERS=true.');
     return;
   }
-
   runKpiSnapshot();
   const kpiTimer = setInterval(runKpiSnapshot, 24 * 60 * 60 * 1000);
   kpiTimer.unref?.();
   scheduleDailyEmail();
   startScheduler();
-
   const sessionTimer = setInterval(() => {
     cleanExpiredSessions().catch(error => console.error('[Sessions] Cleanup failed:', error.message));
   }, 60 * 60 * 1000);
   sessionTimer.unref?.();
-
   const talentTimer = setInterval(runTalentGovernanceCleanup, 60 * 60 * 1000);
   talentTimer.unref?.();
-
+  runCertificationLifecycleSync();
+  const certificationTimer = setInterval(runCertificationLifecycleSync, 6 * 60 * 60 * 1000);
+  certificationTimer.unref?.();
   async function cleanVideoWatchLogs() {
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     try {
