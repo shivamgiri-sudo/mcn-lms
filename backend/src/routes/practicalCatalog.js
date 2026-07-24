@@ -24,6 +24,20 @@ function companyScope(req) {
     || (!req.userBranch && ['Super Admin', 'SuperAdmin', 'CEO'].includes(req.adminInfo?.role));
 }
 
+async function myEvaluation(req, res, evaluatorType) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT e.evaluation_id AS evaluationId, e.assignment_id AS assignmentId,
+            e.evaluator_slot AS evaluatorSlot, e.status, e.percentage,
+            e.result, e.critical_fail AS criticalFail, e.summary,
+            e.strengths, e.development_notes AS developmentNotes
+       FROM practical_evaluation e
+      WHERE e.assignment_id = ? AND e.evaluator_id = ? AND e.evaluator_type = ?
+      LIMIT 1`,
+    String(req.params.assignmentId), String(req.userId), evaluatorType,
+  );
+  res.json({ ok: true, data: normalize(rows[0] || null) });
+}
+
 router.get('/coordinator/catalog', ...coordinatorAuth, requirePermission('practical.manage_scope'), route(async (req, res) => {
   const templates = await prisma.$queryRawUnsafe(
     `SELECT p.template_id AS templateId, p.template_code AS templateCode,
@@ -51,6 +65,8 @@ router.get('/coordinator/catalog', ...coordinatorAuth, requirePermission('practi
   );
   res.json({ ok: true, data: normalize({ templates, learners }) });
 }));
+
+router.get('/coordinator/assignments/:assignmentId/my-evaluation', ...coordinatorAuth, requirePermission('practical.evaluate_owned'), route((req, res) => myEvaluation(req, res, 'coordinator')));
 
 router.get('/admin/catalog', ...adminAuth, requirePermission('practical.manage_scope'), route(async (req, res) => {
   const params = [];
@@ -88,5 +104,7 @@ router.get('/admin/catalog', ...adminAuth, requirePermission('practical.manage_s
   );
   res.json({ ok: true, data: normalize({ templates, learners, skills }) });
 }));
+
+router.get('/admin/assignments/:assignmentId/my-evaluation', ...adminAuth, requirePermission('practical.manage_scope'), route((req, res) => myEvaluation(req, res, 'admin')));
 
 export default router;
