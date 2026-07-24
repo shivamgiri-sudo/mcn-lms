@@ -4,6 +4,7 @@ import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';
 import ManagementPage from './pages/Management/ManagementPage.jsx';
 import PasswordResetPage from './pages/Auth/PasswordResetPage.jsx';
+import DevelopmentHubRoute from './pages/Development/DevelopmentHubRoute.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
 
 export default function App() {
@@ -12,6 +13,7 @@ export default function App() {
     <Routes>
       <Route path="/" element={<Navigate to="/lms" replace />} />
       <Route path="/reset-password" element={<PasswordResetPage />} />
+      <Route path="/development-hub" element={<DevelopmentHubRoute />} />
       <Route path="/lms/*" element={<TraineePage />} />
       <Route path="/coordinator/*" element={<CoordinatorPage />} />
       <Route path="/admin/*" element={<AdminPage />} />
