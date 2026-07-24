@@ -1,0 +1,60 @@
+name: Backend Dependency Refresh
+
+on:
+  push:
+    branches: [agent/world-class-lms-upgrade]
+    paths:
+      - .github/workflows/backend-dependency-refresh.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:not-a-real-password@127.0.0.1:3306/lms_ci
+      SESSION_SECRET: ci-session-secret-that-is-longer-than-32-characters
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Regenerate dependency manifest and lockfile
+        run: |
+          npm install --save \
+            adm-zip@^0.6.0 \
+            nodemailer@^9.0.3 \
+            googleapis@^173.0.0 \
+            uuid@^14.0.1 \
+            morgan@latest \
+            express@^4
+          npm audit fix --package-lock-only --omit=dev
+
+      - name: Validate regenerated dependency set
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+          npm run db:validate
+          npm test
+          npm audit --omit=dev --audit-level=high
+
+      - name: Upload regenerated package files
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-backend-package-files
+          path: |
+            backend/package.json
+            backend/package-lock.json
+          if-no-files-found: error
+          retention-days: 3
