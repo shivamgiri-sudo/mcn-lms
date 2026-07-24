@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { formatSeconds, pct } from '../../utils/format.js';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import LearningJourneyTab from './LearningJourneyTab.jsx';
+import SkillsPathsTab from './SkillsPathsTab.jsx';
 import LearningTab from './LearningTab.jsx';
 import QATab from './QATab.jsx';
 import AssignedTab from './AssignedTab.jsx';
@@ -22,6 +23,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
 
   const tabs = [
     { id: 'journey', label: '🧭 My Journey' },
+    { id: 'talent', label: '🎯 Skills & Paths' },
     { id: 'learning', label: '📚 My Learning' },
     { id: 'qa', label: '💬 Q&A' },
     { id: 'assigned', label: '📎 Assigned' },
@@ -71,6 +73,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: 'wrap' }}>
             <button className="btn small accent" onClick={() => setActiveTab('learning')}>Continue Learning →</button>
             <button className="btn small secondary" onClick={() => setActiveTab('journey')}>View My Journey</button>
+            <button className="btn small secondary" onClick={() => setActiveTab('talent')}>Review Skill Gaps</button>
             <button className="btn small secondary" onClick={() => setActiveTab('qa')}>Ask a Question</button>
           </div>
         </div>
@@ -128,6 +131,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       </div>
 
       {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
+      {activeTab === 'talent' && <SkillsPathsTab />}
       {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
       {activeTab === 'qa' && <QATab />}
       {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} />}
