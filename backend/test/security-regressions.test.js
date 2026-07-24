@@ -183,3 +183,62 @@ test('server separates liveness, readiness, and designated worker execution', as
   assert.match(text, /LMS_RUN_SCHEDULERS/);
   assert.match(text, /startBackgroundWork/);
 });
+
+test('granular permissions use role grants, expiring user overrides and data scopes', async () => {
+  const middleware = await source('src/middleware/permissions.js');
+  const migration = await source('prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql');
+  assert.match(middleware, /user_permission_override/);
+  assert.match(middleware, /expires_at IS NULL OR expires_at > UTC_TIMESTAMP\(3\)/);
+  assert.match(middleware, /role_key IN \(\?, '\*'\)/);
+  assert.match(middleware, /dataScope/);
+  assert.match(middleware, /DATABASE_PERMISSION_PREFIXES/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS permission_master/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS role_permission/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS user_permission_override/);
+  assert.match(migration, /access\.permissions\.manage/);
+  assert.match(migration, /talent\.paths\.assign/);
+});
+
+test('skills and competency evidence are normalized and derived from LMS records', async () => {
+  const service = await source('src/services/talent.js');
+  const migration = await source('prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql');
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS skill_master/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS role_skill_requirement/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS employee_skill_profile/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS skill_evidence/);
+  assert.match(service, /content_skill_map/);
+  assert.match(service, /assessment_skill_map/);
+  assert.match(service, /completion_status = 'Completed'/);
+  assert.match(service, /ar\.result = 'Pass'/);
+  assert.match(service, /verifiedAndCurrent/);
+  assert.match(service, /currentLevel >= targetLevel \? 'READY' : 'GAP'/);
+});
+
+test('learning paths are versioned, prerequisite-aware and evidence-backed', async () => {
+  const service = await source('src/services/talent.js');
+  const routes = await source('src/routes/talent.js');
+  const migration = await source('prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql');
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS learning_path_master/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS learning_path_step/);
+  assert.match(migration, /CREATE TABLE IF NOT EXISTS learning_path_enrollment/);
+  assert.match(migration, /uq_learning_path_code_version/);
+  assert.match(service, /prerequisiteComplete/);
+  assert.match(service, /CONTENT/);
+  assert.match(service, /ASSESSMENT/);
+  assert.match(service, /SKILL/);
+  assert.match(routes, /\/admin\/paths\/:pathId\/publish/);
+  assert.match(routes, /Add at least one step before publishing/);
+  assert.match(routes, /Prerequisite must be an earlier step/);
+});
+
+test('talent APIs enforce role permission and owned-batch or branch scope', async () => {
+  const routes = await source('src/routes/talent.js');
+  const server = await source('src/server.js');
+  assert.match(routes, /requirePermission\('access\.permissions\.manage'\)/);
+  assert.match(routes, /requirePermission\('talent\.skills\.manage'\)/);
+  assert.match(routes, /requirePermission\('talent\.paths\.assign'\)/);
+  assert.match(routes, /branchAllowed/);
+  assert.match(routes, /coordinatorLoginId: req\.userId/);
+  assert.match(routes, /Maximum|slice\(0, 1000\)/);
+  assert.match(server, /app\.use\('\/api\/talent', talentRoutes\)/);
+});
