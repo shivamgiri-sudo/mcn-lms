@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { randomUUID } from 'crypto';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -30,49 +31,118 @@ import scormRoutes from './routes/scorm.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const PORT = process.env.PORT || 4000;
+const PORT = Number.parseInt(process.env.PORT || '4000', 10);
+const isProduction = process.env.NODE_ENV === 'production';
+const uploadsRoot = path.resolve(__dirname, '..', 'uploads');
+const contentUploadDir = path.join(uploadsRoot, 'content');
+const scormUploadDir = path.join(uploadsRoot, 'scorm');
+const frontendDist = path.resolve(__dirname, '../../frontend/dist');
 
-app.use(
-  helmet({
-    crossOriginResourcePolicy: { policy: 'cross-origin' },
-    contentSecurityPolicy: false,
-    frameguard: false, // allow iframe embedding from HRMS portal
-  })
-);
+if (isProduction && !String(process.env.FRONTEND_URL || '').trim()) {
+  throw new Error('FRONTEND_URL is required in production.');
+}
 
-// CORS — lock to explicit origins, never open to all
-const allowedOrigins = process.env.FRONTEND_URL
-  ? process.env.FRONTEND_URL.split(',').map(o => o.trim())
-  : ['http://localhost:5173', 'http://localhost:3000'];
+app.disable('x-powered-by');
+app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
+app.use((req, res, next) => {
+  const requestId = String(req.headers['x-request-id'] || '').trim().slice(0, 100) || randomUUID();
+  req.requestId = requestId;
+  res.setHeader('X-Request-Id', requestId);
+  next();
+});
 
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-      callback(new Error(`CORS: origin ${origin} not allowed`));
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+  contentSecurityPolicy: false,
+  frameguard: false,
+  referrerPolicy: { policy: 'no-referrer' },
+  strictTransportSecurity: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
+}));
+
+const allowedOrigins = String(process.env.FRONTEND_URL || '')
+  .split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
+if (!isProduction) allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
+const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || uniqueAllowedOrigins.includes(origin)) return callback(null, true);
+    const error = new Error('Origin is not allowed.');
+    error.status = 403;
+    return callback(error);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-HR-API-Key'],
+}));
+
+app.use(morgan(isProduction ? 'combined' : 'dev'));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: process.env.FORM_BODY_LIMIT || '2mb' }));
+
+// Serve only ordinary course content from the LMS origin. The previous generic
+// /uploads mount also exposed executable SCORM files under the authenticated origin.
+app.use('/uploads/content', express.static(contentUploadDir, {
+  index: false,
+  fallthrough: false,
+  setHeaders(res) {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+  },
+}));
+
+// Same-origin SCORM is permitted only as an explicit development convenience.
+if (!isProduction && process.env.SCORM_ALLOW_SAME_ORIGIN === 'true') {
+  app.use('/uploads/scorm', express.static(scormUploadDir, {
+    index: false,
+    fallthrough: false,
+    setHeaders(res) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
     },
-    credentials: true,
-  })
-);
+  }));
+}
 
-app.use(morgan('dev'));
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.get('/api/health/live', (_req, res) => {
+  res.json({ ok: true, service: 'lms-platform', time: new Date().toISOString() });
+});
 
-app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-// SCORM packages served as static files — needs directory listing disabled
-app.use('/uploads/scorm', express.static(path.join(__dirname, '..', 'uploads', 'scorm'), { index: false }));
+async function readiness(_req, res) {
+  const checks = { database: false, uploadStorage: false, frontend: true };
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = true;
+  } catch {
+    checks.database = false;
+  }
+
+  try {
+    if (!fs.existsSync(contentUploadDir)) fs.mkdirSync(contentUploadDir, { recursive: true });
+    fs.accessSync(contentUploadDir, fs.constants.W_OK);
+    checks.uploadStorage = true;
+  } catch {
+    checks.uploadStorage = false;
+  }
+
+  if (process.env.SERVE_FRONTEND !== 'false') checks.frontend = fs.existsSync(frontendDist);
+  const ok = Object.values(checks).every(Boolean);
+  return res.status(ok ? 200 : 503).json({ ok, service: 'lms-platform', checks, time: new Date().toISOString() });
+}
+
+app.get('/api/health/ready', readiness);
+app.get('/api/health', readiness);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/bridge', bridgeRoutes);
 
-// Production-stabilization overrides must be mounted before the legacy route files.
-// These handlers fix specific deployed issues while preserving the existing controllers.
+// Temporary compatibility routers remain ordered before legacy routers. Their
+// consolidation is tracked in the architecture phase and protected by tests.
 app.use('/api/coordinator', coordinatorStabilityRoutes);
 app.use('/api/trainee', traineeStabilityRoutes);
 app.use('/api/admin/diagnostics', diagnosticsRoutes);
 app.use('/api/admin', adminStabilityRoutes);
-
 app.use('/api/coordinator', coordinatorRoutes);
 app.use('/api/trainee', traineeRoutes);
 app.use('/api/admin', adminRoutes);
@@ -84,118 +154,125 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/emp-mapping', empMappingRoutes);
 app.use('/api/scorm', scormRoutes);
 
-app.get('/api/health', (_req, res) => {
-  res.json({
-    ok: true,
-    service: 'lms-platform',
-    mode: process.env.LMS_DEMO_MODE === 'true' ? 'demo' : 'database',
-    time: new Date().toISOString(),
-  });
-});
-
-const frontendDist = path.resolve(__dirname, '../../frontend/dist');
-
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist));
-
+  app.use(express.static(frontendDist, { index: false }));
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api/')) return next();
     return res.sendFile(path.join(frontendDist, 'index.html'));
   });
 } else {
-  app.get('/', (_req, res) => {
-    res.status(200).send(
-      'LMS API is running. Frontend build not found. Run: cd ../frontend && npm run build'
-    );
-  });
+  app.get('/', (_req, res) => res.status(200).send('LMS API is running.'));
 }
 
-// Global error handler — only expose message for 4xx client errors
-app.use((err, _req, res, _next) => {
-  console.error(err);
-  const status = err.status || 500;
-  res.status(status).json({
+app.use((err, req, res, _next) => {
+  console.error(`[${req.requestId || 'no-request-id'}]`, err);
+  const status = Number(err.status || 500);
+  return res.status(status).json({
     ok: false,
+    requestId: req.requestId,
     message: status >= 400 && status < 500 ? (err.message || 'Bad request') : 'Internal server error',
   });
 });
 
-// FIX 6: Historical KPI snapshot — runs on startup and every 24 hours
 async function runKpiSnapshot() {
   try {
     const period = new Date().toISOString().slice(0, 7);
-    const [trainees, batches] = await Promise.all([
-      prisma.traineeMaster.findMany({ where: { status: 'Active' } }),
-      prisma.batchMaster.findMany({ where: { batchStatus: 'Active' } }),
+    const [totalTrainees, activeBatches, averages, certifiedCount] = await Promise.all([
+      prisma.traineeMaster.count({ where: { status: 'Active' } }),
+      prisma.batchMaster.count({ where: { batchStatus: 'Active' } }),
+      prisma.traineeMaster.aggregate({
+        where: { status: 'Active' },
+        _avg: { courseCompletionPct: true, assessmentPassPct: true, attendancePct: true },
+      }),
+      prisma.traineeMaster.count({ where: { status: 'Active', certificationStatus: 'Certified' } }),
     ]);
-    const totalTrainees = trainees.length;
-    const avgCourse = totalTrainees > 0 ? Math.round(trainees.reduce((s, t) => s + (t.courseCompletionPct || 0), 0) / totalTrainees) : 0;
-    const avgMcq = totalTrainees > 0 ? Math.round(trainees.reduce((s, t) => s + (t.assessmentPassPct || 0), 0) / totalTrainees) : 0;
-    const avgAttendance = totalTrainees > 0 ? Math.round(trainees.reduce((s, t) => s + (t.attendancePct || 0), 0) / totalTrainees) : 0;
-    const certified = trainees.filter(t => t.certificationStatus === 'Certified').length;
 
     await prisma.historicalTrainingKpi.upsert({
       where: { period_branch_process_lob: { period, branch: '', process: '', lob: '' } },
-      create: { period, branch: '', process: '', lob: '', totalTrainees, activeBatches: batches.length, avgCoursePct: avgCourse, avgMcqPct: avgMcq, avgAttendancePct: avgAttendance, certifiedCount: certified },
-      update: { totalTrainees, activeBatches: batches.length, avgCoursePct: avgCourse, avgMcqPct: avgMcq, avgAttendancePct: avgAttendance, certifiedCount: certified },
+      create: {
+        period, branch: '', process: '', lob: '', totalTrainees, activeBatches,
+        avgCoursePct: Math.round(averages._avg.courseCompletionPct || 0),
+        avgMcqPct: Math.round(averages._avg.assessmentPassPct || 0),
+        avgAttendancePct: Math.round(averages._avg.attendancePct || 0),
+        certifiedCount,
+      },
+      update: {
+        totalTrainees, activeBatches,
+        avgCoursePct: Math.round(averages._avg.courseCompletionPct || 0),
+        avgMcqPct: Math.round(averages._avg.assessmentPassPct || 0),
+        avgAttendancePct: Math.round(averages._avg.attendancePct || 0),
+        certifiedCount,
+      },
     });
     console.log(`[KPI] Snapshot saved for ${period}`);
-  } catch (err) {
-    console.error('[KPI] Snapshot error:', err.message);
+  } catch (error) {
+    console.error('[KPI] Snapshot error:', error.message);
   }
 }
 
-// Daily summary email — fires at 07:00 IST (01:30 UTC) every day.
-// Set DAILY_SUMMARY_EMAILS as a comma-separated list in env vars.
 function scheduleDailyEmail() {
   const now = new Date();
-  // Target: 01:30 UTC = 07:00 IST
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 1, 30, 0));
   if (next <= now) next.setUTCDate(next.getUTCDate() + 1);
-  const delay = next - now;
-
-  setTimeout(async () => {
-    const emailEnv = process.env.DAILY_SUMMARY_EMAILS || '';
-    const recipients = emailEnv.split(',').map(e => e.trim()).filter(Boolean);
-    if (recipients.length > 0) {
+  const timeout = setTimeout(async () => {
+    const recipients = String(process.env.DAILY_SUMMARY_EMAILS || '').split(',').map(email => email.trim()).filter(Boolean);
+    if (recipients.length) {
       try {
         await sendDailySummaryEmail(recipients);
-      } catch (err) {
-        console.error('[MAILER] Daily summary failed:', err.message);
+      } catch (error) {
+        console.error('[MAILER] Daily summary failed:', error.message);
       }
     }
-    scheduleDailyEmail(); // reschedule for next day
-  }, delay);
-
-  const hh = String(next.getUTCHours()).padStart(2, '0');
-  const mm = String(next.getUTCMinutes()).padStart(2, '0');
-  console.log(`[MAILER] Daily summary scheduled for ${next.toDateString()} ${hh}:${mm} UTC`);
+    scheduleDailyEmail();
+  }, next.getTime() - now.getTime());
+  timeout.unref?.();
 }
 
-app.listen(PORT, () => {
-  console.log(`LMS running on http://localhost:${PORT}`);
-  console.log(`Frontend path checked: ${frontendDist}`);
+function startBackgroundWork() {
+  if (process.env.LMS_RUN_SCHEDULERS !== 'true') {
+    console.log('[WORKER] In-process schedules are disabled. Run one designated worker with LMS_RUN_SCHEDULERS=true.');
+    return;
+  }
+
   runKpiSnapshot();
-  setInterval(runKpiSnapshot, 24 * 60 * 60 * 1000);
+  const kpiTimer = setInterval(runKpiSnapshot, 24 * 60 * 60 * 1000);
+  kpiTimer.unref?.();
   scheduleDailyEmail();
   startScheduler();
-  // Clean expired portal sessions every hour to prevent DB bloat
-  setInterval(() => {
-    cleanExpiredSessions().catch(err => console.error('[Sessions] Cleanup failed:', err.message));
-  }, 60 * 60 * 1000);
 
-  // Video watch log TTL cleanup — remove rows older than 90 days, runs every 6 hours
+  const sessionTimer = setInterval(() => {
+    cleanExpiredSessions().catch(error => console.error('[Sessions] Cleanup failed:', error.message));
+  }, 60 * 60 * 1000);
+  sessionTimer.unref?.();
+
   async function cleanVideoWatchLogs() {
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     try {
-      const del = await prisma.videoWatchLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
-      if (del.count > 0) console.log(`[Cleanup] Deleted ${del.count} video watch log rows older than 90 days`);
-    } catch (e) {
-      console.error('[Cleanup] Video watch log error:', e.message);
+      const deleted = await prisma.videoWatchLog.deleteMany({ where: { createdAt: { lt: cutoff } } });
+      if (deleted.count) console.log(`[Cleanup] Deleted ${deleted.count} expired video-watch rows.`);
+    } catch (error) {
+      console.error('[Cleanup] Video watch log error:', error.message);
     }
   }
   cleanVideoWatchLogs();
-  setInterval(cleanVideoWatchLogs, 6 * 60 * 60 * 1000);
+  const logTimer = setInterval(cleanVideoWatchLogs, 6 * 60 * 60 * 1000);
+  logTimer.unref?.();
+}
+
+const server = app.listen(PORT, () => {
+  console.log(`LMS running on port ${PORT}`);
+  startBackgroundWork();
 });
+
+async function shutdown(signal) {
+  console.log(`[Shutdown] ${signal} received.`);
+  server.close(async () => {
+    await prisma.$disconnect().catch(() => {});
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10000).unref();
+}
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 export default app;
