@@ -45,9 +45,32 @@ jobs:
         shell: bash
         run: |
           set +e
+          : > phase3-fk-diagnostic.log
+          echo "===== REFERENCED TABLE =====" >> phase3-fk-diagnostic.log
+          mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password lms_ci \
+            -e "SHOW CREATE TABLE learning_path_master\\G; SHOW FULL COLUMNS FROM learning_path_master LIKE 'path_id';" \
+            >> phase3-fk-diagnostic.log 2>&1
+
+          cat > /tmp/fk-isolation.sql <<'SQL'
+          DROP TABLE IF EXISTS ci_certification_renewal_rule;
+          CREATE TABLE ci_certification_renewal_rule (
+            renewal_rule_id CHAR(36) NOT NULL,
+            learning_path_id CHAR(36) NULL,
+            PRIMARY KEY (renewal_rule_id),
+            CONSTRAINT fk_ci_cert_rule_path FOREIGN KEY (learning_path_id)
+              REFERENCES learning_path_master(path_id) ON DELETE SET NULL
+          ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+          SHOW WARNINGS;
+          SHOW CREATE TABLE ci_certification_renewal_rule;
+          SQL
+          echo "===== ISOLATED FOREIGN KEY =====" >> phase3-fk-diagnostic.log
+          mysql --force --show-warnings --protocol=TCP -h127.0.0.1 -uroot -proot_password lms_ci \
+            < /tmp/fk-isolation.sql >> phase3-fk-diagnostic.log 2>&1
+
+          echo "===== FULL PHASE 3 MIGRATION =====" >> phase3-fk-diagnostic.log
           mysql --show-warnings --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci \
             < prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql \
-            > phase3-fk-diagnostic.log 2>&1
+            >> phase3-fk-diagnostic.log 2>&1
           code=$?
           echo "" >> phase3-fk-diagnostic.log
           echo "===== INNODB STATUS =====" >> phase3-fk-diagnostic.log
