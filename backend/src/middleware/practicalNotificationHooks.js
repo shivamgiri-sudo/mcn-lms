@@ -18,6 +18,7 @@ async function branchAdministrators(branch) {
   const rows = await prisma.roleAccessMatrix.findMany({
     where: {
       active: true,
+      portalAccess: 'Admin',
       OR: [
         { role: { in: ['Super Admin', 'SuperAdmin'] } },
         { branch: String(branch || '') },
