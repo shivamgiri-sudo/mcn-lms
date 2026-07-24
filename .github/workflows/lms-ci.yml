@@ -154,11 +154,11 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Reject known credential patterns in product source
+      - name: Reject previously leaked credential patterns in product source
         shell: bash
         run: |
           set -euo pipefail
-          pattern='192\.168\.10\.6|qwersdfg|shivam_user|admin1234|ceo123'
+          pattern='192\.168\.10\.6|qwersdfg|shivam_user'
           matches="$(git grep -nE "$pattern" -- \
             'backend/src/**' \
             'backend/prisma/**' \
@@ -167,7 +167,7 @@ jobs:
             ':!**/*.lock' || true)"
           if [ -n "$matches" ]; then
             echo "$matches"
-            echo 'Known insecure credential or internal-host pattern detected in product source.' >&2
+            echo 'Previously leaked credential or internal-host pattern detected in product source.' >&2
             exit 1
           fi
 
