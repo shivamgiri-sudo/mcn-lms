@@ -8,6 +8,7 @@ import DevelopmentHubRoute from './pages/Development/DevelopmentHubRoute.jsx';
 import TrainingCalendarPage from './pages/TrainingCalendar/TrainingCalendarPage.jsx';
 import PracticalAssessmentsPage from './pages/PracticalAssessments/PracticalAssessmentsPage.jsx';
 import NotificationDock from './pages/Notifications/NotificationDock.jsx';
+import LearningToolsDock from './components/LearningToolsDock.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/admin/*" element={<AdminPage />} />
         <Route path="/management/*" element={<ManagementPage />} />
       </Routes>
+      <LearningToolsDock />
       <NotificationDock />
     </>
   );
