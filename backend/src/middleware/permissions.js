@@ -6,7 +6,7 @@ const LEGACY_ROLE_PERMISSIONS = {
   trainee: ['trainee.view'],
 };
 
-const DATABASE_PERMISSION_PREFIXES = ['access.', 'talent.'];
+const DATABASE_PERMISSION_PREFIXES = ['access.', 'talent.', 'development.'];
 const CACHE_TTL_MS = 60_000;
 const permissionCache = new Map();
 const VALID_SCOPES = new Set(['self', 'own_batch', 'branch', 'company']);
@@ -138,7 +138,6 @@ export async function getUserPermissions(req) {
     }
     return [...new Set([...legacy, ...database])];
   } catch (error) {
-    // Legacy permissions remain available before the Phase 2 migration is applied.
     console.warn('[PERMISSION] Database permission tables unavailable:', error.message);
     return legacy;
   }
