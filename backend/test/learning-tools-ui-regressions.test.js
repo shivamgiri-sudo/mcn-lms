@@ -17,7 +17,10 @@ test('launcher resolves existing learner coordinator and admin sessions', () => 
   assert.match(dock, /lms_token_trainee/);
   assert.match(dock, /lms_token_coordinator/);
   assert.match(dock, /lms_token_admin/);
-  assert.match(dock, /roleFromPath/);
+  assert.match(dock, /portalRoleFromPath/);
+  assert.match(dock, /pathname\.startsWith\('\/lms'\)/);
+  assert.match(dock, /pathname\.startsWith\('\/coordinator'\)/);
+  assert.match(dock, /pathname\.startsWith\('\/admin'\)/);
   assert.match(dock, /No separate sign-in/);
 });
 
