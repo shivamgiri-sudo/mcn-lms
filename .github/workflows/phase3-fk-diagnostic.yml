@@ -51,7 +51,7 @@ jobs:
           code=$?
           echo "" >> phase3-fk-diagnostic.log
           echo "===== INNODB STATUS =====" >> phase3-fk-diagnostic.log
-          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci \
+          mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password lms_ci \
             -e "SHOW ENGINE INNODB STATUS\\G" >> phase3-fk-diagnostic.log 2>&1
           cat phase3-fk-diagnostic.log
           echo "$code" > phase3-fk-exit-code.txt
