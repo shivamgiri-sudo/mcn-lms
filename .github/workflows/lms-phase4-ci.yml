@@ -97,7 +97,7 @@ jobs:
                  'ilt_session_resource','ilt_session_feedback'
                );
             SELECT COUNT(*) FROM permission_master WHERE permission_key LIKE 'ilt.%';
-            SELECT COUNT(*) FROM information_schema.statistics
+            SELECT COUNT(DISTINCT index_name) FROM information_schema.statistics
              WHERE table_schema='lms_ci' AND table_name='ilt_session_enrollment'
                AND index_name='uq_ilt_session_employee' AND non_unique=0;
             SELECT COUNT(*) FROM information_schema.check_constraints
