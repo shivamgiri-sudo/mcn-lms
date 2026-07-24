@@ -13,6 +13,7 @@ import { cleanExpiredSessions } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
+import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
 
 import passwordStabilityRoutes from './routes/passwordStability.js';
 import certificationHooks from './routes/certificationHooks.js';
@@ -158,6 +159,7 @@ app.use('/api/scorm', scormRoutes);
 app.use('/api/talent', talentEvidenceRoutes);
 app.use('/api/talent', talentRoutes);
 app.use('/api/development', developmentRoutes);
+app.use('/api/ilt', normalizeIltAttendanceRequest);
 app.use('/api/ilt', iltRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
