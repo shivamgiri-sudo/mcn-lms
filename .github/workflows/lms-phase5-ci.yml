@@ -163,10 +163,31 @@ jobs:
             echo 'Invalid digest mode was accepted.' >&2
             exit 1
           fi
-      - name: Check backend syntax and regressions
+      - name: Check backend JavaScript syntax
+        run: find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run backend regressions with diagnostics
+        id: regressions
+        shell: bash
         run: |
-          find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
-          npm test
+          set +e
+          npm test > phase5-regression.log 2>&1
+          code=$?
+          cat phase5-regression.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload Phase 5 regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-regression-diagnostics
+          path: backend/phase5-regression.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce backend regressions
+        if: steps.regressions.outputs.exit_code != '0'
+        run: |
+          echo 'Phase 5 regressions failed. Inspect phase5-regression-diagnostics.' >&2
+          exit 1
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
