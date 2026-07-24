@@ -129,10 +129,31 @@ jobs:
               (certification_id,employee_id,certification_type,credential_number,version_no,status,issued_at,issued_by,previous_certification_id)
             VALUES ('33333333-3333-3333-3333-333333333333','EMP-CI','PROCESS_CERTIFICATION','CI-RENEWED',2,'ACTIVE',UTC_TIMESTAMP(3),'ci','11111111-1111-1111-1111-111111111111');
           "
-      - name: Check backend syntax and regressions
+      - name: Check backend JavaScript syntax
+        run: find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run backend regressions with diagnostics
+        id: regression_tests
+        shell: bash
         run: |
-          find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
-          npm test
+          set +e
+          npm test > phase3-test.log 2>&1
+          code=$?
+          cat phase3-test.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload Phase 3 regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase3-regression-diagnostics
+          path: backend/phase3-test.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce backend regressions
+        if: steps.regression_tests.outputs.exit_code != '0'
+        run: |
+          echo 'Phase 3 regression tests failed. Inspect phase3-regression-diagnostics.' >&2
+          exit 1
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
 
