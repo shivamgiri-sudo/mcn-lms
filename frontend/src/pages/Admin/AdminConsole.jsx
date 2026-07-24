@@ -31,6 +31,7 @@ import NotificationConfigTab from './NotificationConfigTab.jsx';
 import SystemHealthTab from './SystemHealthTab.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
+import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health']);
 
@@ -38,6 +39,7 @@ const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
   { section: 'Training', items: [
     { id: 'curriculum', label: 'Curriculum', icon: '📋' },
+    { id: 'live-training', label: 'Live Training Calendar', icon: '🗓️' },
     { id: 'content-repository', label: 'Content Repository', icon: '🗂️' },
     { id: 'independent-modules', label: 'Independent Modules', icon: '🧩' },
     { id: 'talent', label: 'Skills & Learning Paths', icon: '🎯' },
@@ -121,6 +123,7 @@ export default function AdminConsole({ user, onLogout }) {
         <div className="logo-wrap"><img src="/mcn-logo.png" alt="MCN" onError={e => { e.target.style.display='none'; }} /><span className="lms-badge">MCN LMS</span></div>
         {crumbs.length > 0 && <div className="breadcrumb">{crumbs.map((crumb, index) => <span key={index}>{index > 0 && <span style={{margin:'0 4px',opacity:.4}}>/</span>}{crumb.onClick ? <span className="crumb-link" onClick={crumb.onClick}>{crumb.label}</span> : <span>{crumb.label}</span>}</span>)}</div>}
         <div className="nav-right">
+          <a className="btn small secondary" href="/training-calendar?role=admin">🗓️ Live Training</a>
           <span className="nav-user">👤 {user?.adminId || 'Admin'}{user?.branch ? <span style={{marginLeft:8,fontSize:10,opacity:.6,background:'rgba(128,128,128,.15)',padding:'2px 6px',borderRadius:4}}>{user.branch}</span> : null}</span>
           <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid rgba(128,128,128,.3)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'inherit', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" style={{ marginRight: 6 }} onClick={() => setShowPwModal(true)}>Change Password</button>
@@ -140,6 +143,7 @@ export default function AdminConsole({ user, onLogout }) {
         <div className="admin-main">
           {activeId === 'dashboard' && <DashboardPage navigate={navigate} />}
           {activeId === 'curriculum' && <CurriculumTab />}
+          {activeId === 'live-training' && <TrainingCalendarEntryCard role="admin" />}
           {activeId === 'content-repository' && <ContentRepositoryTab />}
           {activeId === 'independent-modules' && <IndependentModulesTab />}
           {activeId === 'talent' && <TalentArchitectureTab />}
