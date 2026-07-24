@@ -1,36 +1,41 @@
 /**
- * HRMS2 SSO Bootstrap
- * Reads hrms_lms_token + lms_user_type from URL query params,
- * stores token in the correct localStorage key, then strips params from URL.
- * Must be called before any LMS route rendering.
+ * HRMS SSO bootstrap.
+ *
+ * Trusted HRMS handoff values must be placed in the URL fragment:
+ *   #hrms_lms_token=<token>&lms_user_type=<type>
+ *
+ * Fragments are not sent to web servers or in HTTP referrer headers. The values
+ * are removed from browser history immediately after capture.
  */
-
 const STORAGE_KEY_MAP = {
-  trainee: "lms_token_trainee",
-  coordinator: "lms_token_coordinator",
-  admin: "lms_token_admin",
-  management: "lms_token_management",
+  trainee: 'lms_token_trainee',
+  coordinator: 'lms_token_coordinator',
+  admin: 'lms_token_admin',
+  management: 'lms_token_management',
 };
 
-export function runSsoBootstrap() {
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const token = params.get("hrms_lms_token");
-    const userType = params.get("lms_user_type") || "trainee";
+let bootstrapped = false;
 
+export function runSsoBootstrap() {
+  if (bootstrapped || typeof window === 'undefined') return;
+  bootstrapped = true;
+
+  try {
+    const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : '';
+    const params = new URLSearchParams(hash);
+    const token = params.get('hrms_lms_token');
     if (!token) return;
 
-    const storageKey = STORAGE_KEY_MAP[userType] || STORAGE_KEY_MAP.trainee;
-    localStorage.setItem(storageKey, token);
+    const userType = params.get('lms_user_type') || 'trainee';
+    const storageKey = STORAGE_KEY_MAP[userType];
+    if (!storageKey) throw new Error('Unsupported LMS SSO user type.');
 
-    // Strip SSO params from URL without reload
-    params.delete("hrms_lms_token");
-    params.delete("lms_user_type");
-    const newSearch = params.toString() ? `?${params.toString()}` : "";
-    const cleanUrl = `${window.location.pathname}${newSearch}${window.location.hash}`;
-    window.history.replaceState(null, "", cleanUrl);
-  } catch (e) {
-    // Fail silently — LMS should still load normally
-    console.warn("[ssoBootstrap] failed:", e);
+    localStorage.setItem(storageKey, token);
+    params.delete('hrms_lms_token');
+    params.delete('lms_user_type');
+    const remainingHash = params.toString() ? `#${params.toString()}` : '';
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}${remainingHash}`);
+  } catch (error) {
+    console.warn('[ssoBootstrap] rejected handoff:', error.message);
   }
 }
