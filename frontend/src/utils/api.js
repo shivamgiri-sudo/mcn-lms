@@ -5,12 +5,20 @@ function getToken(type) {
   return localStorage.getItem(`lms_token_${type}`) || '';
 }
 
+function announceTokenChange(type, active) {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('lms:token-changed', { detail: { type, active } }));
+  }
+}
+
 export function setToken(type, token) {
   localStorage.setItem(`lms_token_${type}`, token);
+  announceTokenChange(type, Boolean(token));
 }
 
 export function clearToken(type) {
   localStorage.removeItem(`lms_token_${type}`);
+  announceTokenChange(type, false);
 }
 
 function networkMessage(err) {
