@@ -35,6 +35,7 @@ import scormRoutes from './routes/scorm.js';
 import talentRoutes from './routes/talent.js';
 import talentEvidenceRoutes from './routes/talentEvidence.js';
 import developmentRoutes from './routes/development.js';
+import iltRoutes from './routes/ilt.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -157,6 +158,7 @@ app.use('/api/scorm', scormRoutes);
 app.use('/api/talent', talentEvidenceRoutes);
 app.use('/api/talent', talentRoutes);
 app.use('/api/development', developmentRoutes);
+app.use('/api/ilt', iltRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));
