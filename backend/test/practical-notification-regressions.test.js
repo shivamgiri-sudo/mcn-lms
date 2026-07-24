@@ -57,8 +57,8 @@ test('practical reminders use bounded milestones and deterministic event keys', 
 
 test('the designated notification worker generates practical campaigns before delivery', () => {
   assert.match(runtime, /generatePracticalAssessmentReminders/);
-  const practicalRun = runtime.indexOf('generatePracticalAssessmentReminders()');
-  const campaignRun = runtime.indexOf('runNotificationCampaignCycle');
+  const practicalRun = runtime.indexOf('await generatePracticalAssessmentReminders()');
+  const campaignRun = runtime.indexOf('await runNotificationCampaignCycle(');
   assert.ok(practicalRun > 0);
   assert.ok(campaignRun > practicalRun);
   assert.match(runtime, /Number\(practical\.generated \|\| 0\)/);
