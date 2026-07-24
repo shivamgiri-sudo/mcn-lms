@@ -33,6 +33,17 @@ test('employee talent inspection and verification remain within admin data scope
   assert.match(talentRoutes, /MANUAL_VERIFICATION/);
 });
 
+test('expired manual verification is removed before scheduled recalculation', async () => {
+  const service = await source('src/services/talentGovernance.js');
+  const server = await source('src/server.js');
+  assert.match(service, /expireAllStaleVerifications/);
+  assert.match(service, /evidence_status = 'EXPIRED'/);
+  assert.match(service, /verified_by = NULL/);
+  assert.match(service, /expires_at <= UTC_TIMESTAMP\(3\)/);
+  assert.match(server, /runTalentGovernanceCleanup/);
+  assert.match(server, /setInterval\(runTalentGovernanceCleanup/);
+});
+
 test('evidence mappings can be removed only for visible content or assessments', async () => {
   const routes = await source('src/routes/talentEvidence.js');
   assert.match(routes, /REMOVE_SKILL_EVIDENCE_MAP/);
@@ -78,7 +89,7 @@ test('admin talent workspaces provide actual creation, mapping and verification 
   assert.match(architecture, /\/enrollments/);
   assert.match(evidence, /\/talent\/admin\/evidence\/catalog/);
   assert.match(evidence, /\/maps\//);
-  assert.match(evidence, /\/talent$/m);
+  assert.match(evidence, /employees\/\$\{encodeURIComponent\(employeeId\)\}\/talent/);
   assert.match(evidence, /Record verification/);
   assert.match(consolePage, /EvidenceGovernanceTab/);
   assert.match(consolePage, /Evidence & Verification/);
