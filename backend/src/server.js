@@ -11,7 +11,9 @@ import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
+import { expireAllStaleVerifications } from './services/talentGovernance.js';
 
+import passwordStabilityRoutes from './routes/passwordStability.js';
 import authRoutes from './routes/auth.js';
 import bridgeRoutes from './routes/bridge.js';
 import coordinatorStabilityRoutes from './routes/coordinatorStability.js';
@@ -84,8 +86,6 @@ app.use(morgan(isProduction ? 'combined' : 'dev'));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.FORM_BODY_LIMIT || '2mb' }));
 
-// Serve only ordinary course content from the LMS origin. The previous generic
-// /uploads mount also exposed executable SCORM files under the authenticated origin.
 app.use('/uploads/content', express.static(contentUploadDir, {
   index: false,
   fallthrough: false,
@@ -95,7 +95,6 @@ app.use('/uploads/content', express.static(contentUploadDir, {
   },
 }));
 
-// Same-origin SCORM is permitted only as an explicit development convenience.
 if (!isProduction && process.env.SCORM_ALLOW_SAME_ORIGIN === 'true') {
   app.use('/uploads/scorm', express.static(scormUploadDir, {
     index: false,
@@ -136,11 +135,9 @@ async function readiness(_req, res) {
 app.get('/api/health/ready', readiness);
 app.get('/api/health', readiness);
 
+app.use('/api', passwordStabilityRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/auth/bridge', bridgeRoutes);
-
-// Temporary compatibility routers remain ordered before legacy routers. Their
-// consolidation is tracked in the architecture phase and protected by tests.
 app.use('/api/coordinator', coordinatorStabilityRoutes);
 app.use('/api/trainee', traineeStabilityRoutes);
 app.use('/api/admin/diagnostics', diagnosticsRoutes);
@@ -214,6 +211,17 @@ async function runKpiSnapshot() {
   }
 }
 
+async function runTalentGovernanceCleanup() {
+  try {
+    const result = await expireAllStaleVerifications();
+    if (Number(result.expiredEvidence || 0) || Number(result.expiredProfiles || 0)) {
+      console.log(`[Talent] Expired ${result.expiredEvidence} evidence rows and ${result.expiredProfiles} verified profiles.`);
+    }
+  } catch (error) {
+    console.warn('[Talent] Verification expiry cleanup skipped:', error.message);
+  }
+}
+
 function scheduleDailyEmail() {
   const now = new Date();
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 1, 30, 0));
@@ -249,6 +257,9 @@ function startBackgroundWork() {
   }, 60 * 60 * 1000);
   sessionTimer.unref?.();
 
+  const talentTimer = setInterval(runTalentGovernanceCleanup, 60 * 60 * 1000);
+  talentTimer.unref?.();
+
   async function cleanVideoWatchLogs() {
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     try {
@@ -265,6 +276,7 @@ function startBackgroundWork() {
 
 const server = app.listen(PORT, () => {
   console.log(`LMS running on port ${PORT}`);
+  runTalentGovernanceCleanup();
   startBackgroundWork();
 });
 
