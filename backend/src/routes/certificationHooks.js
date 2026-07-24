@@ -5,6 +5,7 @@ import { notificationEventHooks } from '../middleware/notificationHooks.js';
 import notificationRoutes from './notifications.js';
 import calendarRoutes from './calendar.js';
 import practicalRoutes from './practical.js';
+import practicalCatalogRoutes from './practicalCatalog.js';
 import { syncCertificationLifecycleForEmployee } from '../services/developmentGovernance.js';
 
 const router = Router();
@@ -16,6 +17,7 @@ router.use(notificationRuntime);
 router.use(notificationEventHooks);
 router.use('/notifications', notificationRoutes);
 router.use('/calendar', calendarRoutes);
+router.use('/practical', practicalCatalogRoutes);
 router.use('/practical', practicalRoutes);
 
 router.post(
