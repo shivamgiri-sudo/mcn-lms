@@ -3,13 +3,15 @@ import TraineePage from './pages/Trainee/TraineePage.jsx';
 import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';
 import ManagementPage from './pages/Management/ManagementPage.jsx';
+import PasswordResetPage from './pages/Auth/PasswordResetPage.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
 
 export default function App() {
-  runSsoBootstrap(); // must run before routes render — handles HRMS2 token handoff
+  runSsoBootstrap();
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/lms" replace />} />
+      <Route path="/reset-password" element={<PasswordResetPage />} />
       <Route path="/lms/*" element={<TraineePage />} />
       <Route path="/coordinator/*" element={<CoordinatorPage />} />
       <Route path="/admin/*" element={<AdminPage />} />
