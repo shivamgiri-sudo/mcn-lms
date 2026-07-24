@@ -9,6 +9,7 @@ import DriveTab from './DriveTab.jsx';
 import ContentRepositoryTab from './ContentRepositoryTab.jsx';
 import IndependentModulesTab from './IndependentModulesTab.jsx';
 import TalentArchitectureTab from './TalentArchitectureTab.jsx';
+import EvidenceGovernanceTab from './EvidenceGovernanceTab.jsx';
 import DashboardPage from './DashboardPage.jsx';
 import BatchesPage from './BatchesPage.jsx';
 import BatchDetailPage from './BatchDetailPage.jsx';
@@ -40,6 +41,7 @@ const NAV = [
     { id: 'content-repository', label: 'Content Repository', icon: '🗂️' },
     { id: 'independent-modules', label: 'Independent Modules', icon: '🧩' },
     { id: 'talent', label: 'Skills & Learning Paths', icon: '🎯' },
+    { id: 'evidence-governance', label: 'Evidence & Verification', icon: '🧪' },
     { id: 'questions', label: 'Questions & MCQ', icon: '❓' },
     { id: 'broadcast', label: 'Broadcast / Assign', icon: '📢' },
     { id: 'drive', label: 'Drive Sync', icon: '☁️' },
@@ -159,6 +161,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'content-repository' && <ContentRepositoryTab />}
           {activeId === 'independent-modules' && <IndependentModulesTab />}
           {activeId === 'talent' && <TalentArchitectureTab />}
+          {activeId === 'evidence-governance' && <EvidenceGovernanceTab />}
           {activeId === 'questions' && <QuestionsTab />}
           {activeId === 'drive' && <DriveTab />}
           {activeId === 'batches' && <BatchesPage navigate={navigate} />}
