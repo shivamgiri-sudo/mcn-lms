@@ -21,12 +21,27 @@ jobs:
     name: Backend validation
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: ci-password
+          MYSQL_ROOT_PASSWORD: ci-root-password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci-root-password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     defaults:
       run:
         working-directory: backend
     env:
       NODE_ENV: test
-      DATABASE_URL: mysql://lms_ci:not-a-real-password@127.0.0.1:3306/lms_ci
+      DATABASE_URL: mysql://lms_ci:ci-password@127.0.0.1:3306/lms_ci
       SESSION_SECRET: ci-session-secret-that-is-longer-than-32-characters
       OAUTH_STATE_SECRET: ci-oauth-state-secret-that-is-longer-than-32-characters
       GOOGLE_TOKEN_ENCRYPTION_KEY: ci-google-token-key-that-is-longer-than-32-characters
@@ -52,6 +67,11 @@ jobs:
 
       - name: Validate Prisma schema
         run: npm run db:validate
+
+      - name: Apply and verify secure recovery migration
+        run: |
+          npx prisma db execute --file prisma/migrations/20260724090000_secure_password_recovery/migration.sql --schema prisma/schema.prisma
+          node --input-type=module -e "import mysql from 'mysql2/promise'; const c=await mysql.createConnection(process.env.DATABASE_URL); const [rows]=await c.query(\"SHOW TABLES LIKE 'password_reset_tokens'\"); if(rows.length!==1) throw new Error('password_reset_tokens was not created'); const [idx]=await c.query(\"SHOW INDEX FROM password_reset_tokens WHERE Key_name='password_reset_tokens_token_hash_key'\"); if(idx.length!==1) throw new Error('reset token unique index is missing'); await c.end();"
 
       - name: Check backend JavaScript syntax
         run: find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
