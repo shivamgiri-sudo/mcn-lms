@@ -38,11 +38,11 @@ const TOOLS = [
   },
 ];
 
-function roleFromPath(pathname, available) {
-  if (pathname.startsWith('/lms')) return available.includes('trainee') ? 'trainee' : available[0];
-  if (pathname.startsWith('/coordinator')) return available.includes('coordinator') ? 'coordinator' : available[0];
-  if (pathname.startsWith('/admin')) return available.includes('admin') ? 'admin' : available[0];
-  return available[0];
+function portalRoleFromPath(pathname, available) {
+  if (pathname.startsWith('/lms') && available.includes('trainee')) return 'trainee';
+  if (pathname.startsWith('/coordinator') && available.includes('coordinator')) return 'coordinator';
+  if (pathname.startsWith('/admin') && available.includes('admin')) return 'admin';
+  return null;
 }
 
 export default function LearningToolsDock() {
@@ -56,7 +56,7 @@ export default function LearningToolsDock() {
       .map(([role]) => role),
     [location.pathname, sessionVersion],
   );
-  const [role, setRole] = useState(() => roleFromPath(location.pathname, available));
+  const [role, setRole] = useState(() => portalRoleFromPath(location.pathname, available) || available[0]);
 
   useEffect(() => {
     function refreshSessions() {
@@ -71,8 +71,9 @@ export default function LearningToolsDock() {
   }, []);
 
   useEffect(() => {
-    const next = roleFromPath(location.pathname, available);
-    if (next && !available.includes(role)) setRole(next);
+    const portalRole = portalRoleFromPath(location.pathname, available);
+    if (portalRole && portalRole !== role) setRole(portalRole);
+    else if (!available.includes(role) && available[0]) setRole(available[0]);
     if (!available.length || location.pathname === '/reset-password') setOpen(false);
   }, [location.pathname, sessionVersion, role, available]);
 
