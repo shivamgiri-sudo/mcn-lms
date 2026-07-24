@@ -28,6 +28,7 @@ import reportRoutes from './routes/reports.js';
 import empMappingRoutes from './routes/empMapping.js';
 import complianceRoutes from './routes/compliance.js';
 import scormRoutes from './routes/scorm.js';
+import talentRoutes from './routes/talent.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -153,6 +154,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/emp-mapping', empMappingRoutes);
 app.use('/api/scorm', scormRoutes);
+app.use('/api/talent', talentRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));
@@ -272,6 +274,7 @@ async function shutdown(signal) {
   });
   setTimeout(() => process.exit(1), 10000).unref();
 }
+
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
