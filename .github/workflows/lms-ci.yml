@@ -59,8 +59,25 @@ jobs:
       - name: Run security regression tests
         run: npm test
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Capture backend dependency audit
+        id: backend_audit
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high --json > audit-report.json
+
+      - name: Upload backend audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-dependency-audit
+          path: backend/audit-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce backend dependency audit
+        if: steps.backend_audit.outcome == 'failure'
+        run: |
+          node -e "const a=require('./audit-report.json'); const v=a.vulnerabilities||{}; for (const [name,d] of Object.entries(v)) console.error(name, d.severity, d.range, 'fix:', JSON.stringify(d.fixAvailable)); console.error('metadata:', JSON.stringify(a.metadata?.vulnerabilities||{}));"
+          exit 1
 
   frontend:
     name: Frontend production build
@@ -89,8 +106,25 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+      - name: Capture frontend dependency audit
+        id: frontend_audit
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high --json > audit-report.json
+
+      - name: Upload frontend audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dependency-audit
+          path: frontend/audit-report.json
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce frontend dependency audit
+        if: steps.frontend_audit.outcome == 'failure'
+        run: |
+          node -e "const a=require('./audit-report.json'); const v=a.vulnerabilities||{}; for (const [name,d] of Object.entries(v)) console.error(name, d.severity, d.range, 'fix:', JSON.stringify(d.fixAvailable)); console.error('metadata:', JSON.stringify(a.metadata?.vulnerabilities||{}));"
+          exit 1
 
   secret-baseline:
     name: Secret regression baseline
