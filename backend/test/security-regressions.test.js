@@ -22,8 +22,11 @@ test('HRMS connector contains no embedded credentials or internal defaults', asy
 
 test('portal sessions are never accepted from URL query parameters', async () => {
   const text = await source('src/middleware/auth.js');
+  const bootstrap = await source('frontend/src/utils/ssoBootstrap.js', repoRoot);
   assert.doesNotMatch(text, /req\.query\.token/);
   assert.match(text, /startsWith\('Bearer '\)/);
+  assert.doesNotMatch(bootstrap, /window\.location\.search[\s\S]*hrms_lms_token/);
+  assert.match(bootstrap, /window\.location\.hash/);
 });
 
 test('session tokens are fingerprinted before database storage', async () => {
@@ -58,7 +61,28 @@ test('sensitive admin APIs use a server-side super-admin guard', async () => {
   assert.match(text, /router\.get\('\/audit-logs', \.\.\.superAuth/);
 });
 
-test('insecure self-service password mutation handlers are not mounted', async () => {
+test('password recovery uses hashed single-use tokens with expiry and session revocation', async () => {
+  const routes = await source('src/routes/auth.js');
+  const controller = await source('src/controllers/secureRecovery.js');
+  const migration = await source('prisma/migrations/20260724090000_secure_password_recovery/migration.sql');
+  const resetPage = await source('frontend/src/pages/Auth/PasswordResetPage.jsx', repoRoot);
+
+  assert.match(routes, /completePasswordRecovery/);
+  assert.match(routes, /\/recovery\/complete/);
+  assert.match(controller, /randomBytes\(32\)/);
+  assert.match(controller, /tokenHash = sha256/);
+  assert.match(controller, /expires_at > NOW\(3\)/);
+  assert.match(controller, /used_at = NOW\(3\)/);
+  assert.match(controller, /portalSession\.deleteMany/);
+  assert.match(controller, /PASSWORD_RECOVERY_COMPLETED/);
+  assert.match(migration, /CREATE TABLE `password_reset_tokens`/);
+  assert.match(migration, /UNIQUE INDEX `password_reset_tokens_token_hash_key`/);
+  assert.match(resetPage, /window\.history\.replaceState/);
+  assert.match(resetPage, /auth\/recovery\/complete/);
+  assert.doesNotMatch(controller, /tempPassword/);
+});
+
+test('insecure legacy password mutation handlers are not mounted', async () => {
   const text = await source('src/routes/auth.js');
   assert.match(text, /requestTraineeRecovery/);
   assert.match(text, /requestAdminRecovery/);
@@ -67,17 +91,35 @@ test('insecure self-service password mutation handlers are not mounted', async (
   assert.doesNotMatch(text, /adminForgotPassword/);
 });
 
+test('coordinator onboarding is scoped and uses random forced-reset credentials', async () => {
+  const text = await source('src/routes/coordinatorStability.js');
+  assert.match(text, /getOwnedBatch/);
+  assert.match(text, /temporaryCredential/);
+  assert.match(text, /randomBytes\(12\)/);
+  assert.match(text, /forcePasswordReset: true/);
+  assert.match(text, /credentialDelivered/);
+  assert.match(text, /Maximum 500 trainees per bulk request/);
+  assert.doesNotMatch(text, /slice\(-4\)/);
+  assert.doesNotMatch(text, /or 1234 if no mobile/);
+});
+
+test('login pages do not publish or recommend predictable credentials', async () => {
+  const management = await source('frontend/src/pages/Management/MgmtLogin.jsx', repoRoot);
+  const admin = await source('frontend/src/pages/Admin/AdminLogin.jsx', repoRoot);
+  const trainee = await source('frontend/src/pages/Trainee/LoginView.jsx', repoRoot);
+  assert.doesNotMatch(management, /ceo123/i);
+  assert.doesNotMatch(management, /Demo:\s*/);
+  assert.doesNotMatch(admin, /admin1234/i);
+  assert.doesNotMatch(admin, /Temporary Password:/i);
+  assert.doesNotMatch(trainee, /last 4 digits/i);
+  assert.match(trainee, /one-time credential/i);
+});
+
 test('uploads require matching extension and MIME and reject generic octet streams', async () => {
   const text = await source('src/utils/upload.js');
   assert.match(text, /MIME_BY_EXTENSION/);
   assert.match(text, /hasMatchingType/);
   assert.doesNotMatch(text, /application\/octet-stream/);
-});
-
-test('management login does not publish credentials', async () => {
-  const text = await source('frontend/src/pages/Management/MgmtLogin.jsx', repoRoot);
-  assert.doesNotMatch(text, /ceo123/i);
-  assert.doesNotMatch(text, /Demo:\s*/);
 });
 
 test('seed is disabled by default and never embeds known passwords', async () => {
