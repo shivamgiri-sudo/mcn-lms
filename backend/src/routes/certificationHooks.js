@@ -1,8 +1,21 @@
 import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
+import { notificationRuntime } from '../middleware/notificationRuntime.js';
+import { notificationEventHooks } from '../middleware/notificationHooks.js';
+import notificationRoutes from './notifications.js';
+import calendarRoutes from './calendar.js';
 import { syncCertificationLifecycleForEmployee } from '../services/developmentGovernance.js';
 
 const router = Router();
+
+// Phase 5 platform middleware is mounted here because this router is registered
+// at /api before every product route in server.js. This preserves post-response
+// event capture while exposing notification and calendar APIs without changing
+// the legacy authentication or product route topology.
+router.use(notificationRuntime);
+router.use(notificationEventHooks);
+router.use('/notifications', notificationRoutes);
+router.use('/calendar', calendarRoutes);
 
 router.post(
   '/coordinator/batches/:batchNo/certification/certify',
