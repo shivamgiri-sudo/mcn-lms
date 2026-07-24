@@ -69,13 +69,16 @@ test('learner submissions are evidence-bearing and become locked for evaluation'
   assert.match(routes, /detail\.employeeId !== String\(req\.userId\)/);
 });
 
-test('evaluator slots are independent, bounded and cannot be self-claimed', () => {
+test('evaluator slots are independent bounded and blind peer data is redacted', () => {
   assert.match(governance, /Learners cannot evaluate their own practical assessment/);
   assert.match(governance, /All evaluator slots are already assigned/);
   assert.match(governance, /while \(used\.has\(slot\)\) slot \+= 1/);
   assert.match(governance, /EVALUATION_CLAIMED/);
   assert.match(catalog, /my-evaluation/);
-  assert.match(routes, /Blind review safeguards/);
+  assert.match(routes, /function hideBlindPeer/);
+  assert.match(routes, /submittedCount >= Number\(detail\.evaluatorCount/);
+  assert.match(routes, /evaluatorId: null/);
+  assert.match(routes, /scores: \[\]/);
 });
 
 test('server calculates every criterion and enforces critical and evidence gates', () => {
