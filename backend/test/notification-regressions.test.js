@@ -11,6 +11,7 @@ const hooks = readFileSync(new URL('../src/middleware/notificationHooks.js', imp
 const runtime = readFileSync(new URL('../src/middleware/notificationRuntime.js', import.meta.url), 'utf8');
 const notificationRoutes = readFileSync(new URL('../src/routes/notifications.js', import.meta.url), 'utf8');
 const calendarRoutes = readFileSync(new URL('../src/routes/calendar.js', import.meta.url), 'utf8');
+const integration = readFileSync(new URL('../src/routes/certificationHooks.js', import.meta.url), 'utf8');
 const notify = readFileSync(new URL('../src/utils/notify.js', import.meta.url), 'utf8');
 const server = readFileSync(new URL('../src/server.js', import.meta.url), 'utf8');
 
@@ -76,9 +77,9 @@ test('template resolution honors mandatory delivery and optional preferences', (
 });
 
 test('SMS and WhatsApp keep legacy mobile callers and support outbox addresses', () => {
-  assert.match(notify, /sendSms\(\{ mobile, to, message \}\)/);
-  assert.match(notify, /sendWhatsApp\(\{ mobile, to, message \}\)/);
-  assert.match(notify, /mobile \|\| to/);
+  assert.match(notify, /sendSms\(\{ mobile, to, message/);
+  assert.match(notify, /sendWhatsApp\(\{ mobile, to, message/);
+  assert.match(notify, /const destination = mobile \|\| to/);
 });
 
 test('product hooks use deterministic keys and never replace API responses', () => {
@@ -138,15 +139,19 @@ test('self-service and governance APIs enforce server-side permissions', () => {
 });
 
 test('notification runtime and hooks are mounted before product routes and SPA fallback', () => {
-  const runtimeMount = server.indexOf("app.use('/api', notificationRuntime)");
-  const hookMount = server.indexOf("app.use('/api', notificationEventHooks)");
-  const notificationMount = server.indexOf("app.use('/api/notifications', notificationRoutes)");
+  const runtimeMount = integration.indexOf('router.use(notificationRuntime)');
+  const hookMount = integration.indexOf('router.use(notificationEventHooks)');
+  const notificationMount = integration.indexOf("router.use('/notifications', notificationRoutes)");
+  const calendarMount = integration.indexOf("router.use('/calendar', calendarRoutes)");
+  const integrationMount = server.indexOf("app.use('/api', certificationHooks)");
   const iltMount = server.indexOf("app.use('/api/ilt', iltRoutes)");
   const fallback = server.indexOf("app.get('*'");
   assert.ok(runtimeMount > 0);
   assert.ok(hookMount > runtimeMount);
   assert.ok(notificationMount > hookMount);
-  assert.ok(iltMount > notificationMount);
+  assert.ok(calendarMount > notificationMount);
+  assert.ok(integrationMount > 0);
+  assert.ok(iltMount > integrationMount);
   assert.ok(fallback > iltMount);
   assert.match(runtime, /LMS_RUN_SCHEDULERS === 'true'/);
   assert.match(runtime, /setInterval\(\(\) => runCycle\('worker'\), 60_000\)/);
