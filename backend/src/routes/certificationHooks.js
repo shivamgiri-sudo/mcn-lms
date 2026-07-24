@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { notificationRuntime } from '../middleware/notificationRuntime.js';
 import { notificationEventHooks } from '../middleware/notificationHooks.js';
+import { practicalNotificationHooks } from '../middleware/practicalNotificationHooks.js';
 import notificationRoutes from './notifications.js';
 import calendarRoutes from './calendar.js';
 import practicalRoutes from './practical.js';
@@ -15,6 +16,7 @@ const router = Router();
 // capture and keeps new governed modules on the existing authentication topology.
 router.use(notificationRuntime);
 router.use(notificationEventHooks);
+router.use(practicalNotificationHooks);
 router.use('/notifications', notificationRoutes);
 router.use('/calendar', calendarRoutes);
 router.use('/practical', practicalCatalogRoutes);
