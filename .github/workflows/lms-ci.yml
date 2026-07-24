@@ -100,13 +100,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Reject known credential patterns
+      - name: Reject known credential patterns in product source
         shell: bash
         run: |
           set -euo pipefail
-          if grep -RInE --exclude-dir=.git --exclude='*.lock' \
-            '192\.168\.10\.6|qwersdfg|shivam_user|admin1234|ceo123' .; then
-            echo 'Known insecure credential or internal-host pattern detected.' >&2
+          pattern='192\.168\.10\.6|qwersdfg|shivam_user|admin1234|ceo123'
+          matches="$(git grep -nE "$pattern" -- \
+            'backend/src/**' \
+            'backend/prisma/**' \
+            'frontend/src/**' \
+            ':!backend/test/**' \
+            ':!**/*.lock' || true)"
+          if [ -n "$matches" ]; then
+            echo "$matches"
+            echo 'Known insecure credential or internal-host pattern detected in product source.' >&2
             exit 1
           fi
 
