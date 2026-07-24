@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const app = readFileSync(new URL('../../frontend/src/App.jsx', import.meta.url), 'utf8');
 const dock = readFileSync(new URL('../../frontend/src/components/LearningToolsDock.jsx', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../../frontend/src/components/learningToolsDock.css', import.meta.url), 'utf8');
+const api = readFileSync(new URL('../../frontend/src/utils/api.js', import.meta.url), 'utf8');
 
 test('authenticated learning tools launcher is mounted beside notifications', () => {
   assert.match(app, /import LearningToolsDock/);
@@ -18,6 +19,15 @@ test('launcher resolves existing learner coordinator and admin sessions', () => 
   assert.match(dock, /lms_token_admin/);
   assert.match(dock, /roleFromPath/);
   assert.match(dock, /No separate sign-in/);
+});
+
+test('launcher refreshes immediately when LMS tokens change', () => {
+  assert.match(api, /lms:token-changed/);
+  assert.match(api, /announceTokenChange\(type, Boolean\(token\)\)/);
+  assert.match(api, /announceTokenChange\(type, false\)/);
+  assert.match(dock, /window\.addEventListener\('lms:token-changed'/);
+  assert.match(dock, /window\.addEventListener\('storage'/);
+  assert.match(dock, /setSessionVersion\(value => value \+ 1\)/);
 });
 
 test('launcher links all three governed learning workspaces', () => {
