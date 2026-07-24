@@ -68,10 +68,41 @@ jobs:
       - name: Validate Prisma schema
         run: npm run db:validate
 
-      - name: Apply and verify secure recovery migration
+      - name: Apply and verify forward-only migrations
         run: |
           npx prisma db execute --file prisma/migrations/20260724090000_secure_password_recovery/migration.sql --schema prisma/schema.prisma
-          node --input-type=module -e "import mysql from 'mysql2/promise'; const c=await mysql.createConnection(process.env.DATABASE_URL); const [rows]=await c.query(\"SHOW TABLES LIKE 'password_reset_tokens'\"); if(rows.length!==1) throw new Error('password_reset_tokens was not created'); const [idx]=await c.query(\"SHOW INDEX FROM password_reset_tokens WHERE Key_name='password_reset_tokens_token_hash_key'\"); if(idx.length!==1) throw new Error('reset token unique index is missing'); await c.end();"
+          npx prisma db execute --file prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql --schema prisma/schema.prisma
+          node --input-type=module <<'NODE'
+          import mysql from 'mysql2/promise';
+          const c = await mysql.createConnection(process.env.DATABASE_URL);
+          const expected = [
+            'password_reset_tokens',
+            'permission_master',
+            'role_permission',
+            'user_permission_override',
+            'skill_master',
+            'role_skill_requirement',
+            'content_skill_map',
+            'assessment_skill_map',
+            'employee_skill_profile',
+            'skill_evidence',
+            'learning_path_master',
+            'learning_path_step',
+            'learning_path_enrollment',
+            'learning_path_step_progress',
+          ];
+          for (const table of expected) {
+            const [rows] = await c.query('SHOW TABLES LIKE ?', [table]);
+            if (rows.length !== 1) throw new Error(`${table} was not created`);
+          }
+          const [resetIndex] = await c.query("SHOW INDEX FROM password_reset_tokens WHERE Key_name='password_reset_tokens_token_hash_key'");
+          if (resetIndex.length !== 1) throw new Error('reset token unique index is missing');
+          const [permissionCount] = await c.query('SELECT COUNT(*) AS count FROM permission_master');
+          if (Number(permissionCount[0].count) < 7) throw new Error('permission seed is incomplete');
+          const [roleCount] = await c.query('SELECT COUNT(*) AS count FROM role_permission');
+          if (Number(roleCount[0].count) < 10) throw new Error('role permission seed is incomplete');
+          await c.end();
+          NODE
 
       - name: Check backend JavaScript syntax
         run: find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
