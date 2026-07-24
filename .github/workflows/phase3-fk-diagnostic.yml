@@ -1,6 +1,8 @@
 name: Phase 3 FK Diagnostic
 
 on:
+  pull_request:
+    branches: [agent/world-class-lms-upgrade]
   push:
     branches: [agent/lms-coaching-certification-v2]
   workflow_dispatch:
