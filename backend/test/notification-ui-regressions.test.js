@@ -36,7 +36,8 @@ test('calendar feed secret is only shown from the create response', () => {
 });
 
 test('delivery failures are visible and explicitly retryable', () => {
-  assert.match(dock, /Only failed deliveries/);
+  assert.match(dock, /status=FAILED/);
+  assert.match(dock, /No failed deliveries/);
   assert.match(dock, /Delivery reset for the next worker cycle/);
   assert.match(dock, /attemptCount/);
   assert.match(dock, /maxAttempts/);
