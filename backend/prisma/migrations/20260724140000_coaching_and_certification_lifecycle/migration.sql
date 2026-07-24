@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS employee_certification (
   CONSTRAINT fk_employee_cert_rule FOREIGN KEY (renewal_rule_id)
     REFERENCES certification_renewal_rule(renewal_rule_id) ON DELETE SET NULL,
   CONSTRAINT fk_employee_cert_previous FOREIGN KEY (previous_certification_id)
-    REFERENCES employee_certification(certification_id) ON DELETE SET NULL,
+    REFERENCES employee_certification(certification_id) ON DELETE RESTRICT,
   CONSTRAINT chk_employee_cert_status CHECK (status IN ('ACTIVE','EXPIRING','EXPIRED','REVOKED','SUPERSEDED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
