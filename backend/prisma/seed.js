@@ -5,247 +5,208 @@ import { randomBytes } from 'crypto';
 const prisma = new PrismaClient();
 
 function generateSalt() { return randomBytes(16).toString('hex'); }
-async function hash(pass, salt) { return bcrypt.hash(pass + salt, 10); }
+async function hashPassword(value, salt) { return bcrypt.hash(value + salt, 12); }
+async function hashCredential(value) {
+  const salt = generateSalt();
+  const hash = await hashPassword(value, salt);
+  return `v1$bcrypt$${salt}$${hash}`;
+}
 
-async function main() {
-  console.log('Seeding LMS 2.0...');
+function requiredSecret(name, minLength = 8) {
+  const value = String(process.env[name] || '');
+  if (value.length < minLength) {
+    throw new Error(`${name} must be configured with at least ${minLength} characters before demo seeding.`);
+  }
+  return value;
+}
 
-  // Process / LOB master
-  const processes = [
-    { process: 'Demo Process', lob: 'All' },
-    { process: 'Collections', lob: 'KYC' },
-    { process: 'Collections', lob: 'Cards' },
-    { process: 'Onboarding', lob: 'CASA' },
-    { process: 'Customer Service', lob: 'Retail' },
-  ];
-  for (const p of processes) {
-    await prisma.processLobMaster.upsert({ where: { process_lob: p }, create: p, update: {} });
+async function seedReferenceMasters() {
+  const configured = String(process.env.LMS_SEED_PROCESS_LOB_JSON || '').trim();
+  if (!configured) return;
+
+  let processes;
+  try {
+    processes = JSON.parse(configured);
+  } catch {
+    throw new Error('LMS_SEED_PROCESS_LOB_JSON must be a valid JSON array.');
   }
 
-  // Demo coordinator
+  if (!Array.isArray(processes)) throw new Error('LMS_SEED_PROCESS_LOB_JSON must be an array.');
+  for (const item of processes) {
+    const process = String(item?.process || '').trim();
+    const lob = String(item?.lob || '').trim();
+    if (!process || !lob) continue;
+    await prisma.processLobMaster.upsert({
+      where: { process_lob: { process, lob } },
+      create: { process, lob },
+      update: { active: true },
+    });
+  }
+}
+
+async function seedDemoEnvironment() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Demo seeding is blocked when NODE_ENV=production.');
+  }
+
+  const coordinatorPin = requiredSecret('LMS_SEED_COORDINATOR_PIN');
+  const managementPin = requiredSecret('LMS_SEED_MANAGEMENT_PIN');
+  const adminPassword = requiredSecret('LMS_SEED_ADMIN_PASSWORD', 12);
+  const traineePassword = requiredSecret('LMS_SEED_TRAINEE_PASSWORD');
+
+  await prisma.processLobMaster.upsert({
+    where: { process_lob: { process: 'Demo Process', lob: 'All' } },
+    create: { process: 'Demo Process', lob: 'All' },
+    update: {},
+  });
+
   await prisma.roleAccessMatrix.upsert({
     where: { loginId: 'COORD-TEST' },
     create: {
-      loginId: 'COORD-TEST', pin: '1234', name: 'Demo Coordinator',
-      role: 'Coordinator', portalAccess: 'Coordinator',
-      branch: 'Noida – Okaya', process: 'Demo Process', lob: 'All', active: true,
+      loginId: 'COORD-TEST', pin: await hashCredential(coordinatorPin), name: 'Demo Coordinator',
+      role: 'Coordinator', portalAccess: 'Coordinator', branch: 'Demo Branch', process: 'Demo Process', lob: 'All', active: true,
       canCreateBatch: true, canOnboardTrainee: true, canCloseBatch: true,
     },
     update: {},
   });
 
-  // Super admin coordinator
-  await prisma.roleAccessMatrix.upsert({
-    where: { loginId: 'ADMIN-COORD' },
-    create: {
-      loginId: 'ADMIN-COORD', pin: 'admin@123', name: 'Admin Coordinator',
-      role: 'Super Admin', portalAccess: 'Coordinator',
-      branch: 'HQ', process: 'All', lob: 'All', active: true,
-      canCreateBatch: true, canOnboardTrainee: true, canUploadLmsReport: true,
-      canOverrideAttendance: true, canCloseBatch: true, canViewManagementDashboard: true,
-    },
-    update: {},
-  });
-
-  // Management user
   await prisma.roleAccessMatrix.upsert({
     where: { loginId: 'CEO-001' },
     create: {
-      loginId: 'CEO-001', pin: 'ceo123', name: 'CEO', role: 'CEO',
+      loginId: 'CEO-001', pin: await hashCredential(managementPin), name: 'Demo Management User', role: 'CEO',
       portalAccess: 'Management', branch: 'All', process: 'All', lob: 'All', active: true,
       canViewManagementDashboard: true,
     },
     update: {},
   });
 
-  // Admin user
   const adminSalt = generateSalt();
-  const adminHash = await hash('admin1234', adminSalt);
+  const adminHash = await hashPassword(adminPassword, adminSalt);
   await prisma.adminUserMaster.upsert({
     where: { adminId: 'LMS-ADMIN' },
-    create: { adminId: 'LMS-ADMIN', passwordHash: adminHash, salt: adminSalt, adminName: 'LMS Admin', role: 'Admin' },
-    update: { passwordHash: adminHash, salt: adminSalt, locked: false, failedAttempts: 0 },
+    create: { adminId: 'LMS-ADMIN', passwordHash: adminHash, salt: adminSalt, adminName: 'LMS Admin', role: 'Super Admin' },
+    // Never rotate an existing administrator credential during a seed run.
+    update: {},
   });
 
-  // Demo classroom
   await prisma.classroomMaster.upsert({
     where: { classroomId: 'CL-DEMO-001' },
     create: {
-      classroomId: 'CL-DEMO-001',
-      classroomName: 'Demo Process Training Classroom',
-      process: 'Demo Process',
-      lob: 'All',
-      description: 'Demo classroom for testing LMS 2.0',
+      classroomId: 'CL-DEMO-001', classroomName: 'Demo Process Training Classroom', process: 'Demo Process', lob: 'All',
+      description: 'Development-only classroom for LMS validation.',
     },
     update: {},
   });
 
-  // Day 1 – Module 1
   await prisma.moduleMaster.upsert({
     where: { moduleId: 'MOD-DEMO-01' },
-    create: {
-      moduleId: 'MOD-DEMO-01',
-      classroomId: 'CL-DEMO-001',
-      dayNo: 1,
-      moduleTitle: 'Introduction to Process',
-      moduleOrder: 1,
-    },
+    create: { moduleId: 'MOD-DEMO-01', classroomId: 'CL-DEMO-001', dayNo: 1, moduleTitle: 'Introduction to Process', moduleOrder: 1 },
     update: {},
   });
 
-  // Content
   await prisma.contentMaster.upsert({
     where: { contentId: 'CON-DEMO-01' },
     create: {
-      contentId: 'CON-DEMO-01',
-      moduleId: 'MOD-DEMO-01',
-      contentType: 'video',
-      contentTitle: 'Welcome to the Training Program',
-      driveUrl: 'https://drive.google.com/file/d/DEMO_FILE_ID/preview',
-      playerMode: 'Drive Preview',
-      contentOrder: 1,
-      estimatedMins: 10,
-      completionRulePct: 80,
+      contentId: 'CON-DEMO-01', moduleId: 'MOD-DEMO-01', contentType: 'video', contentTitle: 'Welcome to the Training Program',
+      playerMode: 'Direct', contentOrder: 1, estimatedMins: 10, completionRulePct: 80,
       description: 'Overview of the training program structure.',
     },
     update: {},
   });
 
-  // FAQ
   await prisma.faqMaster.upsert({
     where: { faqId: 'FAQ-DEMO-01' },
     create: {
-      faqId: 'FAQ-DEMO-01',
-      moduleId: 'MOD-DEMO-01',
-      question: 'What is the duration of this training?',
-      answer: 'The training runs for 5 days covering all modules.',
-      sortOrder: 1,
+      faqId: 'FAQ-DEMO-01', moduleId: 'MOD-DEMO-01', question: 'What is the duration of this training?',
+      answer: 'The demo training runs for one day.', sortOrder: 1,
     },
     update: {},
   });
 
-  // Demo assessment
   await prisma.assessmentMaster.upsert({
     where: { assessmentId: 'ASS-DEMO-01' },
     create: {
-      assessmentId: 'ASS-DEMO-01',
-      classroomId: 'CL-DEMO-001',
-      dayNo: 1,
-      moduleId: 'MOD-DEMO-01',
-      assessmentName: 'Day 1 Assessment',
-      passingPct: 60,
-      attemptLimit: 3,
-      timeLimitMins: 30,
-      instructions: 'Answer all questions. Each correct answer carries 1 mark.',
+      assessmentId: 'ASS-DEMO-01', classroomId: 'CL-DEMO-001', dayNo: 1, moduleId: 'MOD-DEMO-01',
+      assessmentName: 'Day 1 Assessment', passingPct: 60, attemptLimit: 3, timeLimitMins: 30,
+      instructions: 'Answer all questions. Each correct answer carries one mark.',
     },
     update: {},
   });
 
-  // Demo questions
   const questions = [
     { questionId: 'QST-D1-1', questionText: 'What is the primary goal of customer service?', optionA: 'Profit maximization', optionB: 'Customer satisfaction', optionC: 'Cost reduction', optionD: 'Employee retention', correctOption: 'B' },
     { questionId: 'QST-D1-2', questionText: 'What does KYC stand for?', optionA: 'Know Your Customer', optionB: 'Keep Your Cash', optionC: 'Know Your Compliance', optionD: 'Key Year Calculation', correctOption: 'A' },
     { questionId: 'QST-D1-3', questionText: 'Active listening means:', optionA: 'Listening while multitasking', optionB: 'Fully focusing on the speaker', optionC: 'Waiting for your turn to speak', optionD: 'Nodding without understanding', correctOption: 'B' },
   ];
-  for (const q of questions) {
+  for (const question of questions) {
     await prisma.questionBank.upsert({
-      where: { questionId: q.questionId },
-      create: { ...q, assessmentId: 'ASS-DEMO-01', marks: 1 },
+      where: { questionId: question.questionId },
+      create: { ...question, assessmentId: 'ASS-DEMO-01', marks: 1 },
       update: {},
     });
   }
 
-  // Demo batch
+  const batchNo = 'DEMO-BATCH-001';
   await prisma.batchMaster.upsert({
-    where: { batchNo: 'DEM_ALL_MAY\'26_001' },
+    where: { batchNo },
     create: {
-      batchNo: "DEM_ALL_MAY'26_001",
-      batchName: 'Demo Process Training Batch',
-      batchType: 'NHT',
-      branch: 'Noida – Okaya',
-      process: 'Demo Process',
-      lob: 'All',
-      classroomId: 'CL-DEMO-001',
-      classroomName: 'Demo Process Training Classroom',
-      coordinatorName: 'Demo Coordinator',
-      coordinatorLoginId: 'COORD-TEST',
-      batchStatus: 'Active',
-      startDate: new Date(),
-      endDate: new Date(Date.now() + 7 * 24 * 3600 * 1000),
-      expectedTrainees: 3,
-      totalTrainees: 1,
-      createdBy: 'COORD-TEST',
+      batchNo, batchName: 'Demo Process Training Batch', batchType: 'NHT', branch: 'Demo Branch', process: 'Demo Process', lob: 'All',
+      classroomId: 'CL-DEMO-001', classroomName: 'Demo Process Training Classroom', coordinatorName: 'Demo Coordinator',
+      coordinatorLoginId: 'COORD-TEST', batchStatus: 'Active', startDate: new Date(),
+      endDate: new Date(Date.now() + 7 * 24 * 3600 * 1000), expectedTrainees: 1, totalTrainees: 1, createdBy: 'COORD-TEST',
     },
     update: {},
   });
 
-  // Demo trainee — TraineeMaster must be created before UserMaster (FK)
-  const traineeSalt = generateSalt();
-
+  const employeeId = 'EMP1001';
   await prisma.traineeMaster.upsert({
-    where: { employeeId: 'EMP1001' },
+    where: { employeeId },
     create: {
-      employeeId: 'EMP1001',
-      lmsId: 'LMS001001',
-      traineeName: 'Demo Trainee',
-      mobile: '9999901001',
-      batchNo: "DEM_ALL_MAY'26_001",
-      branch: 'Noida – Okaya',
-      process: 'Demo Process',
-      lob: 'All',
-      classroomId: 'CL-DEMO-001',
-      classroomName: 'Demo Process Training Classroom',
-      onboardingDate: new Date(),
-      createdBy: 'COORD-TEST',
+      employeeId, lmsId: 'LMS001001', traineeName: 'Demo Trainee', batchNo, branch: 'Demo Branch', process: 'Demo Process', lob: 'All',
+      classroomId: 'CL-DEMO-001', classroomName: 'Demo Process Training Classroom', onboardingDate: new Date(), createdBy: 'COORD-TEST',
     },
     update: {},
   });
 
+  const traineeSalt = generateSalt();
   await prisma.userMaster.upsert({
-    where: { employeeId: 'EMP1001' },
+    where: { employeeId },
     create: {
-      employeeId: 'EMP1001',
-      passwordHash: await hash('1234', traineeSalt),
-      salt: traineeSalt,
-      traineeName: 'Demo Trainee',
-      mobile: '9999901001',
-      branch: 'Noida – Okaya',
-      process: 'Demo Process',
-      lob: 'All',
-      batchNo: "DEM_ALL_MAY'26_001",
-      classroomId: 'CL-DEMO-001',
-      forcePasswordReset: true,
+      employeeId, passwordHash: await hashPassword(traineePassword, traineeSalt), salt: traineeSalt, traineeName: 'Demo Trainee',
+      branch: 'Demo Branch', process: 'Demo Process', lob: 'All', batchNo, classroomId: 'CL-DEMO-001', forcePasswordReset: true,
     },
     update: {},
   });
 
   await prisma.traineeClassroomMap.upsert({
-    where: { employeeId_classroomId: { employeeId: 'EMP1001', classroomId: 'CL-DEMO-001' } },
-    create: { employeeId: 'EMP1001', classroomId: 'CL-DEMO-001', batchNo: "DEM_ALL_MAY'26_001", assignedBy: 'COORD-TEST' },
+    where: { employeeId_classroomId: { employeeId, classroomId: 'CL-DEMO-001' } },
+    create: { employeeId, classroomId: 'CL-DEMO-001', batchNo, assignedBy: 'COORD-TEST' },
     update: {},
   });
 
-  // Certification rule
   await prisma.certificationRuleMaster.upsert({
     where: { process_lob: { process: 'Demo Process', lob: 'All' } },
     create: {
-      ruleId: 'RULE-DEMO-001',
-      process: 'Demo Process',
-      lob: 'All',
-      courseCompletionMin: 80,
-      mcqPassPctMin: 60,
-      attendancePctMin: 70,
-      mockCallRequired: false,
+      ruleId: 'RULE-DEMO-001', process: 'Demo Process', lob: 'All', courseCompletionMin: 80,
+      mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false,
     },
     update: {},
   });
 
-  console.log('Seed complete!');
-  console.log('\nDemo credentials:');
-  console.log('  Coordinator: COORD-TEST / 1234  (URL: /coordinator)');
-  console.log('  Admin:       LMS-ADMIN / admin1234  (URL: /admin)');
-  console.log('  Trainee:     EMP1001 / 1234  (URL: /lms)');
-  console.log('  Management:  CEO-001 / ceo123  (URL: /management)');
+  console.log('Development demo data seeded. Credentials were read from protected environment variables and were not printed.');
 }
 
-main().catch(e => { console.error(e); process.exit(1); }).finally(() => prisma.$disconnect());
+async function main() {
+  console.log('Starting safe LMS seed...');
+  await seedReferenceMasters();
+
+  if (process.env.LMS_ALLOW_DEMO_SEED === 'true') {
+    await seedDemoEnvironment();
+  } else {
+    console.log('Demo data skipped. Set LMS_ALLOW_DEMO_SEED=true in a non-production environment to enable it.');
+  }
+}
+
+main()
+  .catch(error => { console.error(error); process.exit(1); })
+  .finally(() => prisma.$disconnect());
