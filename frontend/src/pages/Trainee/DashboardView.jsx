@@ -8,6 +8,7 @@ import QATab from './QATab.jsx';
 import AssignedTab from './AssignedTab.jsx';
 import ProfileTab from './ProfileTab.jsx';
 import PasswordResetBox from './PasswordResetBox.jsx';
+import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 export default function DashboardView({ dashboard, forceReset, onLogout, onRefresh }) {
   const { theme, toggle: toggleTheme } = useTheme();
@@ -24,6 +25,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
   const tabs = [
     { id: 'journey', label: '🧭 My Journey' },
     { id: 'talent', label: '🎯 Skills & Paths' },
+    { id: 'live-training', label: '🗓️ Live Training' },
     { id: 'learning', label: '📚 My Learning' },
     { id: 'qa', label: '💬 Q&A' },
     { id: 'assigned', label: '📎 Assigned' },
@@ -48,6 +50,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           </div>
         </div>
         <div className="row">
+          <a className="btn small secondary" href="/training-calendar?role=trainee">🗓️ Live Training</a>
           <button className="btn small secondary" onClick={onRefresh}>↺ Refresh</button>
           <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'var(--muted)', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" onClick={onLogout}>Logout</button>
@@ -74,6 +77,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
             <button className="btn small accent" onClick={() => setActiveTab('learning')}>Continue Learning →</button>
             <button className="btn small secondary" onClick={() => setActiveTab('journey')}>View My Journey</button>
             <button className="btn small secondary" onClick={() => setActiveTab('talent')}>Review Skill Gaps</button>
+            <button className="btn small secondary" onClick={() => setActiveTab('live-training')}>View Live Sessions</button>
             <button className="btn small secondary" onClick={() => setActiveTab('qa')}>Ask a Question</button>
           </div>
         </div>
@@ -132,6 +136,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
 
       {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
       {activeTab === 'talent' && <SkillsPathsTab />}
+      {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
       {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
       {activeTab === 'qa' && <QATab />}
       {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} />}
