@@ -1,0 +1,64 @@
+name: Phase 3 FK Diagnostic
+
+on:
+  push:
+    branches: [agent/lms-coaching-certification-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase3-fk-diagnostic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply prerequisites
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < prisma/migrations/20260724090000_secure_password_recovery/migration.sql
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql
+      - name: Capture Phase 3 foreign key diagnostics
+        shell: bash
+        run: |
+          set +e
+          mysql --show-warnings --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci \
+            < prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql \
+            > phase3-fk-diagnostic.log 2>&1
+          code=$?
+          echo "" >> phase3-fk-diagnostic.log
+          echo "===== INNODB STATUS =====" >> phase3-fk-diagnostic.log
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci \
+            -e "SHOW ENGINE INNODB STATUS\\G" >> phase3-fk-diagnostic.log 2>&1
+          cat phase3-fk-diagnostic.log
+          echo "$code" > phase3-fk-exit-code.txt
+          exit 0
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase3-fk-diagnostic
+          path: |
+            backend/phase3-fk-diagnostic.log
+            backend/phase3-fk-exit-code.txt
+          if-no-files-found: error
+          retention-days: 7
