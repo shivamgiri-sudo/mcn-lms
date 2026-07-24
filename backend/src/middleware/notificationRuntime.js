@@ -1,4 +1,5 @@
 import { runNotificationCampaignCycle } from '../services/notificationCampaigns.js';
+import { generatePracticalAssessmentReminders } from '../services/practicalNotificationCampaigns.js';
 
 let running = false;
 let lastRequestCycleAt = 0;
@@ -8,6 +9,7 @@ async function runCycle(source) {
   if (running) return null;
   running = true;
   try {
+    const practical = await generatePracticalAssessmentReminders();
     const result = await runNotificationCampaignCycle(`notification-${source}-${process.pid}`);
     const activity = Number(result.eventsBeforeEscalation?.claimed || 0)
       + Number(result.eventsAfterEscalation?.claimed || 0)
@@ -15,11 +17,12 @@ async function runCycle(source) {
       + Number(result.ilt?.generated || 0)
       + Number(result.coaching?.generated || 0)
       + Number(result.certifications?.generated || 0)
-      + Number(result.escalations?.sent || 0);
+      + Number(result.escalations?.sent || 0)
+      + Number(practical.generated || 0);
     if (activity) {
       console.log(`[NOTIFY] ${source} cycle processed ${activity} event, campaign, escalation or delivery item(s).`);
     }
-    return result;
+    return { ...result, practical };
   } catch (error) {
     console.warn(`[NOTIFY] ${source} cycle failed:`, error.message);
     return null;
