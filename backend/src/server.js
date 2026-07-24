@@ -29,6 +29,7 @@ import empMappingRoutes from './routes/empMapping.js';
 import complianceRoutes from './routes/compliance.js';
 import scormRoutes from './routes/scorm.js';
 import talentRoutes from './routes/talent.js';
+import talentEvidenceRoutes from './routes/talentEvidence.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -154,6 +155,7 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/emp-mapping', empMappingRoutes);
 app.use('/api/scorm', scormRoutes);
+app.use('/api/talent', talentEvidenceRoutes);
 app.use('/api/talent', talentRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
