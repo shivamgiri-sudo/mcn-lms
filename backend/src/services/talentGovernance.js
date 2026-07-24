@@ -4,7 +4,45 @@ import {
   syncLearningPaths,
 } from './talent.js';
 
+export async function expireAllStaleVerifications() {
+  const expiredEvidence = await prisma.$executeRawUnsafe(
+    `UPDATE skill_evidence
+        SET evidence_status = 'EXPIRED'
+      WHERE evidence_type = 'MANUAL_VERIFICATION'
+        AND evidence_status = 'VALID'
+        AND expires_at IS NOT NULL
+        AND expires_at <= UTC_TIMESTAMP(3)`,
+  );
+
+  const expiredProfiles = await prisma.$executeRawUnsafe(
+    `UPDATE employee_skill_profile
+        SET current_level = 0,
+            confidence_score = 0,
+            status = CASE WHEN target_level > 0 THEN 'GAP' ELSE 'UNASSESSED' END,
+            source = 'LMS_EVIDENCE',
+            verified_by = NULL,
+            verified_at = NULL,
+            expires_at = NULL
+      WHERE verified_by IS NOT NULL
+        AND expires_at IS NOT NULL
+        AND expires_at <= UTC_TIMESTAMP(3)`,
+  );
+
+  return { expiredEvidence, expiredProfiles };
+}
+
 async function expireStaleVerifications(employeeId) {
+  await prisma.$executeRawUnsafe(
+    `UPDATE skill_evidence
+        SET evidence_status = 'EXPIRED'
+      WHERE employee_id = ?
+        AND evidence_type = 'MANUAL_VERIFICATION'
+        AND evidence_status = 'VALID'
+        AND expires_at IS NOT NULL
+        AND expires_at <= UTC_TIMESTAMP(3)`,
+    String(employeeId),
+  );
+
   await prisma.$executeRawUnsafe(
     `UPDATE employee_skill_profile
         SET current_level = 0,
@@ -16,17 +54,6 @@ async function expireStaleVerifications(employeeId) {
             expires_at = NULL
       WHERE employee_id = ?
         AND verified_by IS NOT NULL
-        AND expires_at IS NOT NULL
-        AND expires_at <= UTC_TIMESTAMP(3)`,
-    String(employeeId),
-  );
-
-  await prisma.$executeRawUnsafe(
-    `UPDATE skill_evidence
-        SET evidence_status = 'EXPIRED'
-      WHERE employee_id = ?
-        AND evidence_type = 'MANUAL_VERIFICATION'
-        AND evidence_status = 'VALID'
         AND expires_at IS NOT NULL
         AND expires_at <= UTC_TIMESTAMP(3)`,
     String(employeeId),
