@@ -12,6 +12,7 @@ const entrypoint = read('deploy/scripts/container-entrypoint.sh');
 const backup = read('deploy/scripts/backup.sh');
 const restore = read('deploy/scripts/restore-rehearsal.sh');
 const smoke = read('deploy/scripts/smoke-test.sh');
+const loadSmoke = read('deploy/scripts/load-smoke.mjs');
 const release = read('deploy/scripts/release.sh');
 const rollback = read('deploy/scripts/rollback.sh');
 const runbook = read('docs/RELEASE_CANDIDATE_RUNBOOK.md');
@@ -74,6 +75,17 @@ test('smoke gate verifies readiness security headers and authorization boundarie
   assert.match(smoke, /unauth_status.*401/s);
   assert.match(smoke, /x-content-type-options: nosniff/i);
   assert.match(smoke, /x-request-id/);
+});
+
+test('bounded load smoke enforces error rate latency timeout and concurrency limits', () => {
+  assert.match(loadSmoke, /LOAD_CONCURRENCY/);
+  assert.match(loadSmoke, /LOAD_REQUESTS/);
+  assert.match(loadSmoke, /LOAD_P95_LIMIT_MS/);
+  assert.match(loadSmoke, /LOAD_MAX_ERROR_PCT/);
+  assert.match(loadSmoke, /LOAD_REQUEST_TIMEOUT_MS/);
+  assert.match(loadSmoke, /p95Ms/);
+  assert.match(loadSmoke, /process\.exit\(1\)/);
+  assert.match(loadSmoke, /Math\.min\(200/);
 });
 
 test('release and rollback scripts preserve forward-only database policy', () => {
