@@ -20,6 +20,7 @@ const TOOLS = [
     title: 'Live Training',
     description: 'Sessions, capacity, waitlists and attendance',
     icon: '◫',
+    roles: ['trainee', 'coordinator', 'admin'],
     href: role => `/training-calendar?role=${role}`,
   },
   {
@@ -27,6 +28,7 @@ const TOOLS = [
     title: 'Development Hub',
     description: 'Coaching, goals and certification renewal',
     icon: '↗',
+    roles: ['trainee', 'coordinator', 'admin'],
     href: role => `/development-hub?role=${role}`,
   },
   {
@@ -34,7 +36,16 @@ const TOOLS = [
     title: 'Practical Assessments',
     description: 'Evidence, rubrics, evaluation and moderation',
     icon: '✓',
+    roles: ['trainee', 'coordinator', 'admin'],
     href: role => `/practical-assessments?role=${role}`,
+  },
+  {
+    key: 'evaluator-quality',
+    title: 'Evaluator Quality',
+    description: 'Calibration, authorization and reliability',
+    icon: '◎',
+    roles: ['coordinator', 'admin'],
+    href: role => `/evaluator-quality?role=${role}`,
   },
 ];
 
@@ -94,6 +105,7 @@ export default function LearningToolsDock() {
 
   if (!available.length || location.pathname === '/reset-password') return null;
   const activeRole = available.includes(role) ? role : available[0];
+  const visibleTools = TOOLS.filter(tool => tool.roles.includes(activeRole));
 
   return (
     <div className="learning-tools-dock" ref={rootRef}>
@@ -109,7 +121,7 @@ export default function LearningToolsDock() {
           </select>
         </label>}
         <nav>
-          {TOOLS.map(tool => <a key={tool.key} href={tool.href(activeRole)} onClick={() => setOpen(false)}>
+          {visibleTools.map(tool => <a key={tool.key} href={tool.href(activeRole)} onClick={() => setOpen(false)}>
             <i>{tool.icon}</i>
             <span><b>{tool.title}</b><small>{tool.description}</small></span>
             <strong>›</strong>
