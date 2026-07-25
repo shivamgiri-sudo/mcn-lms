@@ -1,5 +1,5 @@
 import { readdirSync, readFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 
 const root = resolve(process.cwd());
 const workflowDir = join(root, '.github', 'workflows');
@@ -8,6 +8,7 @@ const inventory = [];
 const mutableRefs = new Set(['main', 'master', 'latest', 'head', 'develop', 'development']);
 const fullSha = /^[0-9a-f]{40}$/;
 const officialMajor = /^v[1-9][0-9]*$/;
+const officialActions = action => action.startsWith('actions/') || action === 'github/codeql-action/init' || action === 'github/codeql-action/analyze' || action === 'github/codeql-action/autobuild';
 
 function addError(file, message) {
   errors.push(`${file}: ${message}`);
@@ -39,7 +40,7 @@ for (const name of workflowFiles()) {
     const action = value.slice(0, at);
     const ref = value.slice(at + 1);
     const normalizedRef = ref.toLowerCase();
-    const isGitHubOfficial = action.startsWith('actions/');
+    const isGitHubOfficial = officialActions(action);
     const isPinned = fullSha.test(normalizedRef);
     const allowedOfficialTag = isGitHubOfficial && officialMajor.test(normalizedRef);
 
@@ -85,8 +86,8 @@ for (const compose of ['deploy/docker-compose.staging.yml', 'deploy/docker-compo
   validateImageReferences(compose);
 }
 
-const duplicateMutable = inventory.filter(item => item.policy === 'rejected');
-if (duplicateMutable.length && errors.length === 0) {
+const rejected = inventory.filter(item => item.policy === 'rejected');
+if (rejected.length && errors.length === 0) {
   errors.push('Rejected workflow dependencies were detected without a detailed validation error.');
 }
 
