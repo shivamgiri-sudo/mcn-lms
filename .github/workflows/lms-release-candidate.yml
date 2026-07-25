@@ -1,0 +1,275 @@
+name: LMS Release Candidate
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-production-runtime
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'deploy/**'
+      - 'docs/RELEASE_CANDIDATE_RUNBOOK.md'
+      - 'Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/lms-release-candidate.yml'
+  push:
+    branches:
+      - agent/lms-release-candidate
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-release-candidate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  migration-rehearsal:
+    name: Clean upgrade backup and restore rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_clean
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_clean
+      SESSION_SECRET: release-candidate-session-secret-longer-than-thirty-two
+      OAUTH_STATE_SECRET: release-candidate-oauth-secret-longer-than-thirty-two
+      APP_ENCRYPTION_KEY: release-candidate-encryption-key-longer-than-thirty-two
+      FRONTEND_URL: http://127.0.0.1:4000
+      LMS_RUN_SCHEDULERS: 'false'
+      LMS_INSTANCE_ROLE: CI
+      LMS_INSTANCE_ID: release-candidate-migration-ci
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Verify canonical migration manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          find prisma/migrations -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > /tmp/actual-migrations
+          sort ../deploy/migrations.expected > /tmp/expected-migrations
+          diff -u /tmp/expected-migrations /tmp/actual-migrations
+          test "$(wc -l < /tmp/actual-migrations)" = "14"
+      - name: Rehearse clean migration deployment
+        run: npx prisma migrate deploy
+      - name: Verify clean migration history
+        shell: bash
+        run: |
+          set -euo pipefail
+          applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR logs IS NOT NULL;")
+          runtime_tables=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='lms_clean' AND table_name IN ('platform_runtime_lease','platform_runtime_instance','platform_feature_flag');")
+          test "$applied" = "14"
+          test "$failed" = "0"
+          test "$runtime_tables" = "3"
+      - name: Prepare realistic staged-upgrade database
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password -e "CREATE DATABASE lms_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON lms_upgrade.* TO 'lms_ci'@'%'; FLUSH PRIVILEGES;"
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_upgrade < prisma/migrations/20260724090000_secure_password_recovery/migration.sql
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_upgrade < prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql
+          DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade npx prisma migrate resolve --applied 20260724090000_secure_password_recovery
+          DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade npx prisma migrate resolve --applied 20260724110000_talent_and_permissions_foundation
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_upgrade -e "CREATE TABLE rc_upgrade_sentinel (id INT PRIMARY KEY, marker VARCHAR(100) NOT NULL); INSERT INTO rc_upgrade_sentinel VALUES (1,'preserve-me');"
+      - name: Rehearse upgrade from the staged foundation
+        run: DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade npx prisma migrate deploy
+      - name: Verify upgraded data and schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_upgrade -e "SELECT marker FROM rc_upgrade_sentinel WHERE id=1;")
+          applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_upgrade -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          governed_tables=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_upgrade -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='lms_upgrade' AND table_name IN ('learning_path_master','coaching_plan','ilt_session','notification_outbox','practical_assignment','evaluator_calibration_program','evaluator_authorization_certificate','evaluator_calibration_appeal','platform_feature_flag');")
+          test "$marker" = "preserve-me"
+          test "$applied" = "14"
+          test "$governed_tables" = "9"
+      - name: Rehearse backup and isolated restore
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysqldump --protocol=TCP -h127.0.0.1 -uroot -proot_password --single-transaction --quick --routines --triggers --events --set-gtid-purged=OFF lms_upgrade | gzip -9 > /tmp/lms-upgrade.sql.gz
+          gzip -t /tmp/lms-upgrade.sql.gz
+          sha256sum /tmp/lms-upgrade.sql.gz > /tmp/lms-upgrade.sql.gz.sha256
+          sha256sum --check /tmp/lms-upgrade.sql.gz.sha256
+          mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password -e "CREATE DATABASE lms_restore CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+          zcat /tmp/lms-upgrade.sql.gz | mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password lms_restore
+          restored_marker=$(mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password -N lms_restore -e "SELECT marker FROM rc_upgrade_sentinel WHERE id=1;")
+          restored_migrations=$(mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password -N lms_restore -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          test "$restored_marker" = "preserve-me"
+          test "$restored_migrations" = "14"
+          mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password lms_restore -e "CHECK TABLE platform_runtime_lease, platform_runtime_instance, platform_feature_flag, audit_log;" >/dev/null
+      - name: Check JavaScript shell and release contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          find src test -name '*.js' -print0 | xargs -0 -n1 node --check
+          bash -n ../deploy/scripts/*.sh
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y shellcheck >/dev/null
+          shellcheck ../deploy/scripts/*.sh
+          npm test
+      - name: Audit backend production dependencies
+        run: npm audit --omit=dev --audit-level=high
+      - name: Upload migration rehearsal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-migration-evidence
+          path: |
+            /tmp/actual-migrations
+            /tmp/expected-migrations
+            /tmp/lms-upgrade.sql.gz.sha256
+          retention-days: 14
+
+  container-smoke:
+    name: Immutable image and live topology smoke
+    needs: migration-rehearsal
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_container
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build immutable release image
+        run: docker build --build-arg VITE_API_URL= --label org.opencontainers.image.revision=${GITHUB_SHA} -t mcn-lms:${GITHUB_SHA} .
+      - name: Verify image runs as non-root
+        run: test "$(docker image inspect mcn-lms:${GITHUB_SHA} --format '{{.Config.User}}')" = "lms"
+      - name: Apply migrations through the release image
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_container \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=release-candidate-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=release-candidate-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=release-candidate-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=release-candidate-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=release-candidate-token-key-longer-than-thirty-two \
+            -e LMS_INSTANCE_ROLE=MIGRATOR \
+            -e LMS_INSTANCE_ID=rc-container-migrator \
+            -e SERVE_FRONTEND=false \
+            mcn-lms:${GITHUB_SHA} ./node_modules/.bin/prisma migrate deploy
+      - name: Start release web and worker containers
+        run: |
+          docker run -d --name lms-rc-web --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_container \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e API_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=release-candidate-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=release-candidate-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=release-candidate-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=release-candidate-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=release-candidate-token-key-longer-than-thirty-two \
+            -e APP_ENCRYPTION_KEY=release-candidate-app-encryption-longer-than-thirty-two \
+            -e SCORM_CONTENT_ORIGIN=https://scorm.example.invalid \
+            -e LMS_RUN_SCHEDULERS=false \
+            -e LMS_INSTANCE_ROLE=WEB \
+            -e LMS_INSTANCE_ID=rc-web-1 \
+            -e APP_VERSION=rc-${GITHUB_SHA} \
+            -e DEPLOYMENT_ID=${GITHUB_RUN_ID} \
+            -e SERVE_FRONTEND=true \
+            -e PORT=4000 \
+            mcn-lms:${GITHUB_SHA}
+          docker run -d --name lms-rc-worker --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_container \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=release-candidate-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=release-candidate-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=release-candidate-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=release-candidate-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=release-candidate-token-key-longer-than-thirty-two \
+            -e APP_ENCRYPTION_KEY=release-candidate-app-encryption-longer-than-thirty-two \
+            -e SCORM_CONTENT_ORIGIN=https://scorm.example.invalid \
+            -e LMS_RUN_SCHEDULERS=true \
+            -e LMS_INSTANCE_ROLE=WORKER \
+            -e LMS_INSTANCE_ID=rc-worker-1 \
+            -e APP_VERSION=rc-${GITHUB_SHA} \
+            -e DEPLOYMENT_ID=${GITHUB_RUN_ID} \
+            -e SERVE_FRONTEND=false \
+            -e PORT=4001 \
+            mcn-lms:${GITHUB_SHA}
+      - name: Run live smoke gate
+        run: BASE_URL=http://127.0.0.1:4000 bash deploy/scripts/smoke-test.sh
+      - name: Verify runtime ownership evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          instances=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_container -e "SELECT COUNT(*) FROM platform_runtime_instance WHERE instance_id IN ('rc-web-1','rc-worker-1') AND status IN ('STARTING','HEALTHY');")
+          duplicate_keys=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_container -e "SELECT COUNT(*) FROM (SELECT lease_key,COUNT(*) c FROM platform_runtime_lease GROUP BY lease_key HAVING c>1) d;")
+          test "$instances" = "2"
+          test "$duplicate_keys" = "0"
+      - name: Capture container diagnostics
+        if: always()
+        run: |
+          docker ps -a
+          docker logs lms-rc-web > /tmp/lms-rc-web.log 2>&1 || true
+          docker logs lms-rc-worker > /tmp/lms-rc-worker.log 2>&1 || true
+      - name: Upload container logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-candidate-container-logs
+          path: |
+            /tmp/lms-rc-web.log
+            /tmp/lms-rc-worker.log
+          retention-days: 14
+
+  frontend-regression:
+    name: Frontend production build and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
