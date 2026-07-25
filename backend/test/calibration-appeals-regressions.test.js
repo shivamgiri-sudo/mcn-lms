@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 const migration = readFileSync(new URL('../prisma/migrations/20260725120000_evaluator_appeals_governance/migration.sql', import.meta.url), 'utf8');
 const supplement = readFileSync(new URL('../prisma/migrations/20260725121000_evaluator_appeal_notification_supplement/migration.sql', import.meta.url), 'utf8');
 const service = readFileSync(new URL('../src/services/calibrationAppeals.js', import.meta.url), 'utf8');
+const evidenceService = readFileSync(new URL('../src/services/calibrationAppealEvidence.js', import.meta.url), 'utf8');
 const routes = readFileSync(new URL('../src/routes/calibrationAppeals.js', import.meta.url), 'utf8');
 const runtime = readFileSync(new URL('../src/middleware/calibrationRuntime.js', import.meta.url), 'utf8');
 const integration = readFileSync(new URL('../src/routes/certificationHooks.js', import.meta.url), 'utf8');
@@ -74,23 +75,25 @@ test('one appeal per finalized assignment and the configured appeal window are e
 });
 
 test('appeal resolution preserves original evidence and creates a new reassessment attempt', () => {
-  assert.match(service, /recommendedAction === 'REASSESSMENT'/);
-  assert.match(service, /INSERT INTO evaluator_calibration_assignment/);
-  assert.match(service, /attemptNo = Number\(attempts\[0\]\?\.lastAttempt \|\| 0\) \+ 1/);
-  assert.doesNotMatch(service, /UPDATE evaluator_calibration_response/);
-  assert.doesNotMatch(service, /SET score_pct =/);
+  assert.match(evidenceService, /normalizedAction === 'REASSESSMENT'/);
+  assert.match(evidenceService, /INSERT INTO evaluator_calibration_assignment/);
+  assert.match(evidenceService, /attemptNo = Number\(attempts\[0\]\?\.lastAttempt \|\| 0\) \+ 1/);
+  assert.doesNotMatch(evidenceService, /UPDATE evaluator_calibration_response/);
+  assert.doesNotMatch(evidenceService, /SET score_pct =/);
+  assert.match(routes, /resolveCalibrationAppeal/);
   assert.match(routes, /without altering the original calibration evidence/);
 });
 
 test('evidence packs are canonical hash-verified private exports', () => {
-  assert.match(service, /canonicalize/);
-  assert.match(service, /manifestHash = sha256\(manifest\)/);
-  assert.match(service, /integrityVerified: sha256\(json\(pack\.manifestJson\)\) === pack\.manifestHash/);
-  assert.match(service, /evaluator_authorization_certificate/);
-  assert.match(service, /evaluator_reliability_snapshot/);
-  assert.match(service, /audit_log/);
-  assert.match(service, /created_at AS createdAt/);
-  assert.doesNotMatch(service, /timestamp\s+FROM audit_log/);
+  assert.match(evidenceService, /canonicalize/);
+  assert.match(evidenceService, /manifestHash = sha256\(manifest\)/);
+  assert.match(evidenceService, /integrityVerified: sha256\(json\(pack\.manifestJson\)\) === pack\.manifestHash/);
+  assert.match(evidenceService, /evaluator_authorization_certificate/);
+  assert.match(evidenceService, /evaluator_reliability_snapshot/);
+  assert.match(evidenceService, /audit_log/);
+  assert.match(evidenceService, /created_at AS createdAt/);
+  assert.doesNotMatch(evidenceService, /timestamp\s+FROM audit_log/);
+  assert.match(routes, /from '\.\.\/services\/calibrationAppealEvidence\.js'/);
   assert.match(routes, /Content-Disposition/);
   assert.match(routes, /calibration\.evidence_export/);
 });
@@ -128,7 +131,7 @@ test('Phase 9 UI exposes appeal SLA timeline evidence and admin resolution contr
   assert.match(panel, /Raise a calibration appeal/);
   assert.match(panel, /My appeal register/);
   assert.match(panel, /Timeline verified/);
-  assert.match(panel, /Governance evidence packs/);
+  assert.match(panel, /governance evidence packs/i);
   assert.match(panel, /Appeal governance control centre/);
   assert.match(panel, /Resolve and seal evidence/);
   assert.match(panel, /downloadCsv/);
