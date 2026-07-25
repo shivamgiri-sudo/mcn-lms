@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: dependency-review-${{ github.event.pull_request.number }}
@@ -29,6 +30,4 @@ jobs:
         uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: high
-          fail-on-scopes: runtime
-          warn-only: false
-          show-openssf-scorecard: true
+          comment-summary-in-pr: on-failure
