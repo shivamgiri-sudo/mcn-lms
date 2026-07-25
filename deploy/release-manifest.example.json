@@ -1,7 +1,7 @@
 {
-  "release": "mcn-lms-rc.1",
-  "commit": "REPLACE_WITH_GIT_SHA",
-  "image": "registry.example.invalid/mcn-lms:REPLACE_WITH_IMMUTABLE_TAG",
+  "release": "mcn-lms-v1.0.0",
+  "commit": "REPLACE_WITH_FULL_40_CHARACTER_GIT_SHA",
+  "image": "ghcr.io/shivamgiri-sudo/mcn-lms@sha256:REPLACE_WITH_64_HEX_DIGEST",
   "createdAt": "2026-07-26T00:00:00Z",
   "migrationCount": 15,
   "migrationCompatibility": "backward-compatible",
