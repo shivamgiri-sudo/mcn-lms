@@ -16,9 +16,9 @@ test('evaluator self responses redact protected anchor standards while editable'
 });
 
 test('redaction applies only to evaluator self endpoints', () => {
-  assert.match(guard, /\/api\/calibration\/coordinator\/assignments/);
-  assert.match(guard, /\/api\/calibration\/admin\/assignments/);
-  assert.match(guard, /\/self/);
+  assert.ok(guard.includes('^\\/api\\/calibration\\/coordinator\\/assignments'));
+  assert.ok(guard.includes('^\\/api\\/calibration\\/admin\\/assignments'));
+  assert.ok(guard.includes('\\/self'));
   assert.match(guard, /if \(!isEvaluatorSelfPath\(req\)\) return next\(\)/);
 });
 
