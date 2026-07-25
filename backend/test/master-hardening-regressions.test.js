@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
 const validatorPath = new URL('../../deploy/scripts/validate-release-manifest.mjs', import.meta.url);
+const evidenceValidatorPath = new URL('../../deploy/scripts/validate-release-evidence.mjs', import.meta.url);
 const sloValidatorPath = new URL('../../deploy/scripts/validate-slo-policy.mjs', import.meta.url);
 const dependencyValidatorPath = new URL('../../deploy/scripts/validate-workflow-dependencies.mjs', import.meta.url);
 const exampleManifest = JSON.parse(read('deploy/release-manifest.example.json'));
@@ -41,6 +42,19 @@ function approvedManifest() {
       operations: approval('Operations'),
       releaseManager: approval('Release Manager'),
     },
+  };
+}
+
+function publishedEvidence(manifest) {
+  const [image, digest] = manifest.image.split('@');
+  return {
+    repository: 'shivamgiri-sudo/mcn-lms',
+    releaseTag: 'v1.2.3',
+    commit: manifest.commit,
+    image,
+    digest,
+    workflowRun: 'https://github.com/shivamgiri-sudo/mcn-lms/actions/runs/123456789',
+    builtAt: manifest.createdAt,
   };
 }
 
@@ -78,6 +92,37 @@ test('strict release manifest binds approvals commit and immutable image', () =>
   }
 });
 
+test('published image evidence must match approved manifest commit and digest', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'lms-release-provenance-'));
+  try {
+    const manifest = approvedManifest();
+    const evidence = publishedEvidence(manifest);
+    const manifestPath = join(directory, 'release.json');
+    const evidencePath = join(directory, 'evidence.json');
+    writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
+
+    const valid = runNode(evidenceValidatorPath, [manifestPath, evidencePath, '--json'], {
+      EXPECTED_COMMIT_SHA: manifest.commit,
+      EXPECTED_IMAGE: manifest.image,
+    });
+    assert.equal(valid.status, 0, valid.stderr);
+    const summary = JSON.parse(valid.stdout);
+    assert.equal(summary.ok, true);
+    assert.equal(summary.image, manifest.image);
+
+    evidence.commit = 'c'.repeat(40);
+    evidence.digest = `sha256:${'d'.repeat(64)}`;
+    writeFileSync(evidencePath, JSON.stringify(evidence, null, 2));
+    const invalid = runNode(evidenceValidatorPath, [manifestPath, evidencePath]);
+    assert.notEqual(invalid.status, 0);
+    assert.match(invalid.stderr, /commit/);
+    assert.match(invalid.stderr, /digest|image/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('SLO policy validates and retains recovery objectives', () => {
   const result = runNode(sloValidatorPath, ['deploy/slo-policy.json']);
   assert.equal(result.status, 0, result.stderr);
@@ -90,17 +135,20 @@ test('SLO policy validates and retains recovery objectives', () => {
   assert.equal(policy.releaseGates.requireRestoreEvidence, true);
 });
 
-test('release validates approvals before backup or migration', () => {
+test('release validates approval and provenance before backup or migration', () => {
   const release = read('deploy/scripts/release.sh');
-  const validationIndex = release.indexOf('validate-release-manifest.mjs');
+  const manifestIndex = release.indexOf('validate-release-manifest.mjs');
+  const evidenceIndex = release.indexOf('validate-release-evidence.mjs');
   const backupIndex = release.indexOf('backup.sh');
   const migrationIndex = release.indexOf('run --rm migrate');
-  assert.ok(validationIndex > 0);
-  assert.ok(backupIndex > validationIndex);
+  assert.ok(manifestIndex > 0);
+  assert.ok(evidenceIndex > manifestIndex);
+  assert.ok(backupIndex > evidenceIndex);
   assert.ok(migrationIndex > backupIndex);
   assert.match(release, /EXPECTED_COMMIT_SHA/);
   assert.match(release, /EXPECTED_IMAGE/);
   assert.match(release, /RELEASE_MANIFEST_FILE/);
+  assert.match(release, /RELEASE_IMAGE_EVIDENCE_FILE/);
 });
 
 test('disaster recovery drill measures checksum RTO and RPO', () => {
@@ -141,7 +189,7 @@ test('repository governance and deterministic dependency policy protect critical
   assert.match(security, /Critical \| 4 hours/);
 });
 
-test('release publishing requires production environment SBOM and attestation', () => {
+test('release publishing requires production environment SBOM and verified attestations', () => {
   const workflow = read('.github/workflows/lms-publish-attested-image.yml');
   assert.match(workflow, /environment: production/);
   assert.match(workflow, /packages: write/);
@@ -151,6 +199,9 @@ test('release publishing requires production environment SBOM and attestation', 
   assert.match(workflow, /provenance: mode=max/);
   assert.match(workflow, /actions\/attest@v4/);
   assert.match(workflow, /subject-digest/);
+  assert.match(workflow, /subject-path: release-image-evidence\.json/);
+  assert.match(workflow, /gh attestation verify/);
+  assert.match(workflow, /steps\.source\.outputs\.commit/);
   assert.doesNotMatch(workflow, /:latest/);
 });
 
