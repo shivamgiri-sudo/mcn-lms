@@ -1,5 +1,6 @@
 import { calculateReliabilitySnapshots } from '../services/calibrationReliability.js';
 import { expireEvaluatorAuthorizations } from '../services/calibrationGovernance.js';
+import { runEvaluatorQualityOperationsCycle } from '../services/calibrationOperations.js';
 
 let running = false;
 let lastRequestCycleAt = 0;
@@ -18,15 +19,20 @@ async function runCycle(source) {
       periodEnd: end,
       actorId: `calibration-${source}`,
     });
+    const operations = await runEvaluatorQualityOperationsCycle(source);
     const activity = Number(expired.expiredAuthorizations || 0)
       + Number(expired.expiredAssignments || 0)
       + Number(reliability.snapshots || 0)
       + Number(reliability.pairs || 0)
-      + Number(reliability.qualityActions || 0);
+      + Number(reliability.qualityActions || 0)
+      + Number(operations.certificates?.created || 0)
+      + Number(operations.certificates?.updated || 0)
+      + Number(operations.cohorts?.snapshots || 0)
+      + Number(operations.notifications?.generated || 0);
     if (activity) {
-      console.log(`[CALIBRATION] ${source} cycle processed ${activity} authorization, snapshot, pair or action item(s).`);
+      console.log(`[CALIBRATION] ${source} cycle processed ${activity} authorization, reliability, certificate, cohort or notification item(s).`);
     }
-    return { expired, reliability };
+    return { expired, reliability, operations };
   } catch (error) {
     console.warn(`[CALIBRATION] ${source} cycle failed:`, error.message);
     return null;
