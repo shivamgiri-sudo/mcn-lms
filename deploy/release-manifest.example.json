@@ -1,0 +1,47 @@
+{
+  "release": "mcn-lms-rc.1",
+  "commit": "REPLACE_WITH_GIT_SHA",
+  "image": "registry.example.invalid/mcn-lms:REPLACE_WITH_IMMUTABLE_TAG",
+  "createdAt": "2026-07-26T00:00:00Z",
+  "migrationCount": 14,
+  "migrationCompatibility": "backward-compatible",
+  "databaseRollbackSupported": false,
+  "applicationRollbackSupported": true,
+  "requiredEnvironment": [
+    "DATABASE_URL",
+    "FRONTEND_URL",
+    "SESSION_SECRET",
+    "OAUTH_STATE_SECRET",
+    "BRIDGE_SECRET",
+    "HR_API_KEY",
+    "GOOGLE_TOKEN_ENCRYPTION_KEY",
+    "LMS_INSTANCE_ID",
+    "LMS_INSTANCE_ROLE",
+    "APP_VERSION",
+    "DEPLOYMENT_ID"
+  ],
+  "healthEndpoints": {
+    "liveness": "/api/runtime/health/live",
+    "readiness": "/api/runtime/health/ready"
+  },
+  "rollout": [
+    { "stage": "administrators", "percentage": 100 },
+    { "stage": "pilot-branch", "percentage": 10 },
+    { "stage": "pilot-process", "percentage": 25 },
+    { "stage": "expanded", "percentage": 50 },
+    { "stage": "general", "percentage": 100 }
+  ],
+  "rollbackGuardrails": {
+    "maximumErrorRatePct": 2,
+    "maximumP95LatencyMs": 1500,
+    "maximumNotificationBacklog": 5000,
+    "minimumHealthyInstances": 2
+  },
+  "approvals": {
+    "engineering": null,
+    "security": null,
+    "trainingQuality": null,
+    "operations": null,
+    "releaseManager": null
+  }
+}
