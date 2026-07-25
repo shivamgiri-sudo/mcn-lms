@@ -15,11 +15,13 @@ frontend/dist/
 backend/prisma/dev.db
 backend/prisma/*.db-journal
 
-# Uploads (user files — not in git)
+# Uploads and release backups (user/production data — not in git)
 backend/uploads/
+backups/
 
-# OAuth token (persisted on server — not in git)
+# OAuth tokens persisted on the server — not in git
 backend/drive-token.json
+backend/drive-token.enc
 
 # Logs
 *.log
