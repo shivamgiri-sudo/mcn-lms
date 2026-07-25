@@ -29,38 +29,12 @@ router.use('/calendar', calendarRoutes);
 router.use('/calibration', calibrationCatalogRoutes);
 router.use('/calibration', calibrationRoutes);
 
-// Evaluator authorization must run after the existing role session is resolved
-// and before practical claim/submission handlers execute. These route-specific
-// preflights preserve backward compatibility when no published calibration
-// program exists for the rubric version.
-router.post(
-  '/practical/coordinator/assignments/:assignmentId/claim',
-  requireSession,
-  requireRole('coordinator'),
-  evaluatorAuthorizationGate,
-  (_req, _res, next) => next(),
-);
-router.post(
-  '/practical/coordinator/evaluations/:evaluationId/submit',
-  requireSession,
-  requireRole('coordinator'),
-  evaluatorAuthorizationGate,
-  (_req, _res, next) => next(),
-);
-router.post(
-  '/practical/admin/assignments/:assignmentId/claim',
-  requireSession,
-  requireRole('admin'),
-  evaluatorAuthorizationGate,
-  (_req, _res, next) => next(),
-);
-router.post(
-  '/practical/admin/evaluations/:evaluationId/submit',
-  requireSession,
-  requireRole('admin'),
-  evaluatorAuthorizationGate,
-  (_req, _res, next) => next(),
-);
+// Resolve the existing session before checking template-specific authorization.
+// The downstream practical router remains the definitive role/permission guard.
+router.post('/practical/coordinator/assignments/:assignmentId/claim', requireSession, evaluatorAuthorizationGate, (_req, _res, next) => next());
+router.post('/practical/coordinator/evaluations/:evaluationId/submit', requireSession, evaluatorAuthorizationGate, (_req, _res, next) => next());
+router.post('/practical/admin/assignments/:assignmentId/claim', requireSession, evaluatorAuthorizationGate, (_req, _res, next) => next());
+router.post('/practical/admin/evaluations/:evaluationId/submit', requireSession, evaluatorAuthorizationGate, (_req, _res, next) => next());
 
 router.use('/practical', practicalCatalogRoutes);
 router.use('/practical', practicalRoutes);
