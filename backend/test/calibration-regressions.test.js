@@ -36,6 +36,7 @@ test('Phase 7 migration defines the full evaluator-quality evidence model', () =
 
 test('program history guard permits historical records but only one active program', () => {
   assert.match(historyGuard, /DROP INDEX uq_calibration_program_template_active/);
+  assert.match(historyGuard, /idx_calibration_program_template/);
   assert.match(historyGuard, /active_template_key/);
   assert.match(historyGuard, /GENERATED ALWAYS AS/);
   assert.match(historyGuard, /status IN \('DRAFT','PUBLISHED'\)/);
@@ -136,9 +137,13 @@ test('runtime and route order preserve identity before authorization checks', ()
   assert.match(runtime, /6 \* 60 \* 60 \* 1000/);
   assert.match(runtime, /calculateReliabilitySnapshots/);
   assert.match(runtime, /expireEvaluatorAuthorizations/);
+  assert.match(
+    integration,
+    /router\.post\('\/practical\/coordinator\/assignments\/:assignmentId\/claim', requireSession, evaluatorAuthorizationGate,/,
+  );
   const runtimeMount = integration.indexOf('router.use(calibrationRuntime)');
   const calibrationMount = integration.indexOf("router.use('/calibration', calibrationRoutes)");
-  const preflightMount = integration.indexOf("router.post('/practical/coordinator/assignments/:assignmentId/claim', requireSession, evaluatorAuthorizationGate)");
+  const preflightMount = integration.indexOf("router.post('/practical/coordinator/assignments/:assignmentId/claim'");
   const practicalMount = integration.indexOf("router.use('/practical', practicalRoutes)");
   assert.ok(runtimeMount > 0);
   assert.ok(calibrationMount > runtimeMount);
