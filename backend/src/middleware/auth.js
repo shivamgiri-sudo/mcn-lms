@@ -24,6 +24,8 @@ export async function requireSession(req, res, next) {
     req.userId = session.userId;
     req.userType = session.userType;
     req.userBranch = null;
+    req.userProcess = null;
+    req.userLob = null;
     req.adminInfo = null;
     req.coordinator = null;
 
@@ -40,6 +42,8 @@ export async function requireSession(req, res, next) {
         where: { loginId: session.userId, active: true, locked: false },
         select: {
           branch: true,
+          process: true,
+          lob: true,
           name: true,
           role: true,
           canCreateBatch: true,
@@ -52,13 +56,18 @@ export async function requireSession(req, res, next) {
       });
       if (!coord) return res.status(401).json({ ok: false, message: 'Account is inactive or locked.' });
       req.userBranch = coord.branch || null;
+      req.userProcess = coord.process || null;
+      req.userLob = coord.lob || null;
       req.coordinator = coord;
     } else if (session.userType === 'trainee') {
       const trainee = await prisma.userMaster.findFirst({
         where: { employeeId: session.userId, active: true, locked: false },
-        select: { employeeId: true },
+        select: { employeeId: true, branch: true, process: true, lob: true },
       });
       if (!trainee) return res.status(401).json({ ok: false, message: 'Account is inactive or locked.' });
+      req.userBranch = trainee.branch || null;
+      req.userProcess = trainee.process || null;
+      req.userLob = trainee.lob || null;
     }
 
     return next();
