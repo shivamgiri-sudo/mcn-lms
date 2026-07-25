@@ -8,7 +8,13 @@ const inventory = [];
 const mutableRefs = new Set(['main', 'master', 'latest', 'head', 'develop', 'development']);
 const fullSha = /^[0-9a-f]{40}$/;
 const officialMajor = /^v[1-9][0-9]*$/;
-const officialActions = action => action.startsWith('actions/') || action === 'github/codeql-action/init' || action === 'github/codeql-action/analyze' || action === 'github/codeql-action/autobuild';
+const githubCodeqlActions = new Set([
+  'github/codeql-action/init',
+  'github/codeql-action/analyze',
+  'github/codeql-action/autobuild',
+  'github/codeql-action/upload-sarif',
+]);
+const officialActions = action => action.startsWith('actions/') || githubCodeqlActions.has(action);
 
 function addError(file, message) {
   errors.push(`${file}: ${message}`);
