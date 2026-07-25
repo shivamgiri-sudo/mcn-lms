@@ -116,12 +116,12 @@ test('operations APIs are permissioned and mounted before calibration role route
 
 test('designated calibration worker runs operations after expiry and reliability', () => {
   assert.match(runtime, /runEvaluatorQualityOperationsCycle/);
-  const expiry = runtime.indexOf('expireEvaluatorAuthorizations');
-  const reliability = runtime.indexOf('calculateReliabilitySnapshots');
-  const operationsCycle = runtime.lastIndexOf('runEvaluatorQualityOperationsCycle(source)');
-  assert.ok(expiry > 0);
-  assert.ok(reliability > expiry);
-  assert.ok(operationsCycle > reliability);
+  const expiryCall = runtime.indexOf("await expireEvaluatorAuthorizations(`calibration-${source}`)");
+  const reliabilityCall = runtime.indexOf('await calculateReliabilitySnapshots({');
+  const operationsCall = runtime.indexOf('await runEvaluatorQualityOperationsCycle(source)');
+  assert.ok(expiryCall > 0);
+  assert.ok(reliabilityCall > expiryCall);
+  assert.ok(operationsCall > reliabilityCall);
   assert.match(runtime, /LMS_RUN_SCHEDULERS/);
   assert.match(runtime, /6 \* 60 \* 60 \* 1000/);
 });
