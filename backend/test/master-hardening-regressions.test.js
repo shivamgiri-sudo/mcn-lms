@@ -9,6 +9,7 @@ const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
 const validatorPath = new URL('../../deploy/scripts/validate-release-manifest.mjs', import.meta.url);
 const sloValidatorPath = new URL('../../deploy/scripts/validate-slo-policy.mjs', import.meta.url);
+const dependencyValidatorPath = new URL('../../deploy/scripts/validate-workflow-dependencies.mjs', import.meta.url);
 const exampleManifest = JSON.parse(read('deploy/release-manifest.example.json'));
 
 function runNode(scriptUrl, args = [], env = {}) {
@@ -118,15 +119,21 @@ test('disaster recovery drill measures checksum RTO and RPO', () => {
   assert.match(drill, /DR_RESTORE_COMPOSE_FILE/);
 });
 
-test('repository governance protects critical code and vulnerable dependency changes', () => {
+test('repository governance and deterministic dependency policy protect critical changes', () => {
   const owners = read('.github/CODEOWNERS');
-  const dependencyReview = read('.github/workflows/dependency-review.yml');
+  const dependencyPolicy = read('.github/workflows/dependency-policy.yml');
   const dependabot = read('.github/dependabot.yml');
   const security = read('SECURITY.md');
+  const validation = runNode(dependencyValidatorPath, ['--json']);
+  assert.equal(validation.status, 0, validation.stderr);
+  const summary = JSON.parse(validation.stdout);
+  assert.equal(summary.ok, true);
+  assert.ok(summary.dependencyCount > 0);
+  assert.ok(summary.commitPinnedCount > 0);
   assert.match(owners, /backend\/prisma\/migrations/);
   assert.match(owners, /\.github\/workflows/);
-  assert.match(dependencyReview, /actions\/dependency-review-action@v4/);
-  assert.match(dependencyReview, /fail-on-severity: high/);
+  assert.match(dependencyPolicy, /validate-workflow-dependencies\.mjs/);
+  assert.match(dependencyPolicy, /npm audit --omit=dev --audit-level=high/g);
   assert.match(dependabot, /package-ecosystem: npm/g);
   assert.match(dependabot, /package-ecosystem: github-actions/);
   assert.match(dependabot, /package-ecosystem: docker/);
