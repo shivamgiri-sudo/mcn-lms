@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import EvaluatorSelfView from './EvaluatorSelfView.jsx';
 import EvaluatorQualityAdminView from './EvaluatorQualityAdminView.jsx';
+import EvaluatorOperationsPanel from './EvaluatorOperationsPanel.jsx';
 import './evaluatorQuality.css';
 
 const ROLES = {
@@ -32,7 +33,7 @@ export default function EvaluatorQualityPage() {
   return (
     <main className="quality-shell">
       <header className="quality-header">
-        <div className="quality-brand"><div>EQ</div><section><b>Evaluator Quality</b><span>Calibration · Authorization · Reliability</span></section></div>
+        <div className="quality-brand"><div>EQ</div><section><b>Evaluator Quality</b><span>Calibration · Authorization · Reliability · Credentials</span></section></div>
         <nav>
           {available.length > 1 && <select value={role} onChange={event => changeRole(event.target.value)}>{available.map(item => <option key={item} value={item}>{ROLES[item].label}</option>)}</select>}
           <a href={ROLES[role]?.portal || '/'}>Back to portal</a>
@@ -42,6 +43,7 @@ export default function EvaluatorQualityPage() {
       <div className="quality-content">
         {role === 'coordinator' && <EvaluatorSelfView role="coordinator" />}
         {role === 'admin' && <EvaluatorQualityAdminView />}
+        <EvaluatorOperationsPanel role={role} />
       </div>
     </main>
   );
