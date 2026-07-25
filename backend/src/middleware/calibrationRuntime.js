@@ -1,6 +1,7 @@
 import { calculateReliabilitySnapshots } from '../services/calibrationReliability.js';
 import { expireEvaluatorAuthorizations } from '../services/calibrationGovernance.js';
 import { runEvaluatorQualityOperationsCycle } from '../services/calibrationOperations.js';
+import { runAppealGovernanceCycle } from '../services/calibrationAppeals.js';
 
 let running = false;
 let lastRequestCycleAt = 0;
@@ -20,6 +21,7 @@ async function runCycle(source) {
       actorId: `calibration-${source}`,
     });
     const operations = await runEvaluatorQualityOperationsCycle(source);
+    const governance = await runAppealGovernanceCycle(source);
     const activity = Number(expired.expiredAuthorizations || 0)
       + Number(expired.expiredAssignments || 0)
       + Number(reliability.snapshots || 0)
@@ -28,11 +30,13 @@ async function runCycle(source) {
       + Number(operations.certificates?.created || 0)
       + Number(operations.certificates?.updated || 0)
       + Number(operations.cohorts?.snapshots || 0)
-      + Number(operations.notifications?.generated || 0);
+      + Number(operations.notifications?.generated || 0)
+      + Number(governance.expiredPacks || 0)
+      + Number(governance.slaBreaches || 0);
     if (activity) {
-      console.log(`[CALIBRATION] ${source} cycle processed ${activity} authorization, reliability, certificate, cohort or notification item(s).`);
+      console.log(`[CALIBRATION] ${source} cycle processed ${activity} authorization, reliability, credential, appeal or governance item(s).`);
     }
-    return { expired, reliability, operations };
+    return { expired, reliability, operations, governance };
   } catch (error) {
     console.warn(`[CALIBRATION] ${source} cycle failed:`, error.message);
     return null;
