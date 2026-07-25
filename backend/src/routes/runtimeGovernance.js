@@ -37,6 +37,14 @@ function companyScope(req) {
     || (!req.userBranch && ['Super Admin', 'SuperAdmin', 'CEO'].includes(req.adminInfo?.role));
 }
 
+function validateRolloutScope(req) {
+  if (companyScope(req)) return null;
+  if (String(req.body?.scopeType || '').toUpperCase() !== 'BRANCH') {
+    return 'Branch administrators may only manage rollout controls for their own branch.';
+  }
+  return null;
+}
+
 router.get('/runtime/health/live', (_req, res) => {
   res.json({ ok: true, service: 'lms-platform', instanceId: runtimeInstanceId(), time: new Date().toISOString() });
 });
@@ -66,6 +74,8 @@ router.get('/runtime/admin/dashboard', ...adminAuth, requirePermission('runtime.
 }));
 
 router.post('/runtime/admin/flags', ...adminAuth, requirePermission('runtime.manage'), route(async (req, res) => {
+  const scopeError = validateRolloutScope(req);
+  if (scopeError) return res.status(403).json({ ok: false, message: scopeError });
   const flag = await saveFeatureFlag({
     actorId: req.userId,
     body: req.body || {},
@@ -84,6 +94,8 @@ router.post('/runtime/admin/flags', ...adminAuth, requirePermission('runtime.man
 }));
 
 router.put('/runtime/admin/flags/:flagId', ...adminAuth, requirePermission('runtime.manage'), route(async (req, res) => {
+  const scopeError = validateRolloutScope(req);
+  if (scopeError) return res.status(403).json({ ok: false, message: scopeError });
   const flag = await saveFeatureFlag({
     flagId: req.params.flagId,
     actorId: req.userId,
