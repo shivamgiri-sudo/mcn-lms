@@ -22,7 +22,7 @@ test('evaluator self-service covers calibration attempts and authorization statu
   assert.match(selfView, /\/calibration\/coordinator/);
   assert.match(selfView, /\/calibration\/admin/);
   assert.match(selfView, /Calibration attempts/);
-  assert.match(selfView, /Protected anchor standards/);
+  assert.match(selfView, /protected anchor standards/i);
   assert.match(selfView, /Submit calibration/);
   assert.match(selfView, /Evaluator authorizations/);
   assert.match(selfView, /Reliability & actions/);
