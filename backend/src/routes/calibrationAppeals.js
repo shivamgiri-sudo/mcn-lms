@@ -5,19 +5,22 @@ import { requirePermission } from '../middleware/permissions.js';
 import { audit } from '../utils/audit.js';
 import {
   createCalibrationAppeal,
-  generateGovernanceEvidencePack,
   getAppeal,
   getAppealDashboard,
-  getEvidencePack,
   getSelfGovernance,
   manageCalibrationAppeal,
   normalizeAppeal,
   provideAppealInformation,
-  recordEvidencePackDownload,
-  revokeEvidencePack,
   runAppealGovernanceCycle,
   withdrawAppeal,
 } from '../services/calibrationAppeals.js';
+import {
+  generateGovernanceEvidencePack,
+  getEvidencePack,
+  recordEvidencePackDownload,
+  resolveCalibrationAppeal,
+  revokeEvidencePack,
+} from '../services/calibrationAppealEvidence.js';
 
 const router = Router();
 const coordinatorAuth = [requireSession, requireRole('coordinator')];
@@ -208,15 +211,12 @@ router.post('/admin/governance/appeals/:appealId/request-information', ...adminA
 router.post('/admin/governance/appeals/:appealId/resolve', ...adminAuth, requirePermission('calibration.appeal_manage'), route(async (req, res) => {
   const scoped = await appealInScope(req, req.params.appealId);
   if (!scoped) return res.status(404).json({ ok: false, message: 'Appeal not found in your governance scope.' });
-  const appeal = await manageCalibrationAppeal({
+  const appeal = await resolveCalibrationAppeal({
     appealId: scoped.appealId,
-    action: 'RESOLVE',
     actorId: req.userId,
-    payload: {
-      resolutionType: req.body?.resolutionType,
-      resolutionSummary: req.body?.resolutionSummary,
-      recommendedAction: req.body?.recommendedAction,
-    },
+    resolutionType: req.body?.resolutionType,
+    resolutionSummary: req.body?.resolutionSummary,
+    recommendedAction: req.body?.recommendedAction,
   });
   await audit({
     userIdentity: req.userId,
