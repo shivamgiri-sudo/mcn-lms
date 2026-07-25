@@ -89,12 +89,14 @@ async function reviewerInScope(req, reviewerId) {
 }
 
 function mountSelfRoutes(prefix, auth, role) {
-  router.get(`${prefix}/governance/self`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
+  const selfPrefix = `${prefix}/governance/self`;
+
+  router.get(selfPrefix, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
     const data = await getSelfGovernance({ evaluatorId: req.userId, evaluatorType: role });
     res.json({ ok: true, data });
   }));
 
-  router.get(`${prefix}/governance/appeals/:appealId`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
+  router.get(`${selfPrefix}/appeals/:appealId`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
     const appeal = await getAppeal(req.params.appealId);
     if (!appeal || appeal.evaluatorId !== String(req.userId) || appeal.evaluatorType !== role) {
       return res.status(404).json({ ok: false, message: 'Appeal not found.' });
@@ -102,7 +104,7 @@ function mountSelfRoutes(prefix, auth, role) {
     res.json({ ok: true, data: appeal });
   }));
 
-  router.post(`${prefix}/governance/appeals`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
+  router.post(`${selfPrefix}/appeals`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
     const appeal = await createCalibrationAppeal({
       assignmentId: text(req.body?.assignmentId, 36),
       evaluatorId: req.userId,
@@ -122,7 +124,7 @@ function mountSelfRoutes(prefix, auth, role) {
     res.status(201).json({ ok: true, message: `Appeal ${appeal.appealCode} submitted.`, data: appeal });
   }));
 
-  router.post(`${prefix}/governance/appeals/:appealId/information`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
+  router.post(`${selfPrefix}/appeals/:appealId/information`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
     const appeal = await provideAppealInformation({
       appealId: req.params.appealId,
       evaluatorId: req.userId,
@@ -133,7 +135,7 @@ function mountSelfRoutes(prefix, auth, role) {
     res.json({ ok: true, message: 'Additional appeal information submitted.', data: appeal });
   }));
 
-  router.post(`${prefix}/governance/appeals/:appealId/withdraw`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
+  router.post(`${selfPrefix}/appeals/:appealId/withdraw`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
     const appeal = await withdrawAppeal({
       appealId: req.params.appealId,
       evaluatorId: req.userId,
@@ -144,7 +146,7 @@ function mountSelfRoutes(prefix, auth, role) {
     res.json({ ok: true, message: 'Calibration appeal withdrawn.', data: appeal });
   }));
 
-  router.get(`${prefix}/governance/packs/:packId`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
+  router.get(`${selfPrefix}/packs/:packId`, ...auth, requirePermission('calibration.appeal_self'), route(async (req, res) => {
     const pack = await getEvidencePack(req.params.packId);
     if (!pack || pack.evaluatorId !== String(req.userId) || pack.evaluatorType !== role || pack.status !== 'ACTIVE') {
       return res.status(404).json({ ok: false, message: 'Active evidence pack not found.' });
