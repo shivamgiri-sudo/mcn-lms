@@ -31,7 +31,7 @@ services:
     environment:
       LMS_RUN_MIGRATIONS: "false"
       LMS_RUN_SCHEDULERS: "false"
-      LMS_INSTANCE_ROLE: MIGRATOR
+      LMS_INSTANCE_ROLE: CI
       LMS_INSTANCE_ID: ${DEPLOYMENT_ID:-staging}-migrator
       SERVE_FRONTEND: "false"
     command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
