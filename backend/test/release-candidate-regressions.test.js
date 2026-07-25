@@ -16,6 +16,7 @@ const release = read('deploy/scripts/release.sh');
 const rollback = read('deploy/scripts/rollback.sh');
 const runbook = read('docs/RELEASE_CANDIDATE_RUNBOOK.md');
 const envExample = read('deploy/.env.staging.example');
+const migrations = read('deploy/migrations.expected').trim().split('\n');
 const manifest = JSON.parse(read('deploy/release-manifest.example.json'));
 
 test('release image is immutable multi-stage and non-root', () => {
@@ -39,6 +40,7 @@ test('container entrypoint fails fast and migrations are explicit', () => {
   assert.match(entrypoint, /LMS_RUN_MIGRATIONS/);
   assert.match(entrypoint, /prisma migrate deploy/);
   assert.match(entrypoint, /exec "\$@"/);
+  assert.doesNotMatch(entrypoint, /\beval\b/);
 });
 
 test('staging topology separates database migration web and worker responsibilities', () => {
@@ -86,8 +88,11 @@ test('release and rollback scripts preserve forward-only database policy', () =>
   assert.doesNotMatch(rollback, /migrate.*down|DROP TABLE|DROP DATABASE/);
 });
 
-test('release manifest and environment contract are machine readable and complete', () => {
-  assert.equal(manifest.migrationCount, 14);
+test('release manifest and migration chain are machine readable and complete', () => {
+  assert.equal(manifest.migrationCount, 15);
+  assert.equal(migrations.length, 15);
+  assert.equal(migrations[0], '20260630053213_init');
+  assert.equal(migrations.at(-1), '20260725150000_production_runtime_governance');
   assert.equal(manifest.databaseRollbackSupported, false);
   assert.equal(manifest.applicationRollbackSupported, true);
   assert.equal(manifest.healthEndpoints.liveness, '/api/runtime/health/live');
