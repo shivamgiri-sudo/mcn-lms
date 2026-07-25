@@ -26,7 +26,7 @@ The canonical release chain contains **15 migrations**, beginning with `20260630
 ## Release prerequisites
 
 - Rotate every previously exposed HRMS or LMS credential.
-- Create protected staging and production environment files from `deploy/.env.staging.example`.
+- Create protected staging and production environment files from `deploy/.env.staging.example` and `deploy/.env.production.example`.
 - Use unique 32+ character values for session, OAuth, bridge, HR API and token-encryption secrets.
 - Configure a separate HTTPS SCORM origin.
 - Assign stable `LMS_INSTANCE_ID`, `LMS_INSTANCE_ROLE`, `APP_VERSION` and `DEPLOYMENT_ID` values.
@@ -56,15 +56,21 @@ docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.y
 
 Never commit `deploy/.env.staging`.
 
+The staging topology includes MySQL for isolated rehearsal. The production topology expects a separately governed external MySQL 8 service and exposes the LMS web process only on loopback for a reverse proxy or load balancer.
+
 ## Backup and restore proof
 
-Create a backup before migrations:
+For staging’s Compose-managed database:
 
 ```bash
-ENV_FILE=deploy/.env.staging bash deploy/scripts/backup.sh
+ENV_FILE=deploy/.env.staging \
+COMPOSE_FILE=deploy/docker-compose.staging.yml \
+bash deploy/scripts/backup.sh
 ```
 
-Rehearse restore into an isolated temporary database:
+For production’s external database, configure `LMS_BACKUP_MODE=remote` and the dedicated `MYSQL_BACKUP_*` values in `deploy/.env.production`. The backup script uses a temporary MySQL 8 client container, a protected credential file, encrypted transport and no application-write credentials.
+
+Rehearse restore into an isolated temporary staging database:
 
 ```bash
 ENV_FILE=deploy/.env.staging bash deploy/scripts/restore-rehearsal.sh backups/lms-YYYYMMDDTHHMMSSZ.sql.gz
@@ -124,6 +130,26 @@ node deploy/scripts/load-smoke.mjs
 
 The load gate reports p50, p95, p99, throughput, total duration and error rate. It fails when the configured p95 or error-rate guardrail is exceeded. Increase load gradually only after the default release-candidate gate passes; this is a bounded smoke test, not a substitute for a full production-capacity model.
 
+## Production topology
+
+`deploy/docker-compose.production.yml` provides separate one-shot migration, web and worker services against an external database. Its application containers use:
+
+- read-only root filesystems
+- all Linux capabilities dropped
+- `no-new-privileges`
+- writable volumes only for uploads and encrypted runtime state
+- loopback-only web port binding
+- readiness and liveness health checks
+- controlled shutdown grace periods
+
+Render and review the final configuration before cutover:
+
+```bash
+LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.production" \
+docker compose --env-file deploy/.env.production \
+  -f deploy/docker-compose.production.yml config
+```
+
 ## Controlled rollout
 
 Use the Super Admin **Runtime & Rollout** console and the machine-readable release manifest.
@@ -166,7 +192,8 @@ Application rollback is allowed only when all conditions are true:
 PREVIOUS_IMAGE=registry.example.com/mcn-lms:<previous-sha> \
 ALLOW_APPLICATION_ROLLBACK=true \
 MIGRATION_COMPATIBILITY=backward-compatible \
-ENV_FILE=deploy/.env.staging \
+ENV_FILE=deploy/.env.production \
+COMPOSE_FILE=deploy/docker-compose.production.yml \
 bash deploy/scripts/rollback.sh
 ```
 
@@ -174,7 +201,7 @@ If migration compatibility is unknown or incompatible, stop rollout through feat
 
 ## Production release command
 
-The guarded orchestrator performs backup, image pull, migration, web/worker cutover, smoke testing and optional application rollback:
+The guarded orchestrator performs remote backup, immutable image pull, migration, web/worker cutover, smoke testing, bounded load testing and optional authorized application rollback:
 
 ```bash
 NEW_IMAGE=registry.example.com/mcn-lms:<new-sha> \
@@ -184,7 +211,7 @@ COMPOSE_FILE=deploy/docker-compose.production.yml \
 bash deploy/scripts/release.sh
 ```
 
-A production-specific compose file may be derived from the staging contract but must preserve separate migration, web and worker responsibilities.
+`LMS_RELEASE_BASE_URL` in the protected environment selects the post-cutover smoke/load endpoint. `LMS_HTTP_PORT` is used for local staging when no explicit release URL is configured.
 
 ## Post-release verification
 
