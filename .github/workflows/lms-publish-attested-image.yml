@@ -22,7 +22,7 @@ env:
 
 jobs:
   publish:
-    name: Build publish and attest release image
+    name: Build publish attest and verify release image
     runs-on: ubuntu-latest
     timeout-minutes: 45
     environment: production
@@ -52,15 +52,19 @@ jobs:
           ref: ${{ steps.release.outputs.tag }}
           fetch-depth: 0
 
-      - name: Verify tag resolves to HEAD
+      - name: Verify and record tag source commit
+        id: source
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-list -n1 '${{ steps.release.outputs.tag }}')" = "$(git rev-parse HEAD)"
-          git status --short --untracked-files=no | grep -q . && {
+          commit="$(git rev-parse HEAD)"
+          test "$(git rev-list -n1 '${{ steps.release.outputs.tag }}')" = "$commit"
+          if git status --short --untracked-files=no | grep -q .; then
             echo 'Release checkout is not clean.' >&2
             exit 1
-          } || true
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "short_commit=${commit:0:12}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
@@ -76,12 +80,12 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
             type=raw,value=${{ steps.release.outputs.tag }}
-            type=sha,format=long
+            type=raw,value=sha-${{ steps.source.outputs.short_commit }}
           labels: |
             org.opencontainers.image.title=MCN LMS
             org.opencontainers.image.description=Mas CallNet governed learning management platform
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.revision=${{ steps.source.outputs.commit }}
             org.opencontainers.image.version=${{ steps.release.outputs.tag }}
 
       - name: Build and publish immutable image
@@ -104,7 +108,15 @@ jobs:
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
-      - name: Record release evidence
+      - name: Verify published image attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >-
+          gh attestation verify
+          "oci://${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.image.outputs.digest }}"
+          -R "${{ github.repository }}"
+
+      - name: Record release image evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -112,14 +124,25 @@ jobs:
           {
             "repository": "${GITHUB_REPOSITORY}",
             "releaseTag": "${{ steps.release.outputs.tag }}",
-            "commit": "${GITHUB_SHA}",
+            "commit": "${{ steps.source.outputs.commit }}",
             "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",
             "digest": "${{ steps.image.outputs.digest }}",
             "workflowRun": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
             "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           }
           JSON
-          jq -e '.digest | startswith("sha256:")' release-image-evidence.json >/dev/null
+          jq -e '.digest | test("^sha256:[0-9a-f]{64}$")' release-image-evidence.json >/dev/null
+          jq -e '.commit | test("^[0-9a-f]{40}$")' release-image-evidence.json >/dev/null
+
+      - name: Attest release evidence file
+        uses: actions/attest@v4
+        with:
+          subject-path: release-image-evidence.json
+
+      - name: Verify release evidence attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh attestation verify release-image-evidence.json -R "${{ github.repository }}"
 
       - name: Upload release evidence
         uses: actions/upload-artifact@v4
