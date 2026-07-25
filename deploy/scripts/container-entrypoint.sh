@@ -1,9 +1,13 @@
 #!/usr/bin/env sh
 set -eu
 
+read_env() {
+  printenv "$1" 2>/dev/null || true
+}
+
 require_value() {
   name="$1"
-  eval "value=\${$name:-}"
+  value="$(read_env "$name")"
   if [ -z "$value" ]; then
     echo "[ENTRYPOINT] Required environment variable is missing: $name" >&2
     exit 64
@@ -12,7 +16,7 @@ require_value() {
 
 require_secret() {
   name="$1"
-  eval "value=\${$name:-}"
+  value="$(read_env "$name")"
   if [ "${#value}" -lt 32 ]; then
     echo "[ENTRYPOINT] $name must contain at least 32 characters." >&2
     exit 64
