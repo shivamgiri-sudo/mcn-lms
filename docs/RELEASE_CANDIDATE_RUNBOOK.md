@@ -1,0 +1,178 @@
+# MCN LMS Release Candidate Runbook
+
+## Purpose
+
+This runbook converts the stacked LMS programme into one controlled release candidate. It does not authorize a production deployment. Production cutover requires the approvals recorded in `deploy/release-manifest.json`.
+
+## Required merge order
+
+Merge the stacked pull requests in dependency order:
+
+1. PR #4 — secure foundation and enterprise talent architecture
+2. PR #5 — coaching and certification renewal
+3. PR #6 — instructor-led training
+4. PR #7 — notifications and calendar feeds
+5. PR #8 — practical assessments
+6. PR #9 — evaluator calibration and reliability
+7. PR #10 — evaluator-quality operations and credentials
+8. PR #11 — appeals and governance evidence packs
+9. PR #12 — runtime leases and rollout governance
+10. Phase 11 release-candidate PR
+
+Do not squash or reorder database migrations independently of the application commits that consume them.
+
+## Release prerequisites
+
+- Rotate every previously exposed HRMS or LMS credential.
+- Create protected staging and production environment files from `deploy/.env.staging.example`.
+- Use unique 32+ character values for session, OAuth, bridge, HR API and token-encryption secrets.
+- Configure a separate HTTPS SCORM origin.
+- Assign stable `LMS_INSTANCE_ID`, `LMS_INSTANCE_ROLE`, `APP_VERSION` and `DEPLOYMENT_ID` values.
+- Keep scheduler execution enabled only on designated worker processes. Database leases provide a second safety layer, not a reason to enable schedulers everywhere.
+- Confirm MySQL 8 backup storage, retention and restore access.
+- Fill in `deploy/release-manifest.json` from the example and obtain Engineering, Security, Training & Quality, Operations and Release Manager approvals.
+
+## Build the immutable image
+
+```bash
+docker build \
+  --build-arg VITE_API_URL= \
+  --label org.opencontainers.image.revision="$(git rev-parse HEAD)" \
+  --label org.opencontainers.image.version="${APP_VERSION}" \
+  -t "${LMS_IMAGE}" .
+```
+
+Use an immutable registry tag containing the Git commit SHA. Do not deploy `latest`.
+
+## Staging preparation
+
+```bash
+cp deploy/.env.staging.example deploy/.env.staging
+# Replace every CHANGE_ME value and configure real staging endpoints.
+docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml up -d mysql
+```
+
+Never commit `deploy/.env.staging`.
+
+## Backup and restore proof
+
+Create a backup before migrations:
+
+```bash
+ENV_FILE=deploy/.env.staging bash deploy/scripts/backup.sh
+```
+
+Rehearse restore into an isolated temporary database:
+
+```bash
+ENV_FILE=deploy/.env.staging bash deploy/scripts/restore-rehearsal.sh backups/lms-YYYYMMDDTHHMMSSZ.sql.gz
+```
+
+The rehearsal must verify checksum, decompression, table count, audit structures, runtime-governance structures and MySQL table health. It drops only the temporary rehearsal database.
+
+## Migration rehearsal
+
+Run the one-shot migration service before starting the new application:
+
+```bash
+LMS_IMAGE="${LMS_IMAGE}" \
+  docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml run --rm migrate
+```
+
+Migrations are forward-only. Do not attempt destructive SQL rollback. Application rollback is permitted only when the release manifest declares the migration set backward-compatible.
+
+## Start the candidate
+
+```bash
+LMS_IMAGE="${LMS_IMAGE}" \
+  docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml up -d app worker
+```
+
+Run smoke tests:
+
+```bash
+BASE_URL=https://staging-lms.example.com bash deploy/scripts/smoke-test.sh
+```
+
+The smoke gate validates:
+
+- process liveness
+- dependency readiness
+- frontend shell
+- unauthenticated route rejection
+- runtime-admin authorization
+- request-ID propagation
+- security headers
+
+## Controlled rollout
+
+Use the Super Admin **Runtime & Rollout** console and the machine-readable release manifest.
+
+Recommended sequence:
+
+1. company administrators and release team
+2. one pilot branch
+3. one pilot process
+4. 10% deterministic user rollout
+5. 25%
+6. 50%
+7. 100%
+
+Hold or reverse rollout if any guardrail is breached:
+
+- error rate above the approved threshold
+- p95 latency above the approved threshold
+- readiness endpoint returns 503
+- notification backlog exceeds the configured limit
+- no healthy worker instance
+- authentication or branch-scope regression
+- data-integrity or evidence-chain failure
+
+A matching kill switch overrides all enabled rollout records.
+
+## Rollback policy
+
+Database migrations are never automatically reversed.
+
+Application rollback is allowed only when all conditions are true:
+
+- an authorized incident decision exists
+- `ALLOW_APPLICATION_ROLLBACK=true`
+- `MIGRATION_COMPATIBILITY=backward-compatible`
+- the previous image is immutable and already validated
+- the database is healthy
+
+```bash
+PREVIOUS_IMAGE=registry.example.com/mcn-lms:<previous-sha> \
+ALLOW_APPLICATION_ROLLBACK=true \
+MIGRATION_COMPATIBILITY=backward-compatible \
+ENV_FILE=deploy/.env.staging \
+bash deploy/scripts/rollback.sh
+```
+
+If migration compatibility is unknown or incompatible, stop rollout through feature flags and kill switches, preserve the current schema, and deploy a forward corrective release.
+
+## Production release command
+
+The guarded orchestrator performs backup, image pull, migration, web/worker cutover, smoke testing and optional application rollback:
+
+```bash
+NEW_IMAGE=registry.example.com/mcn-lms:<new-sha> \
+PREVIOUS_IMAGE=registry.example.com/mcn-lms:<previous-sha> \
+ENV_FILE=deploy/.env.production \
+COMPOSE_FILE=deploy/docker-compose.production.yml \
+bash deploy/scripts/release.sh
+```
+
+A production-specific compose file may be derived from the staging contract but must preserve separate migration, web and worker responsibilities.
+
+## Post-release verification
+
+- Confirm `/api/runtime/health/live` and `/api/runtime/health/ready` return HTTP 200.
+- Confirm one healthy web instance and at least one healthy worker instance.
+- Confirm notification and calibration leases have only one active owner each.
+- Confirm login, learner journey, assessment, certification, coaching, ILT, practical assessment, calibration, appeal and evidence-pack workflows.
+- Confirm branch administrators cannot access company-scoped records.
+- Confirm public certificate verification exposes no private identity or contact fields.
+- Confirm notification backlog and dead-letter counts are within guardrails.
+- Archive the release manifest, backup checksum, smoke output and approval record.
