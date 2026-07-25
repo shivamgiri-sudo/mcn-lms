@@ -56,10 +56,11 @@ jobs:
             echo 'Production topology must use the governed external MySQL service.' >&2
             exit 1
           fi
-          grep -q '127.0.0.1:4000' /tmp/production-compose.yml
+          grep -q 'host_ip: 127.0.0.1' /tmp/production-compose.yml
+          grep -q 'published: "4000"' /tmp/production-compose.yml
           grep -q 'read_only: true' /tmp/production-compose.yml
           grep -q 'no-new-privileges:true' /tmp/production-compose.yml
-          if grep -Eq '3306:3306|0\.0\.0\.0:3306' /tmp/production-compose.yml; then
+          if grep -Eq '3306:3306|0\.0\.0\.0:3306|published: "3306"' /tmp/production-compose.yml; then
             echo 'Production topology must not publish MySQL.' >&2
             exit 1
           fi
