@@ -1,0 +1,130 @@
+name: Publish Attested LMS Image
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing immutable Git tag to publish
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+  attestations: write
+  id-token: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  publish:
+    name: Build publish and attest release image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: production
+    steps:
+      - name: Resolve release tag
+        id: release
+        shell: bash
+        env:
+          RELEASE_EVENT_TAG: ${{ github.event.release.tag_name }}
+          MANUAL_TAG: ${{ inputs.release_tag }}
+        run: |
+          set -euo pipefail
+          tag="${RELEASE_EVENT_TAG:-${MANUAL_TAG:-}}"
+          if [[ -z "$tag" ]]; then
+            echo 'A release tag is required.' >&2
+            exit 64
+          fi
+          if [[ ! "$tag" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release tag is not a supported semantic version: $tag" >&2
+            exit 64
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout immutable release tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Verify tag resolves to HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-list -n1 '${{ steps.release.outputs.tag }}')" = "$(git rev-parse HEAD)"
+          git status --short --untracked-files=no | grep -q . && {
+            echo 'Release checkout is not clean.' >&2
+            exit 1
+          } || true
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract immutable image metadata
+        id: metadata
+        uses: docker/metadata-action@9ec57ed1fcdbf14dcef7dfbe97b2010124a938b7
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.release.outputs.tag }}
+            type=sha,format=long
+          labels: |
+            org.opencontainers.image.title=MCN LMS
+            org.opencontainers.image.description=Mas CallNet governed learning management platform
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.release.outputs.tag }}
+
+      - name: Build and publish immutable image
+        id: image
+        uses: docker/build-push-action@f2a1d5e99d037542a71f64918e516c093c6f3fc4
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Generate GitHub build provenance attestation
+        uses: actions/attest@v4
+        with:
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > release-image-evidence.json <<JSON
+          {
+            "repository": "${GITHUB_REPOSITORY}",
+            "releaseTag": "${{ steps.release.outputs.tag }}",
+            "commit": "${GITHUB_SHA}",
+            "image": "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}",
+            "digest": "${{ steps.image.outputs.digest }}",
+            "workflowRun": "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}",
+            "builtAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          JSON
+          jq -e '.digest | startswith("sha256:")' release-image-evidence.json >/dev/null
+
+      - name: Upload release evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-image-evidence-${{ steps.release.outputs.tag }}
+          path: release-image-evidence.json
+          if-no-files-found: error
+          retention-days: 90
