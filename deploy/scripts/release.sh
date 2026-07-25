@@ -18,7 +18,7 @@ fi
 
 export LMS_IMAGE="$NEW_IMAGE"
 
-"$ROOT_DIR/deploy/scripts/backup.sh"
+bash "$ROOT_DIR/deploy/scripts/backup.sh"
 
 echo "[RELEASE] Pulling immutable image $NEW_IMAGE."
 docker pull "$NEW_IMAGE"
@@ -29,7 +29,7 @@ docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" run --rm migrate
 echo "[RELEASE] Starting web and worker services."
 docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" up -d --no-deps app worker
 
-if BASE_URL="${BASE_URL:-http://127.0.0.1:${LMS_HTTP_PORT:-4000}}" "$ROOT_DIR/deploy/scripts/smoke-test.sh"; then
+if BASE_URL="${BASE_URL:-http://127.0.0.1:${LMS_HTTP_PORT:-4000}}" bash "$ROOT_DIR/deploy/scripts/smoke-test.sh"; then
   echo "[RELEASE] Release candidate is healthy."
   exit 0
 fi
@@ -37,6 +37,6 @@ fi
 echo "[RELEASE] Smoke tests failed." >&2
 if [[ -n "$PREVIOUS_IMAGE" ]]; then
   echo "[RELEASE] Attempting application rollback to $PREVIOUS_IMAGE." >&2
-  PREVIOUS_IMAGE="$PREVIOUS_IMAGE" "$ROOT_DIR/deploy/scripts/rollback.sh"
+  PREVIOUS_IMAGE="$PREVIOUS_IMAGE" bash "$ROOT_DIR/deploy/scripts/rollback.sh"
 fi
 exit 1
