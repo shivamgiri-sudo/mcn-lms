@@ -7,6 +7,7 @@ import PasswordResetPage from './pages/Auth/PasswordResetPage.jsx';
 import DevelopmentHubRoute from './pages/Development/DevelopmentHubRoute.jsx';
 import TrainingCalendarPage from './pages/TrainingCalendar/TrainingCalendarPage.jsx';
 import PracticalAssessmentsPage from './pages/PracticalAssessments/PracticalAssessmentsPage.jsx';
+import EvaluatorQualityPage from './pages/EvaluatorQuality/EvaluatorQualityPage.jsx';
 import NotificationDock from './pages/Notifications/NotificationDock.jsx';
 import LearningToolsDock from './components/LearningToolsDock.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
@@ -21,6 +22,7 @@ export default function App() {
         <Route path="/development-hub" element={<DevelopmentHubRoute />} />
         <Route path="/training-calendar" element={<TrainingCalendarPage />} />
         <Route path="/practical-assessments" element={<PracticalAssessmentsPage />} />
+        <Route path="/evaluator-quality" element={<EvaluatorQualityPage />} />
         <Route path="/lms/*" element={<TraineePage />} />
         <Route path="/coordinator/*" element={<CoordinatorPage />} />
         <Route path="/admin/*" element={<AdminPage />} />
