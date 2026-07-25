@@ -1,6 +1,8 @@
 name: LMS Phase 7 Audit Diagnostics
 
 on:
+  pull_request:
+    branches: [agent/lms-practical-assessments]
   push:
     branches: [agent/lms-evaluator-calibration]
   workflow_dispatch:
