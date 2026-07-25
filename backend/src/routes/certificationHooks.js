@@ -12,6 +12,7 @@ import practicalRoutes from './practical.js';
 import practicalCatalogRoutes from './practicalCatalog.js';
 import calibrationRoutes from './calibration.js';
 import calibrationCatalogRoutes from './calibrationCatalog.js';
+import calibrationOperationsRoutes from './calibrationOperations.js';
 import { syncCertificationLifecycleForEmployee } from '../services/developmentGovernance.js';
 
 const router = Router();
@@ -26,6 +27,7 @@ router.use(practicalNotificationHooks);
 router.use(calibrationStandardsGuard);
 router.use('/notifications', notificationRoutes);
 router.use('/calendar', calendarRoutes);
+router.use('/calibration', calibrationOperationsRoutes);
 router.use('/calibration', calibrationCatalogRoutes);
 router.use('/calibration', calibrationRoutes);
 
