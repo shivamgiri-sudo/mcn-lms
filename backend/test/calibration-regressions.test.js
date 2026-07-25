@@ -12,6 +12,8 @@ const routes = readFileSync(new URL('../src/routes/calibration.js', import.meta.
 const catalog = readFileSync(new URL('../src/routes/calibrationCatalog.js', import.meta.url), 'utf8');
 const integration = readFileSync(new URL('../src/routes/certificationHooks.js', import.meta.url), 'utf8');
 const permissions = readFileSync(new URL('../src/middleware/permissions.js', import.meta.url), 'utf8');
+const packageJson = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+const packageLock = readFileSync(new URL('../package-lock.json', import.meta.url), 'utf8');
 
 const tables = [
   'evaluator_calibration_program',
@@ -149,4 +151,13 @@ test('runtime and route order preserve identity before authorization checks', ()
   assert.ok(calibrationMount > runtimeMount);
   assert.ok(preflightMount > calibrationMount);
   assert.ok(practicalMount > preflightMount);
+});
+
+test('production dependency override removes the vulnerable nested gaxios toolchain', () => {
+  assert.equal(packageJson.overrides?.['googleapis-common']?.gaxios, '7.3.0');
+  assert.match(packageLock, /"node_modules\/gaxios": \{/);
+  assert.match(packageLock, /"version": "7\.3\.0"/);
+  assert.doesNotMatch(packageLock, /node_modules\/googleapis-common\/node_modules\/gaxios/);
+  assert.doesNotMatch(packageLock, /"node_modules\/rimraf"/);
+  assert.doesNotMatch(packageLock, /"node_modules\/glob"/);
 });
