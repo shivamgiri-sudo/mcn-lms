@@ -21,6 +21,8 @@ Merge the stacked pull requests in dependency order:
 
 Do not squash or reorder database migrations independently of the application commits that consume them.
 
+The canonical release chain contains **15 migrations**, beginning with `20260630053213_init` and ending with `20260725150000_production_runtime_governance`. `deploy/migrations.expected` is the machine-readable order used by CI.
+
 ## Release prerequisites
 
 - Rotate every previously exposed HRMS or LMS credential.
@@ -79,6 +81,11 @@ LMS_IMAGE="${LMS_IMAGE}" \
   docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml run --rm migrate
 ```
 
+CI proves two paths:
+
+- all 15 migrations against empty MySQL 8 for a clean installation;
+- the init baseline with preserved sentinel data, followed by the remaining feature migrations, for an in-place upgrade.
+
 Migrations are forward-only. Do not attempt destructive SQL rollback. Application rollback is permitted only when the release manifest declares the migration set backward-compatible.
 
 ## Start the candidate
@@ -103,6 +110,19 @@ The smoke gate validates:
 - runtime-admin authorization
 - request-ID propagation
 - security headers
+
+Run the bounded concurrency gate:
+
+```bash
+BASE_URL=https://staging-lms.example.com \
+LOAD_CONCURRENCY=25 \
+LOAD_REQUESTS=500 \
+LOAD_P95_LIMIT_MS=1500 \
+LOAD_MAX_ERROR_PCT=1 \
+node deploy/scripts/load-smoke.mjs
+```
+
+The load gate reports p50, p95, p99, throughput, total duration and error rate. It fails when the configured p95 or error-rate guardrail is exceeded. Increase load gradually only after the default release-candidate gate passes; this is a bounded smoke test, not a substitute for a full production-capacity model.
 
 ## Controlled rollout
 
@@ -175,4 +195,4 @@ A production-specific compose file may be derived from the staging contract but 
 - Confirm branch administrators cannot access company-scoped records.
 - Confirm public certificate verification exposes no private identity or contact fields.
 - Confirm notification backlog and dead-letter counts are within guardrails.
-- Archive the release manifest, backup checksum, smoke output and approval record.
+- Archive the release manifest, backup checksum, smoke output, load report and approval record.
