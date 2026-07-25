@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   backend-audit:
-    name: Capture backend production audit
+    name: Generate backend audit remediation
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -31,26 +31,33 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Capture production dependency audit
+      - name: Generate lockfile-only remediation
+        shell: bash
+        run: |
+          npm audit fix --omit=dev --package-lock-only --ignore-scripts
+      - name: Verify remediated production dependency audit
         id: audit
         shell: bash
         run: |
           set +e
-          npm audit --omit=dev --audit-level=high --json > phase7-backend-audit.json
+          npm audit --omit=dev --audit-level=high --json > phase7-backend-audit-after-fix.json
           code=$?
-          cat phase7-backend-audit.json
+          cat phase7-backend-audit-after-fix.json
           echo "exit_code=$code" >> "$GITHUB_OUTPUT"
           exit 0
-      - name: Upload production audit diagnostics
+      - name: Upload lockfile remediation and audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: phase7-backend-audit-diagnostics
-          path: backend/phase7-backend-audit.json
+          name: phase7-backend-audit-remediation
+          path: |
+            backend/package-lock.json
+            backend/package.json
+            backend/phase7-backend-audit-after-fix.json
           if-no-files-found: error
           retention-days: 7
-      - name: Enforce production dependency audit
+      - name: Enforce remediated production dependency audit
         if: steps.audit.outputs.exit_code != '0'
         run: |
-          echo 'Production dependency audit failed. Inspect phase7-backend-audit-diagnostics.' >&2
+          echo 'The generated lockfile still contains high-severity production advisories.' >&2
           exit 1
