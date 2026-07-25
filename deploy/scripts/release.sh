@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 COMPOSE_FILE="${COMPOSE_FILE:-$ROOT_DIR/deploy/docker-compose.staging.yml}"
 ENV_FILE="${ENV_FILE:-$ROOT_DIR/deploy/.env.staging}"
+RELEASE_MANIFEST_FILE="${RELEASE_MANIFEST_FILE:-$ROOT_DIR/deploy/release-manifest.json}"
 requested_new_image="${NEW_IMAGE:-}"
 requested_previous_image="${PREVIOUS_IMAGE:-}"
 
@@ -13,6 +14,10 @@ if [[ -z "$requested_new_image" ]]; then
 fi
 if [[ ! -f "$ENV_FILE" ]]; then
   echo "[RELEASE] Missing environment file: $ENV_FILE" >&2
+  exit 64
+fi
+if [[ ! -f "$RELEASE_MANIFEST_FILE" ]]; then
+  echo "[RELEASE] Missing approved release manifest: $RELEASE_MANIFEST_FILE" >&2
   exit 64
 fi
 
@@ -25,8 +30,18 @@ NEW_IMAGE="$requested_new_image"
 PREVIOUS_IMAGE="$requested_previous_image"
 LMS_IMAGE="$NEW_IMAGE"
 LMS_SERVICE_ENV_FILE="$ENV_FILE"
-export NEW_IMAGE PREVIOUS_IMAGE LMS_IMAGE LMS_SERVICE_ENV_FILE COMPOSE_FILE ENV_FILE
+release_commit_sha="${RELEASE_COMMIT_SHA:-$(git -C "$ROOT_DIR" rev-parse HEAD 2>/dev/null || true)}"
+if [[ ! "$release_commit_sha" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "[RELEASE] RELEASE_COMMIT_SHA must be the exact 40-character release commit." >&2
+  exit 64
+fi
+
+export NEW_IMAGE PREVIOUS_IMAGE LMS_IMAGE LMS_SERVICE_ENV_FILE COMPOSE_FILE ENV_FILE RELEASE_MANIFEST_FILE
 release_base_url="${BASE_URL:-${LMS_RELEASE_BASE_URL:-http://127.0.0.1:${LMS_HTTP_PORT:-4000}}}"
+
+echo "[RELEASE] Validating immutable image, commit, approvals and guardrails."
+EXPECTED_COMMIT_SHA="$release_commit_sha" EXPECTED_IMAGE="$NEW_IMAGE" \
+  node "$ROOT_DIR/deploy/scripts/validate-release-manifest.mjs" "$RELEASE_MANIFEST_FILE"
 
 COMPOSE_FILE="$COMPOSE_FILE" ENV_FILE="$ENV_FILE" bash "$ROOT_DIR/deploy/scripts/backup.sh"
 
@@ -65,4 +80,4 @@ if [[ "${LMS_RUN_LOAD_SMOKE:-true}" == "true" ]]; then
   fi
 fi
 
-echo "[RELEASE] Release candidate passed smoke and load guardrails."
+echo "[RELEASE] Release candidate passed manifest, backup, migration, smoke and load guardrails."
