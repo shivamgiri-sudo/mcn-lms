@@ -1,5 +1,12 @@
 -- Phase 7 correction: permit multiple historical calibration programs while
 -- allowing only one active draft/published program per rubric version.
+--
+-- The original composite unique index is also the only template_id-prefixed
+-- index available to the foreign key. MySQL will not drop an index required by
+-- a foreign key, so create a dedicated support index before replacing it.
+
+ALTER TABLE evaluator_calibration_program
+  ADD KEY idx_calibration_program_template (template_id);
 
 ALTER TABLE evaluator_calibration_program
   DROP INDEX uq_calibration_program_template_active,
