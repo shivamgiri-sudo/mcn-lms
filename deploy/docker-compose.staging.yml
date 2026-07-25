@@ -5,7 +5,7 @@ services:
     image: mysql:8.0
     restart: unless-stopped
     env_file:
-      - .env.staging
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -27,7 +27,7 @@ services:
   migrate:
     image: ${LMS_IMAGE}
     env_file:
-      - .env.staging
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
     environment:
       LMS_RUN_MIGRATIONS: "false"
       LMS_RUN_SCHEDULERS: "false"
@@ -44,7 +44,7 @@ services:
     image: ${LMS_IMAGE}
     restart: unless-stopped
     env_file:
-      - .env.staging
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
     environment:
       LMS_RUN_MIGRATIONS: "false"
       LMS_RUN_SCHEDULERS: "false"
@@ -72,7 +72,7 @@ services:
     image: ${LMS_IMAGE}
     restart: unless-stopped
     env_file:
-      - .env.staging
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
     environment:
       LMS_RUN_MIGRATIONS: "false"
       LMS_RUN_SCHEDULERS: "true"
