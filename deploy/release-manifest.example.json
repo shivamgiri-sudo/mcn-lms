@@ -3,7 +3,7 @@
   "commit": "REPLACE_WITH_GIT_SHA",
   "image": "registry.example.invalid/mcn-lms:REPLACE_WITH_IMMUTABLE_TAG",
   "createdAt": "2026-07-26T00:00:00Z",
-  "migrationCount": 14,
+  "migrationCount": 15,
   "migrationCompatibility": "backward-compatible",
   "databaseRollbackSupported": false,
   "applicationRollbackSupported": true,
