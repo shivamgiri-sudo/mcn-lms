@@ -59,6 +59,8 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -78,29 +80,41 @@ jobs:
           sort ../deploy/migrations.expected > /tmp/expected-migrations
           diff -u /tmp/expected-migrations /tmp/actual-migrations
           test "$(wc -l < /tmp/actual-migrations)" = "14"
-      - name: Rehearse clean migration deployment
-        run: npx prisma migrate deploy
-      - name: Verify clean migration history
+      - name: Generate immutable main-branch base schema
+        shell: bash
+        run: |
+          set -euo pipefail
+          git show origin/main:backend/prisma/schema.prisma > /tmp/main-schema.prisma
+          DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_clean \
+            npx prisma migrate diff --from-empty --to-schema-datamodel /tmp/main-schema.prisma --script > /tmp/main-baseline.sql
+          test -s /tmp/main-baseline.sql
+      - name: Rehearse clean installation from versioned baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_clean < /tmp/main-baseline.sql
+          npx prisma migrate deploy
+      - name: Verify clean installation history and base schema
         shell: bash
         run: |
           set -euo pipefail
           applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
-          failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR logs IS NOT NULL;")
+          failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;")
+          base_tables=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='lms_clean' AND table_name IN ('audit_log','admin_user_master','role_access_matrix','trainee_master','user_master');")
           runtime_tables=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_clean -e "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='lms_clean' AND table_name IN ('platform_runtime_lease','platform_runtime_instance','platform_feature_flag');")
           test "$applied" = "14"
           test "$failed" = "0"
+          test "$base_tables" = "5"
           test "$runtime_tables" = "3"
-      - name: Prepare realistic staged-upgrade database
+      - name: Prepare realistic main-branch upgrade database
         shell: bash
         run: |
           set -euo pipefail
           mysql --protocol=TCP -h127.0.0.1 -uroot -proot_password -e "CREATE DATABASE lms_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci; GRANT ALL PRIVILEGES ON lms_upgrade.* TO 'lms_ci'@'%'; FLUSH PRIVILEGES;"
-          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_upgrade < prisma/migrations/20260724090000_secure_password_recovery/migration.sql
-          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_upgrade < prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql
-          DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade npx prisma migrate resolve --applied 20260724090000_secure_password_recovery
-          DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade npx prisma migrate resolve --applied 20260724110000_talent_and_permissions_foundation
+          DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade \
+            npx prisma db push --schema=/tmp/main-schema.prisma --skip-generate
           mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_upgrade -e "CREATE TABLE rc_upgrade_sentinel (id INT PRIMARY KEY, marker VARCHAR(100) NOT NULL); INSERT INTO rc_upgrade_sentinel VALUES (1,'preserve-me');"
-      - name: Rehearse upgrade from the staged foundation
+      - name: Rehearse in-place upgrade from main schema
         run: DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_upgrade npx prisma migrate deploy
       - name: Verify upgraded data and schema
         shell: bash
@@ -147,6 +161,7 @@ jobs:
           path: |
             /tmp/actual-migrations
             /tmp/expected-migrations
+            /tmp/main-baseline.sql
             /tmp/lms-upgrade.sql.gz.sha256
           retention-days: 14
 
@@ -172,11 +187,28 @@ jobs:
           --health-retries=20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Build immutable release image
         run: docker build --build-arg VITE_API_URL= --label org.opencontainers.image.revision=${GITHUB_SHA} -t mcn-lms:${GITHUB_SHA} .
       - name: Verify image runs as non-root
         run: test "$(docker image inspect mcn-lms:${GITHUB_SHA} --format '{{.Config.User}}')" = "lms"
-      - name: Apply migrations through the release image
+      - name: Create the versioned base schema through the release image
+        run: |
+          git show origin/main:backend/prisma/schema.prisma > /tmp/main-schema.prisma
+          docker run --rm --network host -v /tmp/main-schema.prisma:/tmp/main-schema.prisma:ro \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_container \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=release-candidate-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=release-candidate-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=release-candidate-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=release-candidate-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=release-candidate-token-key-longer-than-thirty-two \
+            -e LMS_INSTANCE_ROLE=CI \
+            -e LMS_INSTANCE_ID=rc-container-baseline \
+            -e SERVE_FRONTEND=false \
+            mcn-lms:${GITHUB_SHA} ./node_modules/.bin/prisma db push --schema=/tmp/main-schema.prisma --skip-generate
+      - name: Apply feature migrations through the release image
         run: |
           docker run --rm --network host \
             -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_container \
@@ -186,7 +218,7 @@ jobs:
             -e BRIDGE_SECRET=release-candidate-bridge-secret-longer-than-thirty-two \
             -e HR_API_KEY=release-candidate-hr-api-key-longer-than-thirty-two \
             -e GOOGLE_TOKEN_ENCRYPTION_KEY=release-candidate-token-key-longer-than-thirty-two \
-            -e LMS_INSTANCE_ROLE=MIGRATOR \
+            -e LMS_INSTANCE_ROLE=CI \
             -e LMS_INSTANCE_ID=rc-container-migrator \
             -e SERVE_FRONTEND=false \
             mcn-lms:${GITHUB_SHA} ./node_modules/.bin/prisma migrate deploy
