@@ -31,10 +31,11 @@ jobs:
           cache-dependency-path: backend/package-lock.json
       - name: Install locked dependencies
         run: npm ci --ignore-scripts
-      - name: Generate lockfile-only remediation
+      - name: Generate narrow nested dependency remediation
         shell: bash
         run: |
-          npm audit fix --omit=dev --package-lock-only --ignore-scripts
+          npm pkg set 'overrides.googleapis-common.gaxios=7.3.0'
+          npm install --package-lock-only --ignore-scripts
       - name: Verify remediated production dependency audit
         id: audit
         shell: bash
