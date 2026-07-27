@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS assessment_blueprint (
   UNIQUE KEY uq_assessment_blueprint_draft (draft_assessment_key),
   KEY idx_assessment_blueprint_status (assessment_id, status, active),
   CONSTRAINT fk_assessment_blueprint_assessment FOREIGN KEY (assessment_id)
-    REFERENCES assessment_master(assessment_id) ON DELETE CASCADE,
+    REFERENCES assessment_master(assessment_id) ON DELETE RESTRICT,
   CONSTRAINT chk_assessment_blueprint_status CHECK (status IN ('DRAFT','IN_REVIEW','PUBLISHED','RETIRED')),
   CONSTRAINT chk_assessment_blueprint_questions CHECK (total_questions BETWEEN 1 AND 500),
   CONSTRAINT chk_assessment_blueprint_dates CHECK (effective_to IS NULL OR effective_from IS NULL OR effective_to > effective_from)
@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS assessment_quality_alert (
   UNIQUE KEY uq_assessment_quality_open_alert (open_alert_key),
   KEY idx_assessment_quality_alert_queue (assessment_id, status, severity),
   CONSTRAINT fk_assessment_quality_alert_assessment FOREIGN KEY (assessment_id)
-    REFERENCES assessment_master(assessment_id) ON DELETE CASCADE,
+    REFERENCES assessment_master(assessment_id) ON DELETE RESTRICT,
   CONSTRAINT chk_assessment_quality_alert_status CHECK (status IN ('OPEN','REVIEWING','RESOLVED','DISMISSED')),
   CONSTRAINT chk_assessment_quality_alert_severity CHECK (severity IN ('WATCH','MEDIUM','HIGH','CRITICAL'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
