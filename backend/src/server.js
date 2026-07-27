@@ -14,6 +14,7 @@ import { startScheduler } from './utils/scheduler.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
+import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 
 import passwordStabilityRoutes from './routes/passwordStability.js';
 import certificationHooks from './routes/certificationHooks.js';
@@ -29,6 +30,7 @@ import diagnosticsRoutes from './routes/diagnostics.js';
 import managementRoutes from './routes/management.js';
 import driveRoutes from './routes/drive.js';
 import uploadRoutes from './routes/upload.js';
+import contentFilesRoutes from './routes/contentFiles.js';
 import reportRoutes from './routes/reports.js';
 import empMappingRoutes from './routes/empMapping.js';
 import complianceRoutes from './routes/compliance.js';
@@ -60,13 +62,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false,
-  frameguard: false,
-  referrerPolicy: { policy: 'no-referrer' },
-  strictTransportSecurity: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
-}));
+app.use(helmet(buildHttpSecurityPolicy(process.env)));
 
 const allowedOrigins = String(process.env.FRONTEND_URL || '')
   .split(',')
@@ -91,14 +87,16 @@ app.use(morgan(isProduction ? 'combined' : 'dev'));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.FORM_BODY_LIMIT || '2mb' }));
 
-app.use('/uploads/content', express.static(contentUploadDir, {
-  index: false,
-  fallthrough: false,
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-  },
-}));
+if (!isProduction) {
+  app.use('/uploads/content', express.static(contentUploadDir, {
+    index: false,
+    fallthrough: false,
+    setHeaders(res) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+    },
+  }));
+}
 
 if (!isProduction && process.env.SCORM_ALLOW_SAME_ORIGIN === 'true') {
   app.use('/uploads/scorm', express.static(scormUploadDir, {
@@ -153,6 +151,7 @@ app.use('/api/admin/compliance', complianceRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/content', contentFilesRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/emp-mapping', empMappingRoutes);
 app.use('/api/scorm', scormRoutes);
