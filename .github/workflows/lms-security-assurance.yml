@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
   workflow_dispatch:
 
 permissions:
@@ -72,7 +73,8 @@ jobs:
         run: |
           applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
           failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;")
-          test "$applied" = "15"
+          expected=$(grep -cv '^[[:space:]]*$' deploy/migrations.expected)
+          test "$applied" = "$expected"
           test "$failed" = "0"
       - name: Check backend JavaScript
         run: find backend/src backend/test deploy/scripts -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
