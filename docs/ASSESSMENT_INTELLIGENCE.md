@@ -49,6 +49,10 @@ Only one published blueprint may be active for an assessment. Publishing a revie
 
 Retired blueprints cannot generate new attempts but remain available as historical governance evidence.
 
+### Parent-record retention
+
+Assessment blueprints and open quality alerts use foreign-key deletion restriction rather than cascading deletion. They also use indexed stored generated columns to enforce one active draft, one active published blueprint and one open alert key. MySQL does not permit cascading referential actions when the referenced child column is also a base column for that indexed generated state. More importantly, governance evidence should never disappear because an assessment master is deleted accidentally. Assessments with retained blueprint or alert evidence must be retired or archived through the governed lifecycle instead of being physically removed.
+
 ## Question governance
 
 Question metadata includes:
