@@ -125,10 +125,12 @@ jobs:
           NODE
 
       - name: Apply Phase 14 migration
+        shell: bash
         run: |
+          set -o pipefail
           mv /tmp/20260727120000_assessment_intelligence backend/prisma/migrations/20260727120000_assessment_intelligence
           cd backend
-          npx prisma migrate deploy
+          npx prisma migrate deploy 2>&1 | tee /tmp/phase14-migrate.log
 
       - name: Verify complete migration and schema inventory
         run: |
@@ -200,6 +202,7 @@ jobs:
         with:
           name: phase14-assessment-intelligence-evidence
           path: |
+            /tmp/phase14-migrate.log
             /tmp/phase14-migration-policy.json
             /tmp/phase14-route-policy.json
           if-no-files-found: warn
