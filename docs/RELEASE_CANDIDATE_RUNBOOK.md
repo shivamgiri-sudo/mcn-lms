@@ -19,10 +19,12 @@ Merge the stacked pull requests in dependency order:
 9. PR #12 — runtime leases and rollout governance
 10. PR #13 — release candidate rehearsal and guarded deployment
 11. PR #14 — master release governance, provenance and recovery evidence
+12. PR #15 — continuous security assurance and protected learning content
+13. PR #16 — governed assessment intelligence and adaptive remediation
 
 Do not squash or reorder database migrations independently of the application commits that consume them.
 
-The canonical release chain contains **15 migrations**, beginning with `20260630053213_init` and ending with `20260725150000_production_runtime_governance`. `deploy/migrations.expected` is the machine-readable order used by CI.
+The canonical release chain contains **16 migrations**, beginning with `20260630053213_init` and ending with `20260727120000_assessment_intelligence`. `deploy/migrations.expected` is the machine-readable order used by CI.
 
 ## Release prerequisites
 

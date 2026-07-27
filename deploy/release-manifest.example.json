@@ -3,7 +3,7 @@
   "commit": "REPLACE_WITH_FULL_40_CHARACTER_GIT_SHA",
   "image": "ghcr.io/shivamgiri-sudo/mcn-lms@sha256:REPLACE_WITH_64_HEX_DIGEST",
   "createdAt": "2026-07-26T00:00:00Z",
-  "migrationCount": 15,
+  "migrationCount": 16,
   "migrationCompatibility": "backward-compatible",
   "databaseRollbackSupported": false,
   "applicationRollbackSupported": true,
@@ -25,11 +25,26 @@
     "readiness": "/api/runtime/health/ready"
   },
   "rollout": [
-    { "stage": "administrators", "percentage": 100 },
-    { "stage": "pilot-branch", "percentage": 10 },
-    { "stage": "pilot-process", "percentage": 25 },
-    { "stage": "expanded", "percentage": 50 },
-    { "stage": "general", "percentage": 100 }
+    {
+      "stage": "administrators",
+      "percentage": 100
+    },
+    {
+      "stage": "pilot-branch",
+      "percentage": 10
+    },
+    {
+      "stage": "pilot-process",
+      "percentage": 25
+    },
+    {
+      "stage": "expanded",
+      "percentage": 50
+    },
+    {
+      "stage": "general",
+      "percentage": 100
+    }
   ],
   "rollbackGuardrails": {
     "maximumErrorRatePct": 2,

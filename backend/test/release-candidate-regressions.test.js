@@ -128,10 +128,10 @@ test('release and rollback scripts preserve environment and forward-only databas
 });
 
 test('release manifests and environment contracts are machine readable and complete', () => {
-  assert.equal(manifest.migrationCount, 15);
-  assert.equal(migrations.length, 15);
+  assert.equal(manifest.migrationCount, 16);
+  assert.equal(migrations.length, 16);
   assert.equal(migrations[0], '20260630053213_init');
-  assert.equal(migrations.at(-1), '20260725150000_production_runtime_governance');
+  assert.equal(migrations.at(-1), '20260727120000_assessment_intelligence');
   assert.equal(manifest.databaseRollbackSupported, false);
   assert.equal(manifest.applicationRollbackSupported, true);
   assert.equal(manifest.healthEndpoints.liveness, '/api/runtime/health/live');
@@ -151,7 +151,7 @@ test('release manifests and environment contracts are machine readable and compl
 
 test('runbook fixes stack order and blocks destructive database rollback', () => {
   for (let pr = 4; pr <= 12; pr += 1) assert.match(runbook, new RegExp(`PR #${pr}`));
-  assert.match(runbook, /15 migrations/);
+  assert.match(runbook, /16 migrations/);
   assert.match(runbook, /Do not squash or reorder database migrations/);
   assert.match(runbook, /Database migrations are never automatically reversed/);
   assert.match(runbook, /feature flags and kill switches/);
