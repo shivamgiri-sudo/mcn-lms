@@ -44,6 +44,8 @@ const forbidden = [
   [/\bRENAME\s+TABLE\b/i, 'RENAME TABLE requires an explicit compatibility plan'],
 ];
 
+const forwardOperation = /\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|INSERT\s+(?:IGNORE\s+)?INTO|UPDATE\s+`?[A-Za-z0-9_]+`?\s+SET)\b/i;
+
 for (const migration of actual) {
   const file = join(migrationsRoot, migration, 'migration.sql');
   const sql = readFileSync(file, 'utf8');
@@ -60,8 +62,8 @@ for (const migration of actual) {
   const dropIndexes = [...normalized.matchAll(/\bDROP\s+INDEX\s+`?([A-Za-z0-9_]+)`?/gi)].map(match => match[1]);
   if (dropIndexes.length) warnings.push(`${migration}: reviewed index removal(s): ${dropIndexes.join(', ')}`);
 
-  if (!isBaseline && !/\b(?:CREATE\s+TABLE|ALTER\s+TABLE|CREATE\s+(?:UNIQUE\s+)?INDEX|INSERT\s+INTO)\b/i.test(normalized)) {
-    findings.push('Migration contains no recognised forward schema or seed operation.');
+  if (!isBaseline && !forwardOperation.test(normalized)) {
+    findings.push('Migration contains no recognised forward schema or idempotent seed operation.');
   }
 
   findings.forEach(message => errors.push(`${migration}: ${message}`));
