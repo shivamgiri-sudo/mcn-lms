@@ -1,0 +1,46 @@
+name: Refresh Multer Lockfile
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-master-hardening
+  push:
+    branches:
+      - agent/lms-security-assurance
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: refresh-multer-lock-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  generate:
+    name: Generate npm-approved Multer lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Generate package manifest and lockfile
+        working-directory: backend
+        run: |
+          npm install --package-lock-only --save-exact multer@2.2.0
+          npm ci --ignore-scripts
+          npm audit --omit=dev --audit-level=high
+          node -e "const p=require('./package.json'); if(p.dependencies.multer!=='2.2.0') process.exit(1)"
+      - name: Upload generated package files
+        uses: actions/upload-artifact@v4
+        with:
+          name: secure-multer-package-files
+          path: |
+            backend/package.json
+            backend/package-lock.json
+          if-no-files-found: error
+          retention-days: 7
