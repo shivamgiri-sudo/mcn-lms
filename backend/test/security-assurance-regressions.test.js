@@ -80,14 +80,14 @@ test('migration and route security validators pass the complete repository', () 
   assert.equal(migration.status, 0, migration.stderr || migration.stdout);
   const migrationSummary = JSON.parse(migration.stdout);
   assert.equal(migrationSummary.ok, true);
-  assert.equal(migrationSummary.migrationCount, 15);
+  assert.equal(migrationSummary.migrationCount, 16);
 
   const routes = runNode('deploy/scripts/validate-route-security.mjs', ['--json']);
   assert.equal(routes.status, 0, routes.stderr || routes.stdout);
   const routeSummary = JSON.parse(routes.stdout);
   assert.equal(routeSummary.ok, true);
-  assert.ok(routeSummary.routeCount >= 25);
-  assert.ok(routeSummary.protectedOrMixedCount >= 20);
+  assert.ok(routeSummary.routeCount >= 27);
+  assert.ok(routeSummary.protectedOrMixedCount >= 22);
 });
 
 test('continuous security workflows are pinned scoped and fail closed', () => {
@@ -105,7 +105,7 @@ test('continuous security workflows are pinned scoped and fail closed', () => {
   assert.match(secrets, /upload-sarif@v4/);
 
   assert.match(vulnerability, /aquasec\/trivy:0\.70\.0/);
-  assert.match(vulnerability, /CRITICAL,HIGH/);
+  assert.match(vulnerability, /(?:HIGH,CRITICAL|CRITICAL,HIGH)/);
   assert.match(vulnerability, /exit-code 1/);
   assert.match(vulnerability, /cyclonedx/);
   assert.match(vulnerability, /docker build/);
