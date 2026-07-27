@@ -47,6 +47,14 @@ const TOOLS = [
     roles: ['coordinator', 'admin'],
     href: role => `/evaluator-quality?role=${role}`,
   },
+  {
+    key: 'assessment-intelligence',
+    title: 'Assessment Intelligence',
+    description: 'Blueprints, item quality and remediation evidence',
+    icon: '◇',
+    roles: ['coordinator', 'admin'],
+    href: role => `/assessment-intelligence?role=${role}`,
+  },
 ];
 
 function portalRoleFromPath(pathname, available) {
