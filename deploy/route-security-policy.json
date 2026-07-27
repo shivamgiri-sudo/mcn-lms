@@ -1,7 +1,8 @@
 {
   "alternativeAuthentication": {
     "auth.js": "Login, recovery request and recovery completion endpoints establish identity rather than consume an existing session.",
-    "bridge.js": "HRMS bridge authentication is validated through signed bridge/API-key controls in the controller."
+    "bridge.js": "HRMS bridge authentication is validated through signed bridge/API-key controls in the controller.",
+    "empMapping.js": "The HR employee-mapping integration uses a minimum-strength server secret and constant-time X-HR-API-Key validation instead of an LMS user session."
   },
   "requiredProtectedRoutes": [
     "contentFiles.js",
