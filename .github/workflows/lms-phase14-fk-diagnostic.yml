@@ -1,0 +1,73 @@
+name: Diagnose Phase 14 Foreign Key
+
+on:
+  push:
+    branches:
+      - agent/lms-assessment-intelligence
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_phase14_fk
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_phase14_fk
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install migration runtime
+        working-directory: backend
+        run: npm ci --ignore-scripts
+      - name: Apply first fifteen migrations
+        run: |
+          mv backend/prisma/migrations/20260727120000_assessment_intelligence /tmp/phase14
+          cd backend
+          npx prisma migrate deploy
+      - name: Capture physical parent schema and Phase 14 error
+        shell: bash
+        run: |
+          set +e
+          {
+            echo '=== ASSESSMENT MASTER ==='
+            mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14_fk -e 'SHOW CREATE TABLE assessment_master\G'
+            echo '=== ATTEMPTS ==='
+            mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14_fk -e 'SHOW CREATE TABLE assessment_attempts\G'
+            echo '=== QUESTION BANK ==='
+            mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14_fk -e 'SHOW CREATE TABLE question_bank\G'
+            echo '=== APPLY PHASE 14 SQL ==='
+            mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14_fk < /tmp/phase14/migration.sql
+            code=$?
+            echo "migration_exit=$code"
+            echo '=== INNODB STATUS ==='
+            mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14_fk -e 'SHOW ENGINE INNODB STATUS\G'
+            exit $code
+          } 2>&1 | tee /tmp/phase14-fk-diagnostic.log
+          exit ${PIPESTATUS[0]}
+      - name: Upload diagnostic
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase14-fk-diagnostic
+          path: /tmp/phase14-fk-diagnostic.log
+          if-no-files-found: error
+          retention-days: 7
