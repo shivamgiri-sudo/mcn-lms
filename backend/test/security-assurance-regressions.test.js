@@ -111,6 +111,14 @@ test('continuous security workflows are pinned scoped and fail closed', () => {
   assert.match(vulnerability, /docker build/);
 });
 
+test('multipart upload dependency remains on the fully remediated release', () => {
+  const manifest = JSON.parse(read('backend/package.json'));
+  const lock = JSON.parse(read('backend/package-lock.json'));
+  assert.equal(manifest.dependencies.multer, '2.2.0');
+  assert.equal(lock.packages[''].dependencies.multer, '2.2.0');
+  assert.equal(lock.packages['node_modules/multer'].version, '2.2.0');
+});
+
 test('production environment templates expose controlled CSP configuration', () => {
   for (const path of ['backend/.env.example', 'deploy/.env.staging.example', 'deploy/.env.production.example']) {
     const env = read(path);
