@@ -5,8 +5,15 @@ import { generateSalt, hashPassword, verifyPassword } from '../utils/hash.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { validateStrongPassword } from '../utils/passwordPolicy.js';
 import { audit } from '../utils/audit.js';
+import assessmentIntelligenceRoutes from './assessmentIntelligence.js';
+import assessmentIntelligenceCoordinatorRoutes from './assessmentIntelligenceCoordinator.js';
 
 const router = Router();
+
+// Phase 14 is mounted through the platform router already registered at /api.
+// Every product endpoint keeps its own session, role, permission and data-scope guard.
+router.use('/assessment-intelligence/coordinator', assessmentIntelligenceCoordinatorRoutes);
+router.use('/assessment-intelligence', assessmentIntelligenceRoutes);
 
 router.post(
   '/auth/trainee/change-password',
