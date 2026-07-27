@@ -17,7 +17,9 @@
     "practical.js",
     "talent.js",
     "development.js",
-    "ilt.js"
+    "ilt.js",
+    "assessmentIntelligence.js",
+    "assessmentIntelligenceCoordinator.js"
   ],
   "forbiddenUrlTokenPatterns": [
     "?token=",
