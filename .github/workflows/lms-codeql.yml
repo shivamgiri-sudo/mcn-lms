@@ -4,6 +4,7 @@ on:
   pull_request:
     branches:
       - agent/lms-master-hardening
+      - agent/lms-security-assurance
     paths:
       - 'backend/src/**'
       - 'frontend/src/**'
