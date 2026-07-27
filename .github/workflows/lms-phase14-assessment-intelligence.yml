@@ -75,26 +75,54 @@ jobs:
           npx prisma migrate deploy
 
       - name: Seed legacy assessment data before Phase 14
+        working-directory: backend
         run: |
-          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14 <<'SQL'
-          INSERT INTO classroom_master
-            (id, classroom_id, classroom_name, process, lob, branch, active)
-          VALUES
-            (UUID(), 'CLS-P14', 'Phase 14 Legacy Classroom', 'Operations', 'Verification', 'Noida', 1);
-
-          INSERT INTO assessment_master
-            (id, assessment_id, classroom_id, assessment_name, passing_pct, attempt_limit, time_limit_mins, active)
-          VALUES
-            (UUID(), 'ASM-P14', 'CLS-P14', 'Legacy Knowledge Check', 60, 3, 30, 1);
-
-          INSERT INTO question_bank
-            (id, question_id, assessment_id, question_text, option_a, option_b, option_c, option_d,
-             correct_option, marks, negative_marks, difficulty, active, explanation)
-          VALUES
-            (UUID(), 'Q-P14-001', 'ASM-P14', 'Which control protects an immutable attempt form?',
-             'HMAC integrity signature', 'Client local storage', 'Query-string token', 'Anonymous access',
-             'A', 1, 0, 'Medium', 1, 'The server signs the exact attempt snapshot.');
-          SQL
+          node --input-type=module <<'NODE'
+          import { PrismaClient } from '@prisma/client';
+          const prisma = new PrismaClient();
+          try {
+            await prisma.classroomMaster.create({
+              data: {
+                classroomId: 'CLS-P14',
+                classroomName: 'Phase 14 Legacy Classroom',
+                process: 'Operations',
+                lob: 'Verification',
+                branch: 'Noida',
+                active: true,
+              },
+            });
+            await prisma.assessmentMaster.create({
+              data: {
+                assessmentId: 'ASM-P14',
+                classroomId: 'CLS-P14',
+                assessmentName: 'Legacy Knowledge Check',
+                passingPct: 60,
+                attemptLimit: 3,
+                timeLimitMins: 30,
+                active: true,
+              },
+            });
+            await prisma.questionBank.create({
+              data: {
+                questionId: 'Q-P14-001',
+                assessmentId: 'ASM-P14',
+                questionText: 'Which control protects an immutable attempt form?',
+                optionA: 'HMAC integrity signature',
+                optionB: 'Client local storage',
+                optionC: 'Query-string token',
+                optionD: 'Anonymous access',
+                correctOption: 'A',
+                marks: 1,
+                negativeMarks: 0,
+                difficulty: 'Medium',
+                active: true,
+                explanation: 'The server signs the exact attempt snapshot.',
+              },
+            });
+          } finally {
+            await prisma.$disconnect();
+          }
+          NODE
 
       - name: Apply Phase 14 migration
         run: |
