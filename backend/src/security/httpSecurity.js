@@ -29,7 +29,7 @@ export function buildHttpSecurityPolicy(env = process.env) {
   const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:'], validatedSources('CSP_IMG_SRC', env.CSP_IMG_SRC));
   const mediaSrc = uniqueSources(["'self'", 'blob:', 'https:'], validatedSources('CSP_MEDIA_SRC', env.CSP_MEDIA_SRC));
   const frameSrc = uniqueSources(
-    ["'self'"],
+    ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
     validatedSources('CSP_FRAME_SRC', env.CSP_FRAME_SRC),
     validatedSources('SCORM_CONTENT_ORIGIN', env.SCORM_CONTENT_ORIGIN),
   );
