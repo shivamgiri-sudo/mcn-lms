@@ -1,0 +1,42 @@
+name: Diagnose Phase 14 Regressions
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-security-assurance
+  push:
+    branches:
+      - agent/lms-assessment-intelligence
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-log:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+      - name: Capture complete test transcript
+        working-directory: backend
+        shell: bash
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee /tmp/phase14-tests.log
+      - name: Upload complete transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase14-regression-transcript
+          path: /tmp/phase14-tests.log
+          if-no-files-found: error
+          retention-days: 7
