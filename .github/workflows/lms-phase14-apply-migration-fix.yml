@@ -1,0 +1,54 @@
+name: Apply Phase 14 Migration Compatibility Fix
+
+on:
+  push:
+    branches:
+      - agent/lms-assessment-intelligence
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase14-apply-migration-fix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/lms-assessment-intelligence
+          fetch-depth: 0
+      - name: Apply targeted compatibility change
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('backend/prisma/migrations/20260727120000_assessment_intelligence/migration.sql')
+          content = path.read_text()
+          replacements = {
+              "CONSTRAINT fk_assessment_blueprint_assessment FOREIGN KEY (assessment_id)\n    REFERENCES assessment_master(assessment_id) ON DELETE CASCADE,":
+              "CONSTRAINT fk_assessment_blueprint_assessment FOREIGN KEY (assessment_id)\n    REFERENCES assessment_master(assessment_id) ON DELETE RESTRICT,",
+              "CONSTRAINT fk_assessment_quality_alert_assessment FOREIGN KEY (assessment_id)\n    REFERENCES assessment_master(assessment_id) ON DELETE CASCADE,":
+              "CONSTRAINT fk_assessment_quality_alert_assessment FOREIGN KEY (assessment_id)\n    REFERENCES assessment_master(assessment_id) ON DELETE RESTRICT,",
+          }
+          for old, new in replacements.items():
+              if content.count(old) != 1:
+                  raise SystemExit(f'Expected exactly one occurrence of: {old}')
+              content = content.replace(old, new)
+          path.write_text(content)
+          PY
+
+          rm -f .github/workflows/lms-phase14-fk-diagnostic.yml
+          rm -f .github/workflows/lms-phase14-apply-migration-fix.yml
+
+      - name: Commit generated patch and remove temporary tooling
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add backend/prisma/migrations/20260727120000_assessment_intelligence/migration.sql .github/workflows
+          git commit -m 'Fix Phase 14 generated-column foreign keys'
+          git push origin HEAD:agent/lms-assessment-intelligence
