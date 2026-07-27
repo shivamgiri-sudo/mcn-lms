@@ -1,0 +1,61 @@
+name: Enable Phase 14 Security Matrix
+
+on:
+  push:
+    branches:
+      - agent/lms-assessment-intelligence
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: phase14-enable-security-matrix
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: agent/lms-assessment-intelligence
+          fetch-depth: 0
+      - name: Extend permanent security workflows
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          paths = [
+              Path('.github/workflows/lms-codeql.yml'),
+              Path('.github/workflows/lms-secret-scan.yml'),
+              Path('.github/workflows/lms-vulnerability-scan.yml'),
+              Path('.github/workflows/lms-security-assurance.yml'),
+          ]
+          old_branch = "  push:\n    branches:\n      - agent/lms-security-assurance\n"
+          new_branch = "  push:\n    branches:\n      - agent/lms-security-assurance\n      - agent/lms-assessment-intelligence\n"
+          for path in paths:
+              content = path.read_text()
+              if content.count(old_branch) != 1:
+                  raise SystemExit(f'Expected one security-assurance push branch block in {path}')
+              path.write_text(content.replace(old_branch, new_branch))
+
+          assurance = Path('.github/workflows/lms-security-assurance.yml')
+          content = assurance.read_text()
+          old_count = '          test "$applied" = "15"\n'
+          new_count = "          expected=$(grep -cv '^[[:space:]]*$' deploy/migrations.expected)\n          test \"$applied\" = \"$expected\"\n"
+          if content.count(old_count) != 1:
+              raise SystemExit('Expected one hard-coded security-assurance migration count.')
+          assurance.write_text(content.replace(old_count, new_count))
+          PY
+
+          rm -f .github/workflows/lms-phase14-enable-security-matrix.yml
+
+      - name: Commit permanent security workflow updates
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .github/workflows
+          git commit -m 'Run permanent security matrix for Phase 14'
+          git push origin HEAD:agent/lms-assessment-intelligence
