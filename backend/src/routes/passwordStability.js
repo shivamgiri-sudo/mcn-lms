@@ -10,10 +10,19 @@ import assessmentIntelligenceCoordinatorRoutes from './assessmentIntelligenceCoo
 
 const router = Router();
 
+function assessmentJsonSafe(_req, res, next) {
+  const originalJson = res.json.bind(res);
+  res.json = body => originalJson(JSON.parse(JSON.stringify(body, (_key, value) => {
+    if (typeof value === 'bigint') return Number(value);
+    return value;
+  })));
+  next();
+}
+
 // Phase 14 is mounted through the platform router already registered at /api.
 // Every product endpoint keeps its own session, role, permission and data-scope guard.
-router.use('/assessment-intelligence/coordinator', assessmentIntelligenceCoordinatorRoutes);
-router.use('/assessment-intelligence', assessmentIntelligenceRoutes);
+router.use('/assessment-intelligence/coordinator', assessmentJsonSafe, assessmentIntelligenceCoordinatorRoutes);
+router.use('/assessment-intelligence', assessmentJsonSafe, assessmentIntelligenceRoutes);
 
 router.post(
   '/auth/trainee/change-password',
