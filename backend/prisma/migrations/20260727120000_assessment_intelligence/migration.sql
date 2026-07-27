@@ -76,6 +76,7 @@ CREATE TABLE IF NOT EXISTS assessment_question_metadata (
   topic VARCHAR(160) NOT NULL DEFAULT '',
   objective_code VARCHAR(100) NOT NULL DEFAULT '',
   skill_id CHAR(36) NULL,
+  difficulty VARCHAR(30) NOT NULL DEFAULT '',
   question_type VARCHAR(40) NOT NULL DEFAULT 'SINGLE_CHOICE',
   cognitive_level VARCHAR(40) NOT NULL DEFAULT 'UNDERSTAND',
   language_code VARCHAR(20) NOT NULL DEFAULT 'en-IN',
