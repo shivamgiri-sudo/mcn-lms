@@ -6,6 +6,7 @@ const templateMode = args.includes('--template');
 const jsonOutput = args.includes('--json');
 const manifestArg = args.find(arg => !arg.startsWith('--')) || 'deploy/release-manifest.json';
 const manifestPath = resolve(process.cwd(), manifestArg);
+const migrationInventoryPath = resolve(process.cwd(), 'deploy/migrations.expected');
 const errors = [];
 
 const requiredApprovalKeys = [
@@ -59,6 +60,19 @@ function checkNumber(value, name, { min, max }) {
   }
 }
 
+let canonicalMigrations = [];
+try {
+  canonicalMigrations = readFileSync(migrationInventoryPath, 'utf8')
+    .split(/\r?\n/)
+    .map(value => value.trim())
+    .filter(Boolean);
+  if (!canonicalMigrations.length) addError('Canonical migration inventory is empty.');
+  if (new Set(canonicalMigrations).size !== canonicalMigrations.length) addError('Canonical migration inventory contains duplicates.');
+} catch (error) {
+  addError(`Cannot read canonical migration inventory at ${migrationInventoryPath}: ${error.message}`);
+}
+const canonicalMigrationCount = canonicalMigrations.length;
+
 let manifest;
 try {
   manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
@@ -97,7 +111,9 @@ if (!isIsoTimestamp(manifest.createdAt)) {
   if (createdAt < now - 90 * 24 * 60 * 60_000) addError('createdAt is older than the 90-day release window.');
 }
 
-if (manifest.migrationCount !== 15) addError('migrationCount must equal the canonical 15 migrations.');
+if (manifest.migrationCount !== canonicalMigrationCount) {
+  addError(`migrationCount must equal the canonical ${canonicalMigrationCount} migrations.`);
+}
 if (!['backward-compatible', 'forward-only'].includes(manifest.migrationCompatibility)) {
   addError('migrationCompatibility must be backward-compatible or forward-only.');
 }
@@ -178,10 +194,13 @@ const summary = {
   ok: errors.length === 0,
   mode: templateMode ? 'template' : 'release',
   manifestPath,
+  migrationInventoryPath,
   release: manifest?.release ?? null,
   commit: manifest?.commit ?? null,
   image: manifest?.image ?? null,
   migrationCount: manifest?.migrationCount ?? null,
+  canonicalMigrationCount,
+  canonicalLastMigration: canonicalMigrations.at(-1) || null,
   approvalCount: isObject(manifest?.approvals)
     ? requiredApprovalKeys.filter(key => isObject(manifest.approvals[key]) && manifest.approvals[key].decision === 'APPROVED').length
     : 0,
