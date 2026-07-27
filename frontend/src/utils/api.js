@@ -1,4 +1,5 @@
-const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
+const API_ORIGIN = import.meta.env.VITE_API_URL || '';
+const BASE = `${API_ORIGIN}/api`;
 const DEFAULT_TIMEOUT_MS = 30000;
 
 function getToken(type) {
@@ -31,16 +32,24 @@ function networkMessage(err) {
   return 'Unable to connect to LMS server. Please confirm backend is running and API URL is correct.';
 }
 
+function resolveRequestUrl(url) {
+  const value = String(url || '');
+  if (/^https?:\/\//i.test(value) || value.startsWith('blob:')) return value;
+  if (value.startsWith('/api/')) return `${API_ORIGIN}${value}`;
+  if (value.startsWith('/')) return `${BASE}${value}`;
+  return `${BASE}/${value}`;
+}
+
 async function request(method, url, body, type = 'trainee') {
   const token = getToken(type);
   const headers = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
 
   try {
-    const res = await fetch(`${BASE}${url}`, {
+    const res = await fetch(resolveRequestUrl(url), {
       method,
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -79,12 +88,43 @@ export const api = {
   delete: (url, type) => request('DELETE', url, undefined, type),
 };
 
+export async function fetchAuthenticatedBlobUrl(url, type = 'trainee') {
+  const token = getToken(type);
+  if (!token) return { ok: false, status: 401, message: 'Please sign in again to open this content.' };
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    const res = await fetch(resolveRequestUrl(url), {
+      headers: { Authorization: `Bearer ${token}`, 'X-Request-Id': crypto.randomUUID?.() || String(Date.now()) },
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+
+    if (res.status === 401) {
+      clearToken(type);
+      window.dispatchEvent(new CustomEvent('lms:session-expired', { detail: { type } }));
+    }
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({}));
+      return { ok: false, status: res.status, message: error.message || `Unable to open content (${res.status})` };
+    }
+
+    const blob = await res.blob();
+    return { ok: true, url: URL.createObjectURL(blob), blob };
+  } catch (err) {
+    return { ok: false, networkError: true, message: networkMessage(err), details: err?.message || String(err) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function uploadFile(url, formData, type = 'admin') {
   const token = getToken(type);
   const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token) headers.Authorization = `Bearer ${token}`;
   try {
-    const res = await fetch(`${BASE}${url}`, { method: 'POST', headers, body: formData });
+    const res = await fetch(resolveRequestUrl(url), { method: 'POST', headers, body: formData });
     return res.json().catch(() => ({ ok: false, message: 'Invalid server response' }));
   } catch (err) {
     return { ok: false, networkError: true, message: networkMessage(err), details: err?.message || String(err) };
@@ -94,8 +134,8 @@ export async function uploadFile(url, formData, type = 'admin') {
 export async function downloadCsv(url, filename, type = 'admin') {
   const token = getToken(type);
   const headers = {};
-  if (token) headers['Authorization'] = `Bearer ${token}`;
-  const res = await fetch(`${BASE}${url}`, { headers });
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(resolveRequestUrl(url), { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.message || `Export failed (${res.status})`);
