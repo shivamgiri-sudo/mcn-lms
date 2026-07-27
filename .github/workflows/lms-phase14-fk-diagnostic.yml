@@ -1,6 +1,12 @@
 name: Diagnose Phase 14 Foreign Key
 
 on:
+  pull_request:
+    branches:
+      - agent/lms-security-assurance
+    paths:
+      - 'backend/prisma/migrations/20260727120000_assessment_intelligence/**'
+      - '.github/workflows/lms-phase14-fk-diagnostic.yml'
   push:
     branches:
       - agent/lms-assessment-intelligence
