@@ -31,6 +31,10 @@ test('assessment intelligence migration is additive governed and registered', ()
   assert.doesNotMatch(migration, /\bDELETE\s+FROM\b/i);
   assert.match(migration, /published_assessment_key[\s\S]*?UNIQUE KEY uq_assessment_blueprint_published/);
   assert.match(migration, /active_employee_key[\s\S]*?UNIQUE KEY uq_assessment_accommodation_active/);
+  assert.match(migration, /fk_assessment_blueprint_assessment[\s\S]*?ON DELETE RESTRICT/);
+  assert.match(migration, /fk_assessment_quality_alert_assessment[\s\S]*?ON DELETE RESTRICT/);
+  assert.doesNotMatch(migration, /fk_assessment_blueprint_assessment[\s\S]{0,160}?ON DELETE CASCADE/);
+  assert.doesNotMatch(migration, /fk_assessment_quality_alert_assessment[\s\S]{0,160}?ON DELETE CASCADE/);
   assert.match(migration, /INSERT IGNORE INTO assessment_question_metadata/);
   assert.match(migration, /assessment\.blueprint\.manage/);
   assert.match(migration, /assessment\.question\.review/);
