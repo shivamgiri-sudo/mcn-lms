@@ -13,6 +13,7 @@ on:
   push:
     branches:
       - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
   schedule:
     - cron: '15 1 * * 2'
   workflow_dispatch:
