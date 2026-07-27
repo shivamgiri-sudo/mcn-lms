@@ -1,0 +1,27 @@
+{
+  "alternativeAuthentication": {
+    "auth.js": "Login, recovery request and recovery completion endpoints establish identity rather than consume an existing session.",
+    "bridge.js": "HRMS bridge authentication is validated through signed bridge/API-key controls in the controller."
+  },
+  "requiredProtectedRoutes": [
+    "contentFiles.js",
+    "diagnostics.js",
+    "drive.js",
+    "reports.js",
+    "scorm.js",
+    "upload.js",
+    "runtimeGovernance.js",
+    "calibrationAppeals.js",
+    "calibrationOperations.js",
+    "practical.js",
+    "talent.js",
+    "development.js",
+    "ilt.js"
+  ],
+  "forbiddenUrlTokenPatterns": [
+    "?token=",
+    "&token=",
+    "searchParams.set('token'",
+    "searchParams.set(\"token\""
+  ]
+}
