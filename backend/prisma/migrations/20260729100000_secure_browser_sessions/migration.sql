@@ -1,6 +1,12 @@
 -- Phase 15: secure browser sessions, CSRF-bound cookies, replay-safe HRMS SSO and emergency elevation.
 -- MySQL 8.x; forward-only. Existing hashed bearer sessions remain valid only during the controlled compatibility window.
 
+-- The Prisma model and branch-scoped authorization have always expected this
+-- column, but the original baseline migration omitted it. Repair the legacy
+-- schema before any browser-auth identity is loaded.
+ALTER TABLE admin_user_master
+  ADD COLUMN IF NOT EXISTS branch VARCHAR(191) NULL AFTER role;
+
 ALTER TABLE portal_sessions
   ADD COLUMN session_family_id CHAR(36) NULL AFTER id,
   ADD COLUMN auth_method VARCHAR(40) NOT NULL DEFAULT 'PASSWORD' AFTER user_type,
