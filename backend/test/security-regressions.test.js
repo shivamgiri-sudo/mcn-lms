@@ -20,28 +20,40 @@ test('HRMS connector contains no embedded credentials or internal defaults', asy
   assert.match(text, /Missing required HRMS configuration/);
 });
 
-test('portal sessions are never accepted from URL query parameters', async () => {
-  const text = await source('src/middleware/auth.js');
+test('portal sessions are cookie-first and never accepted from URL query parameters', async () => {
+  const middleware = await source('src/middleware/auth.js');
+  const session = await source('src/utils/session.js');
   const bootstrap = await source('frontend/src/utils/ssoBootstrap.js', repoRoot);
-  assert.doesNotMatch(text, /req\.query\.token/);
-  assert.match(text, /startsWith\('Bearer '\)/);
-  assert.doesNotMatch(bootstrap, /window\.location\.search[\s\S]*hrms_lms_token/);
+  const api = await source('frontend/src/utils/api.js', repoRoot);
+  assert.doesNotMatch(middleware, /req\.query\.token/);
+  assert.match(session, /ROLE_COOKIE/);
+  assert.match(session, /LMS_ALLOW_BEARER_SESSION_COMPAT/);
+  assert.match(session, /mode:\s*'cookie'/);
+  assert.match(bootstrap, /hrms_lms_code/);
   assert.match(bootstrap, /window\.location\.hash/);
+  assert.doesNotMatch(bootstrap, /localStorage\.setItem\([^\n]*(?:code|token)/i);
+  assert.doesNotMatch(api, /Authorization:\s*`Bearer/);
 });
 
 test('session tokens are fingerprinted before database storage', async () => {
   const text = await source('src/utils/session.js');
   assert.match(text, /hashSessionToken/);
   assert.match(text, /createHash\('sha256'\)/);
-  assert.match(text, /token:\s*hashSessionToken\(token\)/);
-  assert.doesNotMatch(text, /data:\s*\{\s*token,\s*userId/);
+  assert.match(text, /hashSessionToken\(rawToken\)/);
+  assert.match(text, /INSERT INTO portal_sessions/);
+  assert.doesNotMatch(text, /VALUES[\s\S]{0,200}rawToken/);
 });
 
-test('HRMS bridge fails closed when its secret is missing', async () => {
+test('HRMS bridge verifies signed assertions and issues only replay-safe handoff codes', async () => {
   const text = await source('src/controllers/bridgeController.js');
-  assert.match(text, /HRMS SSO is not configured/);
+  assert.match(text, /HRMS_ASSERTION_SECRET/);
   assert.match(text, /timingSafeEqual/);
+  assert.match(text, /sso_replay_nonce/);
+  assert.match(text, /sso_handoff_code/);
   assert.match(text, /BRIDGE_ALLOW_PRIVILEGED/);
+  assert.match(text, /BRIDGE_ALLOW_LEGACY_SECRET/);
+  assert.doesNotMatch(text, /createSession/);
+  assert.doesNotMatch(text, /lms_token\s*:/);
   assert.doesNotMatch(text, /mode:\s*'insensitive'/);
 });
 
@@ -52,12 +64,14 @@ test('shared reports require explicit roles and super-admin summary access', asy
   assert.doesNotMatch(text, /router\.get\('\/trainees\/export',\s*requireSession,\s*exportTraineesCsv/);
 });
 
-test('sensitive admin APIs use a server-side super-admin guard', async () => {
+test('sensitive admin mutations require super-admin scope and recent elevation', async () => {
   const text = await source('src/routes/admin.js');
   assert.match(text, /const superAuth = \[requireSession, requireRole\('admin'\), requireSuperAdmin\]/);
+  assert.match(text, /const superElevatedAuth = \[requireSession, requireRole\('admin'\), requireSuperAdmin, requireRecentElevation\]/);
   assert.match(text, /router\.get\('\/portal-users', \.\.\.superAuth/);
-  assert.match(text, /router\.get\('\/hrms\/config', \.\.\.superAuth/);
-  assert.match(text, /router\.get\('\/comm-config', \.\.\.superAuth/);
+  assert.match(text, /router\.post\('\/portal-users', \.\.\.superElevatedAuth/);
+  assert.match(text, /router\.put\('\/hrms\/config', \.\.\.superElevatedAuth/);
+  assert.match(text, /router\.post\('\/comm-config', \.\.\.superElevatedAuth/);
   assert.match(text, /router\.get\('\/audit-logs', \.\.\.superAuth/);
 });
 
@@ -73,7 +87,7 @@ test('password recovery uses hashed single-use tokens with expiry and session re
   assert.match(controller, /tokenHash = sha256/);
   assert.match(controller, /expires_at > NOW\(3\)/);
   assert.match(controller, /used_at = NOW\(3\)/);
-  assert.match(controller, /portalSession\.deleteMany/);
+  assert.match(controller, /portalSession\.deleteMany|UPDATE portal_sessions/);
   assert.match(controller, /PASSWORD_RECOVERY_COMPLETED/);
   assert.match(migration, /CREATE TABLE `password_reset_tokens`/);
   assert.match(migration, /UNIQUE INDEX `password_reset_tokens_token_hash_key`/);
