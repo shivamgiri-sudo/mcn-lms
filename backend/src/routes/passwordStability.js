@@ -5,6 +5,7 @@ import { generateSalt, hashPassword, verifyPassword } from '../utils/hash.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { validateStrongPassword } from '../utils/passwordPolicy.js';
 import { audit } from '../utils/audit.js';
+import { deriveCsrfToken } from '../security/csrf.js';
 import assessmentIntelligenceRoutes from './assessmentIntelligence.js';
 import assessmentIntelligenceCoordinatorRoutes from './assessmentIntelligenceCoordinator.js';
 
@@ -24,6 +25,21 @@ function assessmentJsonSafe(_req, res, next) {
 router.use('/assessment-intelligence/coordinator', assessmentJsonSafe, assessmentIntelligenceCoordinatorRoutes);
 router.use('/assessment-intelligence', assessmentJsonSafe, assessmentIntelligenceRoutes);
 
+// Safe double-submit-token bootstrap for deployments where the frontend and API
+// use separate origins. The token is bound to the HttpOnly session credential,
+// role and CSRF version, but does not reveal the session credential itself.
+router.get('/auth/csrf', requireSession, (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({
+    ok: true,
+    role: req.userType,
+    csrfToken: deriveCsrfToken(req.sessionToken, req.userType, req.session.csrfVersion),
+    expiresAt: req.session.expiresAt,
+  });
+});
+
+// Legacy password handlers remain as compatibility fallbacks only. The secure
+// browser-auth router is mounted first and owns these exact paths in production.
 router.post(
   '/auth/trainee/change-password',
   requireSession,
