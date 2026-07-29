@@ -47,8 +47,10 @@ test('server mounts governed headers and protects production content delivery', 
   const upload = read('backend/src/routes/upload.js');
 
   assert.match(server, /helmet\(buildHttpSecurityPolicy\(process\.env\)\)/);
+  assert.match(server, /validateSessionSecurityConfig\(process\.env\)/);
   assert.match(server, /if \(!isProduction\)[\s\S]*?\/uploads\/content/);
   assert.match(server, /app\.use\('\/api\/content', contentFilesRoutes\)/);
+  assert.match(server, /app\.use\('\/api', browserAuthRoutes\)[\s\S]*app\.use\('\/api\/auth', authRoutes\)/);
   assert.doesNotMatch(server, /contentSecurityPolicy:\s*false/);
   assert.doesNotMatch(server, /frameguard:\s*false/);
 
@@ -61,13 +63,17 @@ test('server mounts governed headers and protects production content delivery', 
   assert.match(upload, /protected:\s*true/);
 });
 
-test('learner media uses bearer-authenticated blobs and never URL session tokens', () => {
+test('learner media uses cookie-authenticated blobs and never browser bearer credentials', () => {
   const learning = read('frontend/src/pages/Trainee/LearningTab.jsx');
   const api = read('frontend/src/utils/api.js');
 
   assert.match(api, /fetchAuthenticatedBlobUrl/);
-  assert.match(api, /Authorization:\s*`Bearer \$\{token\}`/);
+  assert.match(api, /credentials:\s*'include'/);
+  assert.match(api, /X-LMS-Role/);
+  assert.match(api, /X-CSRF-Token/);
   assert.match(api, /URL\.createObjectURL/);
+  assert.doesNotMatch(api, /Authorization:\s*`Bearer/);
+  assert.doesNotMatch(api, /localStorage\.setItem\([^\n]*token\s*\)/i);
   assert.match(learning, /fetchAuthenticatedBlobUrl/);
   assert.match(learning, /URL\.revokeObjectURL/);
   assert.match(learning, /protectedLocalUrl/);
@@ -80,14 +86,14 @@ test('migration and route security validators pass the complete repository', () 
   assert.equal(migration.status, 0, migration.stderr || migration.stdout);
   const migrationSummary = JSON.parse(migration.stdout);
   assert.equal(migrationSummary.ok, true);
-  assert.equal(migrationSummary.migrationCount, 16);
+  assert.equal(migrationSummary.migrationCount, 17);
 
   const routes = runNode('deploy/scripts/validate-route-security.mjs', ['--json']);
   assert.equal(routes.status, 0, routes.stderr || routes.stdout);
   const routeSummary = JSON.parse(routes.stdout);
   assert.equal(routeSummary.ok, true);
-  assert.ok(routeSummary.routeCount >= 27);
-  assert.ok(routeSummary.protectedOrMixedCount >= 22);
+  assert.ok(routeSummary.routeCount >= 28);
+  assert.ok(routeSummary.protectedOrMixedCount >= 23);
 });
 
 test('continuous security workflows are pinned scoped and fail closed', () => {
@@ -119,10 +125,17 @@ test('multipart upload dependency remains on the fully remediated release', () =
   assert.equal(lock.packages['node_modules/multer'].version, '2.2.0');
 });
 
-test('production environment templates expose controlled CSP configuration', () => {
+test('production environment templates expose CSP and browser-session controls', () => {
+  const keys = [
+    'CSP_FRAME_ANCESTORS=', 'CSP_CONNECT_SRC=', 'CSP_FRAME_SRC=', 'CSP_MEDIA_SRC=', 'CSP_IMG_SRC=',
+    'SESSION_ABSOLUTE_TTL_SECONDS=', 'CSRF_SECRET=', 'SESSION_FINGERPRINT_SECRET=',
+    'SESSION_COOKIE_SAME_SITE=', 'SESSION_COOKIE_SECURE=', 'LMS_ALLOW_BEARER_SESSION_COMPAT=false',
+    'HRMS_ASSERTION_SECRET=', 'HRMS_ASSERTION_ISSUER=', 'HRMS_ASSERTION_AUDIENCE=',
+    'SSO_HANDOFF_TTL_SECONDS=', 'BRIDGE_ALLOW_LEGACY_SECRET=false', 'SECURITY_ELEVATION_MINUTES=',
+  ];
   for (const path of ['backend/.env.example', 'deploy/.env.staging.example', 'deploy/.env.production.example']) {
     const env = read(path);
-    for (const key of ['CSP_FRAME_ANCESTORS=', 'CSP_CONNECT_SRC=', 'CSP_FRAME_SRC=', 'CSP_MEDIA_SRC=', 'CSP_IMG_SRC=']) {
+    for (const key of keys) {
       assert.match(env, new RegExp(key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     }
   }
