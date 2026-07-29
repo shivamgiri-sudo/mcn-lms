@@ -11,6 +11,7 @@ export default function ManagementPage() {
     const handler = event => {
       if (event.detail?.type && !['management', 'coordinator'].includes(event.detail.type)) return;
       clearToken('management');
+      clearToken('coordinator');
       setSession('none');
     };
     window.addEventListener('lms:session-expired', handler);
@@ -25,22 +26,26 @@ export default function ManagementPage() {
         || res.user?.role === 'Super Admin';
       if (allowed) {
         setToken('management');
+        setToken('coordinator');
         setSession('active');
         return;
       }
     }
     clearToken('management');
+    clearToken('coordinator');
     setSession('none');
   }
 
   function handleLogin() {
     setToken('management');
+    setToken('coordinator');
     setSession('active');
   }
 
   async function handleLogout() {
     await api.post('/auth/coordinator/logout', {}, 'management').catch(() => {});
     clearToken('management');
+    clearToken('coordinator');
     setSession('none');
   }
 
