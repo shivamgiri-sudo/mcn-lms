@@ -38,6 +38,55 @@ router.get('/auth/csrf', requireSession, (req, res) => {
   });
 });
 
+// Complete role-safe profile response for cookie-session bootstrap. This route
+// is mounted before the legacy auth router and therefore owns /api/auth/me.
+router.get('/auth/me', requireSession, async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (req.userType === 'coordinator') {
+      const user = await prisma.roleAccessMatrix.findFirst({
+        where: { loginId: req.userId, active: true, locked: false },
+        select: {
+          loginId: true,
+          name: true,
+          role: true,
+          branch: true,
+          process: true,
+          lob: true,
+          email: true,
+          mobile: true,
+          lastLogin: true,
+          canCreateBatch: true,
+          canOnboardTrainee: true,
+          canUploadLmsReport: true,
+          canOverrideAttendance: true,
+          canCloseBatch: true,
+          canViewManagementDashboard: true,
+        },
+      });
+      return user ? res.json({ ok: true, user, session: { id: req.session.id, role: req.userType, expiresAt: req.session.expiresAt } }) : res.status(404).json({ ok: false, message: 'Account not found.' });
+    }
+    if (req.userType === 'admin') {
+      const user = await prisma.adminUserMaster.findFirst({
+        where: { adminId: req.userId, active: true, locked: false },
+        select: { adminId: true, adminName: true, role: true, branch: true, lastLogin: true },
+      });
+      return user ? res.json({ ok: true, user, session: { id: req.session.id, role: req.userType, expiresAt: req.session.expiresAt } }) : res.status(404).json({ ok: false, message: 'Account not found.' });
+    }
+    if (req.userType === 'trainee') {
+      const user = await prisma.userMaster.findUnique({
+        where: { employeeId: req.userId },
+        select: { employeeId: true, traineeName: true, branch: true, process: true, lob: true, batchNo: true, classroomId: true, lastLogin: true, forcePasswordReset: true },
+      });
+      return user ? res.json({ ok: true, user, session: { id: req.session.id, role: req.userType, expiresAt: req.session.expiresAt } }) : res.status(404).json({ ok: false, message: 'Account not found.' });
+    }
+    return res.status(403).json({ ok: false, message: 'Unsupported session role.' });
+  } catch (error) {
+    console.error('[SESSION_PROFILE] load failed:', error.message);
+    return res.status(500).json({ ok: false, message: 'Could not load session profile.' });
+  }
+});
+
 // Legacy password handlers remain as compatibility fallbacks only. The secure
 // browser-auth router is mounted first and owns these exact paths in production.
 router.post(
