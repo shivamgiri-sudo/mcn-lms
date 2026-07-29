@@ -39,9 +39,9 @@ test('session tokens are fingerprinted before database storage', async () => {
   const text = await source('src/utils/session.js');
   assert.match(text, /hashSessionToken/);
   assert.match(text, /createHash\('sha256'\)/);
-  assert.match(text, /hashSessionToken\(rawToken\)/);
   assert.match(text, /INSERT INTO portal_sessions/);
-  assert.doesNotMatch(text, /VALUES[\s\S]{0,200}rawToken/);
+  assert.match(text, /INSERT INTO portal_sessions[\s\S]*?hashSessionToken\(rawToken\)/);
+  assert.doesNotMatch(text, /INSERT INTO portal_sessions[\s\S]{0,1200}?\n\s*rawToken,\n\s*String\(userId\)/);
 });
 
 test('HRMS bridge verifies signed assertions and issues only replay-safe handoff codes', async () => {
@@ -87,7 +87,9 @@ test('password recovery uses hashed single-use tokens with expiry and session re
   assert.match(controller, /tokenHash = sha256/);
   assert.match(controller, /expires_at > NOW\(3\)/);
   assert.match(controller, /used_at = NOW\(3\)/);
-  assert.match(controller, /portalSession\.deleteMany|UPDATE portal_sessions/);
+  assert.match(controller, /UPDATE portal_sessions/);
+  assert.match(controller, /revoked_at/);
+  assert.doesNotMatch(controller, /portalSession\.deleteMany/);
   assert.match(controller, /PASSWORD_RECOVERY_COMPLETED/);
   assert.match(migration, /CREATE TABLE `password_reset_tokens`/);
   assert.match(migration, /UNIQUE INDEX `password_reset_tokens_token_hash_key`/);
