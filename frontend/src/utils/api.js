@@ -18,6 +18,10 @@ function markerKey(type) {
   return `lms_token_${String(type || 'trainee').toLowerCase()}`;
 }
 
+function csrfStorageKey(type) {
+  return `lms_csrf_${normalizeApiRole(type)}`;
+}
+
 function announceTokenChange(type, active) {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new CustomEvent('lms:token-changed', { detail: { type, active, cookieSession: true } }));
@@ -33,6 +37,7 @@ export function setToken(type, _ignoredCredential = '') {
 
 export function clearToken(type) {
   localStorage.removeItem(markerKey(type));
+  sessionStorage.removeItem(csrfStorageKey(type));
   announceTokenChange(type, false);
 }
 
@@ -56,11 +61,16 @@ function cookieValue(name) {
   return '';
 }
 
+function currentCsrf(type) {
+  const role = normalizeApiRole(type);
+  return sessionStorage.getItem(csrfStorageKey(role)) || cookieValue(ROLE_COOKIE[role]);
+}
+
 function roleHeaders(type, method) {
   const role = normalizeApiRole(type);
   const headers = { 'X-LMS-Role': role };
   if (!SAFE_METHODS.has(String(method || 'GET').toUpperCase())) {
-    const csrf = cookieValue(ROLE_COOKIE[role]);
+    const csrf = currentCsrf(role);
     if (csrf) headers['X-CSRF-Token'] = csrf;
   }
   return headers;
@@ -89,7 +99,29 @@ function handleSessionFailure(status, data, type) {
     clearToken(type);
     window.dispatchEvent(new CustomEvent('lms:session-expired', { detail: { type } }));
   } else if (status === 403 && data?.code === 'CSRF_REJECTED') {
+    sessionStorage.removeItem(csrfStorageKey(type));
     window.dispatchEvent(new CustomEvent('lms:csrf-rejected', { detail: { type } }));
+  }
+}
+
+export async function refreshCsrfToken(type = 'trainee') {
+  const role = normalizeApiRole(type);
+  try {
+    const res = await fetch(`${BASE}/auth/csrf`, {
+      method: 'GET',
+      headers: { 'X-LMS-Role': role },
+      credentials: 'include',
+      cache: 'no-store',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.csrfToken) {
+      sessionStorage.removeItem(csrfStorageKey(role));
+      return { ok: false, status: res.status, message: data.message || 'Could not initialize request security.' };
+    }
+    sessionStorage.setItem(csrfStorageKey(role), data.csrfToken);
+    return { ok: true, csrfToken: data.csrfToken, expiresAt: data.expiresAt };
+  } catch (error) {
+    return { ok: false, networkError: true, message: networkMessage(error) };
   }
 }
 
@@ -110,6 +142,11 @@ async function request(method, url, body, type = 'trainee') {
 
     const data = await res.json().catch(() => ({ ok: false, message: 'Invalid server response' }));
     handleSessionFailure(res.status, data, type);
+
+    if (res.ok && (data.sessionEstablished || (method === 'GET' && String(url).includes('/auth/me')))) {
+      setToken(type);
+      await refreshCsrfToken(type);
+    }
 
     if (!res.ok && data.ok !== false) {
       return { ok: false, status: res.status, message: data.message || `Request failed (${res.status})` };
