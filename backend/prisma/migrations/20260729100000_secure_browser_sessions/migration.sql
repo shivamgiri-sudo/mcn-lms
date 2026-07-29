@@ -3,9 +3,22 @@
 
 -- The Prisma model and branch-scoped authorization have always expected this
 -- column, but the original baseline migration omitted it. Repair the legacy
--- schema before any browser-auth identity is loaded.
-ALTER TABLE admin_user_master
-  ADD COLUMN IF NOT EXISTS branch VARCHAR(191) NULL AFTER role;
+-- schema without failing an environment that previously added the column.
+SET @admin_branch_exists = (
+  SELECT COUNT(*)
+    FROM information_schema.columns
+   WHERE table_schema = DATABASE()
+     AND table_name = 'admin_user_master'
+     AND column_name = 'branch'
+);
+SET @admin_branch_sql = IF(
+  @admin_branch_exists = 0,
+  'ALTER TABLE admin_user_master ADD COLUMN branch VARCHAR(191) NULL AFTER role',
+  'SELECT 1'
+);
+PREPARE admin_branch_statement FROM @admin_branch_sql;
+EXECUTE admin_branch_statement;
+DEALLOCATE PREPARE admin_branch_statement;
 
 ALTER TABLE portal_sessions
   ADD COLUMN session_family_id CHAR(36) NULL AFTER id,
