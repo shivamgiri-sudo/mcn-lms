@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:20-bookworm-slim AS frontend-build
+FROM node:25-bookworm-slim AS frontend-build
 WORKDIR /workspace/frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -9,7 +9,7 @@ ARG VITE_API_URL=
 ENV VITE_API_URL=${VITE_API_URL}
 RUN npm run build
 
-FROM node:20-bookworm-slim AS backend-build
+FROM node:25-bookworm-slim AS backend-build
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates openssl \
     && rm -rf /var/lib/apt/lists/*
@@ -20,7 +20,7 @@ COPY backend/prisma ./prisma
 RUN ./node_modules/.bin/prisma generate
 COPY backend/src ./src
 
-FROM node:20-bookworm-slim AS runtime
+FROM node:25-bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates curl dumb-init openssl \
