@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from '../../utils/browserRouter.jsx';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import './infographics.css';
 
