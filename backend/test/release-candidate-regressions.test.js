@@ -19,7 +19,7 @@ const rollback = read('deploy/scripts/rollback.sh');
 const runbook = read('docs/RELEASE_CANDIDATE_RUNBOOK.md');
 const stagingEnv = read('deploy/.env.staging.example');
 const productionEnv = read('deploy/.env.production.example');
-const migrations = read('deploy/migrations.expected').trim().split('\n');
+const migrations = read('deploy/migrations.expected').trim().split(/\r?\n/);
 const manifest = JSON.parse(read('deploy/release-manifest.example.json'));
 
 test('release image is immutable multi-stage and non-root', () => {

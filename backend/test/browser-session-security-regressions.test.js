@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { deriveCsrfToken, csrfTokensEqual } from '../src/security/csrf.js';
-import { validateSessionSecurityConfig } from '../src/utils/session.js';
+
+process.env.DATABASE_URL ||= 'mysql://test:test@127.0.0.1:3306/test';
+const { validateSessionSecurityConfig } = await import('../src/utils/session.js');
 
 const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
@@ -125,6 +127,8 @@ test('HRMS assertion uses issuer audience expiry and replay protection', () => {
   assert.match(bridge, /BRIDGE_ALLOW_LEGACY_SECRET/);
   assert.doesNotMatch(bridge, /createSession/);
   assert.doesNotMatch(bridge, /lms_token\s*:/);
+  assert.match(bridge, /Signed HRMS assertion required/);
+  assert.doesNotMatch(bridge, /authMethod = 'LEGACY_BRIDGE'/);
 });
 
 test('password recovery revokes sessions without deleting security evidence', () => {
