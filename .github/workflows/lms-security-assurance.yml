@@ -56,7 +56,7 @@ jobs:
       LMS_INSTANCE_ROLE: CI
       LMS_INSTANCE_ID: security-assurance-ci
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -130,7 +130,7 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: Build exact production image
         run: docker build --build-arg VITE_API_URL= --label org.opencontainers.image.revision=${GITHUB_SHA} -t mcn-lms-security:${GITHUB_SHA} .
       - name: Verify non-root image identity

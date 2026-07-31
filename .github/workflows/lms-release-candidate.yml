@@ -58,7 +58,7 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
@@ -175,7 +175,7 @@ jobs:
           --health-timeout=5s
           --health-retries=20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Build immutable release image
         run: docker build --build-arg VITE_API_URL= --label org.opencontainers.image.revision=${GITHUB_SHA} -t mcn-lms:${GITHUB_SHA} .
       - name: Verify image runs as non-root
@@ -277,7 +277,7 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: 20
