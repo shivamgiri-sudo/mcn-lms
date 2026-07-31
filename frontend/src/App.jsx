@@ -3,6 +3,7 @@ import TraineePage from './pages/Trainee/TraineePage.jsx';
 import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';
 import ManagementPage from './pages/Management/ManagementPage.jsx';
+import InfographicsPage from './pages/Infographics/InfographicsPage.jsx';
 import PasswordResetPage from './pages/Auth/PasswordResetPage.jsx';
 import DevelopmentHubRoute from './pages/Development/DevelopmentHubRoute.jsx';
 import TrainingCalendarPage from './pages/TrainingCalendar/TrainingCalendarPage.jsx';
@@ -20,6 +21,7 @@ export default function App() {
     <>
       <Routes>
         <Route path="/" element={<Navigate to="/lms" replace />} />
+        <Route path="/infographics" element={<InfographicsPage />} />
         <Route path="/reset-password" element={<PasswordResetPage />} />
         <Route path="/development-hub" element={<DevelopmentHubRoute />} />
         <Route path="/training-calendar" element={<TrainingCalendarPage />} />

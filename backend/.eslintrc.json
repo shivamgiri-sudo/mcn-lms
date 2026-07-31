@@ -8,5 +8,9 @@
     "ecmaVersion": "latest",
     "sourceType": "module"
   },
-  "rules": {}
+  "rules": {
+    "no-empty": "off",
+    "no-unused-vars": "off",
+    "no-useless-escape": "off"
+  }
 }

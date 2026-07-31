@@ -53,7 +53,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
@@ -70,8 +70,8 @@ jobs:
 
       - name: Apply and verify forward-only migrations
         run: |
-          npx prisma db execute --file prisma/migrations/20260724090000_secure_password_recovery/migration.sql --schema prisma/schema.prisma
-          npx prisma db execute --file prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql --schema prisma/schema.prisma
+          npx prisma db execute --file prisma/migrations/20260724090000_secure_password_recovery/migration.sql
+          npx prisma db execute --file prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql
           node --input-type=module <<'NODE'
           import mysql from 'mysql2/promise';
           const c = await mysql.createConnection(process.env.DATABASE_URL);
@@ -142,7 +142,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 20
           cache: npm
