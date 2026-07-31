@@ -3,7 +3,7 @@ import { useSearchParams } from '../../utils/browserRouter.jsx';
 import './mcnmeet.css';
 
 const DEFAULT_ROOM = 'MCNmeet';
-const DEFAULT_SERVER = 'https://meet.jit.si';
+const DEFAULT_SERVER = 'https://mcnmeet.teammas.in';
 
 function cleanRoom(value) {
   return String(value || DEFAULT_ROOM)
@@ -22,6 +22,9 @@ export default function MCNmeetPage() {
   const title = params.get('title') || 'MCNmeet live training room';
   const server = meetingServer();
   const joinUrl = useMemo(() => `${server}/${room}`, [server, room]);
+  const brandedJoinUrl = useMemo(() => (
+    `/MCNmeet?room=${encodeURIComponent(room)}&role=${encodeURIComponent(role)}&title=${encodeURIComponent(title)}`
+  ), [role, room, title]);
   const embedUrl = useMemo(() => {
     const config = [
       'prejoinPageEnabled=true',
@@ -40,12 +43,12 @@ export default function MCNmeetPage() {
           <span />
           <section>
             <b>MCNmeet</b>
-            <small>Internal live training room</small>
+            <small>mcnmeet.teammas.in</small>
           </section>
         </a>
         <nav>
           <a href="/training-calendar?role=trainee">Calendar</a>
-          <a className="mcnmeet-open" href={joinUrl} target="_blank" rel="noreferrer">Open room</a>
+          <a className="mcnmeet-open" href={brandedJoinUrl}>MCNmeet URL</a>
         </nav>
       </header>
 
@@ -60,7 +63,7 @@ export default function MCNmeetPage() {
           </p>
           <dl>
             <div><dt>Room</dt><dd>{room}</dd></div>
-            <div><dt>Server</dt><dd>{server.replace(/^https?:\/\//, '')}</dd></div>
+            <div><dt>MCN URL</dt><dd>mcnmeet.teammas.in</dd></div>
             <div><dt>Status</dt><dd>Ready to join</dd></div>
           </dl>
           <a className="mcnmeet-primary" href={joinUrl} target="_blank" rel="noreferrer">Join MCNmeet</a>

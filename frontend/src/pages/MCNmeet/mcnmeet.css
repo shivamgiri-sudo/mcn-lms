@@ -1,10 +1,9 @@
 .mcnmeet-shell {
   min-height: 100vh;
   background:
-    radial-gradient(circle at 14% 18%, rgba(37, 99, 235, .12), transparent 28%),
-    radial-gradient(circle at 85% 12%, rgba(34, 197, 94, .12), transparent 30%),
-    linear-gradient(135deg, #f8fbff 0%, #eef4ff 45%, #f7fbf9 100%);
-  color: #10233f;
+    linear-gradient(90deg, rgba(20, 68, 157, .08), transparent 38%, rgba(23, 163, 83, .08)),
+    linear-gradient(135deg, #f7fbff 0%, #edf5ff 48%, #f4fbf7 100%);
+  color: #102542;
 }
 
 .mcnmeet-topbar {
@@ -14,8 +13,8 @@
   justify-content: space-between;
   gap: 24px;
   padding: 0 28px;
-  border-bottom: 1px solid rgba(42, 64, 102, .12);
-  background: rgba(255, 255, 255, .82);
+  border-bottom: 3px solid #1aa65b;
+  background: rgba(255, 255, 255, .94);
   backdrop-filter: blur(18px);
 }
 
@@ -28,7 +27,7 @@
 }
 
 .mcnmeet-brand img {
-  width: 92px;
+  width: 118px;
   height: auto;
   object-fit: contain;
 }
@@ -41,17 +40,18 @@
 
 .mcnmeet-brand b {
   display: block;
-  font-size: 20px;
+  font-size: 24px;
   line-height: 1;
   letter-spacing: 0;
-  color: #123d8f;
+  color: #14449d;
 }
 
 .mcnmeet-brand small {
   display: block;
   margin-top: 4px;
-  font-size: 11px;
-  color: #5d6d86;
+  font-size: 12px;
+  color: #18824d;
+  font-weight: 800;
 }
 
 .mcnmeet-topbar nav {
@@ -70,7 +70,7 @@
   border: 1px solid rgba(18, 61, 143, .18);
   border-radius: 8px;
   background: #fff;
-  color: #123d8f;
+  color: #14449d;
   font-size: 12px;
   font-weight: 800;
   text-decoration: none;
@@ -79,9 +79,9 @@
 .mcnmeet-topbar nav .mcnmeet-open,
 .mcnmeet-primary {
   border-color: transparent;
-  background: #123d8f;
+  background: #14449d;
   color: #fff;
-  box-shadow: 0 12px 28px rgba(18, 61, 143, .20);
+  box-shadow: 0 12px 28px rgba(20, 68, 157, .20);
 }
 
 .mcnmeet-stage {
@@ -97,32 +97,36 @@
   align-content: start;
   gap: 16px;
   padding: 28px;
-  border: 1px solid rgba(42, 64, 102, .12);
+  border: 1px solid rgba(20, 68, 157, .16);
+  border-top: 5px solid #1aa65b;
   border-radius: 8px;
   background: rgba(255, 255, 255, .90);
-  box-shadow: 0 24px 60px rgba(18, 61, 143, .10);
+  box-shadow: 0 24px 60px rgba(20, 68, 157, .10);
 }
 
 .mcnmeet-room-mark {
-  width: 62px;
-  height: 62px;
+  width: 86px;
+  height: 86px;
   display: grid;
   place-items: center;
-  border-radius: 18px;
-  background:
-    linear-gradient(135deg, #123d8f, #2f80ed 58%, #20b15a);
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(20, 68, 157, .16);
+  background-image: url('/mcn-logo.png');
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 74px auto;
   color: #fff;
-  font-size: 17px;
-  font-weight: 900;
-  box-shadow: 0 16px 34px rgba(18, 61, 143, .22);
+  font-size: 0;
+  box-shadow: 0 16px 34px rgba(20, 68, 157, .18);
 }
 
 .mcnmeet-eyebrow {
   width: max-content;
   padding: 5px 8px;
   border-radius: 6px;
-  background: rgba(32, 177, 90, .12);
-  color: #13733e;
+  background: rgba(26, 166, 91, .12);
+  color: #137a46;
   font-size: 10px;
   font-weight: 900;
   text-transform: uppercase;
@@ -132,7 +136,7 @@
   margin: 0;
   font-size: 34px;
   line-height: 1.05;
-  color: #0d2e6f;
+  color: #14449d;
 }
 
 .mcnmeet-panel p {
@@ -163,7 +167,7 @@
 }
 
 .mcnmeet-panel dd {
-  color: #10233f;
+  color: #102542;
   font-size: 12px;
   font-weight: 750;
   overflow-wrap: anywhere;
