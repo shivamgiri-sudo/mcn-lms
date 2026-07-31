@@ -18,7 +18,8 @@ export default function AdminLogin({ onLogin }) {
   async function login(e) {
     e.preventDefault();
     if (!adminId || !password) return setMsg('Admin ID and password required.');
-    setLoading(true); setMsg('');
+    setLoading(true);
+    setMsg('');
     const res = await api.post('/auth/admin/login', { adminId, password });
     setLoading(false);
     if (res.ok) onLogin(res);
@@ -32,14 +33,30 @@ export default function AdminLogin({ onLogin }) {
     setForgotResult('');
     const res = await api.post('/auth/admin/forgot-password', { adminId: forgotId });
     setForgotLoading(false);
-    if (res.ok && res.tempPassword) {
-      setForgotResult(`Temporary password: ${res.tempPassword}`);
-    } else {
-      setForgotResult(res.message || 'Request processed.');
-    }
+    setForgotResult(res.message || 'If the account exists, the recovery request has been recorded.');
   }
 
-  const s = (light, darkVal) => dark ? darkVal : light;
+  const s = (light, darkValue) => dark ? darkValue : light;
+  const cardStyle = {
+    width: '100%', maxWidth: 420, position: 'relative', zIndex: 1,
+    background: s('rgba(255,255,255,.9)', 'rgba(255,255,255,.04)'),
+    backdropFilter: 'blur(20px)',
+    border: s('1px solid rgba(139,92,246,.15)', '1px solid rgba(255,255,255,.1)'),
+    borderRadius: 24,
+    padding: '40px 36px',
+    boxShadow: s('0 24px 64px rgba(139,92,246,.12)', '0 24px 64px rgba(0,0,0,.4)'),
+  };
+  const inputStyle = {
+    width: '100%', background: s('#f3f4f6', 'rgba(255,255,255,.07)'),
+    border: `1.5px solid ${s('#d1d5db', 'rgba(255,255,255,.12)')}`,
+    borderRadius: 10, padding: '11px 14px', color: s('#111827', '#fff'),
+    fontSize: 14, outline: 'none', fontFamily: 'inherit',
+  };
+  const labelStyle = {
+    display: 'block', fontSize: 11, fontWeight: 700,
+    color: s('#6b7280', 'rgba(255,255,255,.5)'), textTransform: 'uppercase',
+    letterSpacing: '.06em', marginBottom: 8,
+  };
 
   return (
     <div style={{
@@ -55,38 +72,30 @@ export default function AdminLogin({ onLogin }) {
       <button onClick={toggleTheme} title={dark ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ position: 'absolute', top: 20, right: 20, zIndex: 10, background: 'rgba(255,255,255,.1)', border: 'none', borderRadius: 8, padding: '7px 12px', cursor: 'pointer', fontSize: 16, lineHeight: 1 }}>{dark ? '☀️' : '🌙'}</button>
 
       {showForgot ? (
-        <div style={{
-          width: '100%', maxWidth: 420, position: 'relative', zIndex: 1,
-          background: s('rgba(255,255,255,.9)', 'rgba(255,255,255,.04)'),
-          backdropFilter: 'blur(20px)',
-          border: s('1px solid rgba(139,92,246,.15)', '1px solid rgba(255,255,255,.1)'),
-          borderRadius: 24,
-          padding: '40px 36px', boxShadow: s('0 24px 64px rgba(139,92,246,.12)', '0 24px 64px rgba(0,0,0,.4)'),
-        }}>
+        <div style={cardStyle}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <img src="/mcn-logo.png" alt="MCN" style={{ height: 34, objectFit: 'contain', opacity: .85 }} />
           </div>
-
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
             <div style={{
               width: 56, height: 56, borderRadius: 16, margin: '0 auto 14px',
               background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-              display: 'grid', placeItems: 'center',
-              fontSize: 13, fontWeight: 900, color: '#fff', letterSpacing: '.05em',
-              boxShadow: '0 12px 32px rgba(139,92,246,.4)',
+              display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 900,
+              color: '#fff', letterSpacing: '.05em', boxShadow: '0 12px 32px rgba(139,92,246,.4)',
             }}>ADM</div>
-            <h2 style={{ color: s('#1e1b4b', '#fff'), fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', margin: '0 0 6px' }}>Reset Password</h2>
-            <p style={{ color: s('#6b7280', 'rgba(255,255,255,.45)'), fontSize: 13, margin: 0 }}>Enter your Admin ID to generate a temporary password</p>
+            <h2 style={{ color: s('#1e1b4b', '#fff'), fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', margin: '0 0 6px' }}>Account Recovery</h2>
+            <p style={{ color: s('#6b7280', 'rgba(255,255,255,.45)'), fontSize: 13, margin: 0 }}>Submit your Admin ID for secure identity verification</p>
           </div>
 
           <form onSubmit={handleForgot}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: s('#6b7280', 'rgba(255,255,255,.5)'), textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Admin ID</label>
+              <label style={labelStyle}>Admin ID</label>
               <input
-                style={{ width: '100%', background: s('#f3f4f6', 'rgba(255,255,255,.07)'), border: `1.5px solid ${s('#d1d5db', 'rgba(255,255,255,.12)')}`, borderRadius: 10, padding: '11px 14px', color: s('#111827', '#fff'), fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
-                placeholder="LMS-ADMIN"
+                style={inputStyle}
+                placeholder="Enter your Admin ID"
                 value={forgotId}
                 onChange={e => setForgotId(e.target.value)}
+                autoComplete="username"
                 onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,.7)'}
                 onBlur={e => e.target.style.borderColor = s('#d1d5db', 'rgba(255,255,255,.12)')}
               />
@@ -109,7 +118,7 @@ export default function AdminLogin({ onLogin }) {
                 transition: 'all .2s', fontFamily: 'inherit',
               }}
             >
-              {forgotLoading ? 'Processing...' : 'Generate Temporary Password'}
+              {forgotLoading ? 'Submitting...' : 'Submit Recovery Request'}
             </button>
           </form>
 
@@ -120,36 +129,27 @@ export default function AdminLogin({ onLogin }) {
           </div>
         </div>
       ) : (
-        <div style={{
-          width: '100%', maxWidth: 420, position: 'relative', zIndex: 1,
-          background: s('rgba(255,255,255,.9)', 'rgba(255,255,255,.04)'),
-          backdropFilter: 'blur(20px)',
-          border: s('1px solid rgba(139,92,246,.15)', '1px solid rgba(255,255,255,.1)'),
-          borderRadius: 24,
-          padding: '40px 36px', boxShadow: s('0 24px 64px rgba(139,92,246,.12)', '0 24px 64px rgba(0,0,0,.4)'),
-        }}>
+        <div style={cardStyle}>
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <img src="/mcn-logo.png" alt="MCN" style={{ height: 34, objectFit: 'contain', opacity: .85 }} />
           </div>
-
           <div style={{ textAlign: 'center', marginBottom: 28 }}>
             <div style={{
               width: 56, height: 56, borderRadius: 16, margin: '0 auto 14px',
               background: 'linear-gradient(135deg, #8b5cf6, #6366f1)',
-              display: 'grid', placeItems: 'center',
-              fontSize: 13, fontWeight: 900, color: '#fff', letterSpacing: '.05em',
-              boxShadow: '0 12px 32px rgba(139,92,246,.4)',
+              display: 'grid', placeItems: 'center', fontSize: 13, fontWeight: 900,
+              color: '#fff', letterSpacing: '.05em', boxShadow: '0 12px 32px rgba(139,92,246,.4)',
             }}>ADM</div>
             <h2 style={{ color: s('#1e1b4b', '#fff'), fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', margin: '0 0 6px' }}>Admin Console</h2>
-            <p style={{ color: s('#6b7280', 'rgba(255,255,255,.45)'), fontSize: 13, margin: 0 }}>Curriculum, accounts & platform settings</p>
+            <p style={{ color: s('#6b7280', 'rgba(255,255,255,.45)'), fontSize: 13, margin: 0 }}>Secure curriculum and platform administration</p>
           </div>
 
           <form onSubmit={login}>
             <div style={{ marginBottom: 16 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: s('#6b7280', 'rgba(255,255,255,.5)'), textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Admin ID</label>
+              <label style={labelStyle}>Admin ID</label>
               <input
-                style={{ width: '100%', background: s('#f3f4f6', 'rgba(255,255,255,.07)'), border: `1.5px solid ${s('#d1d5db', 'rgba(255,255,255,.12)')}`, borderRadius: 10, padding: '11px 14px', color: s('#111827', '#fff'), fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
-                placeholder="LMS-ADMIN"
+                style={inputStyle}
+                placeholder="Enter your Admin ID"
                 value={adminId}
                 onChange={e => setAdminId(e.target.value)}
                 autoComplete="username"
@@ -159,10 +159,10 @@ export default function AdminLogin({ onLogin }) {
             </div>
 
             <div style={{ marginBottom: 12 }}>
-              <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: s('#6b7280', 'rgba(255,255,255,.5)'), textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Password</label>
+              <label style={labelStyle}>Password</label>
               <div style={{ position: 'relative' }}>
                 <input
-                  style={{ width: '100%', background: s('#f3f4f6', 'rgba(255,255,255,.07)'), border: `1.5px solid ${s('#d1d5db', 'rgba(255,255,255,.12)')}`, borderRadius: 10, padding: '11px 42px 11px 14px', color: s('#111827', '#fff'), fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
+                  style={{ ...inputStyle, padding: '11px 42px 11px 14px' }}
                   type={showPass ? 'text' : 'password'}
                   placeholder="Enter admin password"
                   value={password}
@@ -171,7 +171,7 @@ export default function AdminLogin({ onLogin }) {
                   onFocus={e => e.target.style.borderColor = 'rgba(139,92,246,.7)'}
                   onBlur={e => e.target.style.borderColor = s('#d1d5db', 'rgba(255,255,255,.12)')}
                 />
-                <button type="button" onClick={() => setShowPass(!showPass)} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: s('#9ca3af', 'rgba(255,255,255,.4)'), cursor: 'pointer', fontSize: 13 }}>
+                <button type="button" onClick={() => setShowPass(!showPass)} aria-label={showPass ? 'Hide password' : 'Show password'} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: s('#9ca3af', 'rgba(255,255,255,.4)'), cursor: 'pointer', fontSize: 13 }}>
                   {showPass ? '🙈' : '👁'}
                 </button>
               </div>
@@ -205,8 +205,7 @@ export default function AdminLogin({ onLogin }) {
           </form>
 
           <div style={{ marginTop: 20, padding: '12px 16px', background: s('rgba(139,92,246,.06)', 'rgba(255,255,255,.04)'), borderRadius: 10, border: `1px solid ${s('rgba(139,92,246,.12)', 'rgba(255,255,255,.07)')}`, textAlign: 'center' }}>
-            <span style={{ fontSize: 11.5, color: s('#9ca3af', 'rgba(255,255,255,.35)') }}>Demo: </span>
-            <span style={{ fontSize: 11.5, color: s('#6b7280', 'rgba(255,255,255,.55)'), fontFamily: 'monospace' }}>LMS-ADMIN / admin1234</span>
+            <span style={{ fontSize: 11.5, color: s('#6b7280', 'rgba(255,255,255,.45)') }}>Authorized administrators only. All access is monitored and audited.</span>
           </div>
         </div>
       )}

@@ -49,7 +49,9 @@ export async function sendEmail({ to, subject, html, text }) {
 
 // ── SMS (MSG91) ───────────────────────────────────────────────────────────────
 
-export async function sendSms({ mobile, message, templateId }) {
+export async function sendSms({ mobile, to, message, templateId }) {
+  const destination = mobile || to;
+  if (!destination) return { ok: false, message: 'SMS recipient is required.' };
   const cfg = await getConfig();
   if (!cfg.smsEnabled) {
     console.warn('[NOTIFY] SMS disabled in config.');
@@ -59,8 +61,8 @@ export async function sendSms({ mobile, message, templateId }) {
     return { ok: false, message: 'MSG91 auth key not configured.' };
   }
 
-  // Normalise mobile to 91XXXXXXXXXX format
-  const clean = String(mobile).replace(/\D/g, '');
+  // Normalise mobile to 91XXXXXXXXXX format.
+  const clean = String(destination).replace(/\D/g, '');
   const msisdn = clean.startsWith('91') ? clean : `91${clean.slice(-10)}`;
 
   const tid = templateId || cfg.msg91TemplateId;
@@ -93,7 +95,9 @@ export async function sendSms({ mobile, message, templateId }) {
 
 // ── WhatsApp (MSG91) ──────────────────────────────────────────────────────────
 
-export async function sendWhatsApp({ mobile, message, templateName, params }) {
+export async function sendWhatsApp({ mobile, to, message, templateName, params }) {
+  const destination = mobile || to;
+  if (!destination) return { ok: false, message: 'WhatsApp recipient is required.' };
   const cfg = await getConfig();
   if (!cfg.whatsappEnabled) {
     console.warn('[NOTIFY] WhatsApp disabled in config.');
@@ -103,7 +107,7 @@ export async function sendWhatsApp({ mobile, message, templateName, params }) {
     return { ok: false, message: 'MSG91 WhatsApp token/number not configured.' };
   }
 
-  const clean = String(mobile).replace(/\D/g, '');
+  const clean = String(destination).replace(/\D/g, '');
   const msisdn = clean.startsWith('91') ? clean : `91${clean.slice(-10)}`;
 
   const body = {

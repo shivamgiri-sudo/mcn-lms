@@ -1,8 +1,12 @@
 import { google } from 'googleapis';
 import fs from 'fs';
 import path from 'path';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 
-const TOKEN_FILE = path.resolve('drive-token.json');
+const TOKEN_FILE = path.resolve(process.env.DRIVE_TOKEN_FILE || 'drive-token.enc');
+const LEGACY_TOKEN_FILE = path.resolve('drive-token.json');
+const MAX_DRIVE_FILES = Math.max(1, Number.parseInt(process.env.DRIVE_MAX_FILES || '5000', 10));
+const MAX_RECURSION_DEPTH = Math.max(1, Number.parseInt(process.env.DRIVE_MAX_RECURSION_DEPTH || '10', 10));
 
 const MIME_TO_TYPE = {
   'video/mp4': 'video',
@@ -18,26 +22,69 @@ const MIME_TO_TYPE = {
   'application/vnd.google-apps.spreadsheet': 'doc',
 };
 
-// ── Token persistence ─────────────────────────────────────────────────────────
+function tokenKey() {
+  const secret = String(process.env.GOOGLE_TOKEN_ENCRYPTION_KEY || process.env.SESSION_SECRET || '');
+  if (secret.length < 32) return null;
+  return createHash('sha256').update(secret, 'utf8').digest();
+}
+
+function encryptTokens(tokens) {
+  const key = tokenKey();
+  if (!key) throw new Error('GOOGLE_TOKEN_ENCRYPTION_KEY or SESSION_SECRET of at least 32 characters is required for OAuth token storage.');
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', key, iv);
+  const ciphertext = Buffer.concat([cipher.update(JSON.stringify(tokens), 'utf8'), cipher.final()]);
+  return JSON.stringify({
+    version: 1,
+    algorithm: 'aes-256-gcm',
+    iv: iv.toString('base64'),
+    tag: cipher.getAuthTag().toString('base64'),
+    ciphertext: ciphertext.toString('base64'),
+  });
+}
+
+function decryptTokens(payload) {
+  const key = tokenKey();
+  if (!key) throw new Error('OAuth token encryption key is not configured.');
+  const envelope = JSON.parse(payload);
+  if (envelope.version !== 1 || envelope.algorithm !== 'aes-256-gcm') throw new Error('Unsupported OAuth token file format.');
+  const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(envelope.iv, 'base64'));
+  decipher.setAuthTag(Buffer.from(envelope.tag, 'base64'));
+  const plaintext = Buffer.concat([decipher.update(Buffer.from(envelope.ciphertext, 'base64')), decipher.final()]);
+  return JSON.parse(plaintext.toString('utf8'));
+}
 
 export function loadSavedTokens() {
-  try {
-    if (fs.existsSync(TOKEN_FILE)) return JSON.parse(fs.readFileSync(TOKEN_FILE, 'utf8'));
-  } catch {}
+  if (fs.existsSync(TOKEN_FILE)) return decryptTokens(fs.readFileSync(TOKEN_FILE, 'utf8'));
+
+  // One-time migration from the historical plaintext token file.
+  if (fs.existsSync(LEGACY_TOKEN_FILE)) {
+    const legacy = JSON.parse(fs.readFileSync(LEGACY_TOKEN_FILE, 'utf8'));
+    saveTokens(legacy);
+    fs.rmSync(LEGACY_TOKEN_FILE, { force: true });
+    return legacy;
+  }
   return null;
 }
 
 export function saveTokens(tokens) {
-  try { fs.writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2)); } catch {}
+  const dir = path.dirname(TOKEN_FILE);
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const temp = `${TOKEN_FILE}.${process.pid}.${Date.now()}.tmp`;
+  fs.writeFileSync(temp, encryptTokens(tokens), { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temp, TOKEN_FILE);
+  try { fs.chmodSync(TOKEN_FILE, 0o600); } catch {}
 }
 
 export function deleteSavedTokens() {
-  try { if (fs.existsSync(TOKEN_FILE)) fs.unlinkSync(TOKEN_FILE); } catch {}
+  fs.rmSync(TOKEN_FILE, { force: true });
+  fs.rmSync(LEGACY_TOKEN_FILE, { force: true });
 }
 
-// ── Drive client builders ─────────────────────────────────────────────────────
-
 function makeOAuth2Client() {
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REDIRECT_URI) {
+    throw new Error('Google OAuth client configuration is incomplete.');
+  }
   return new google.auth.OAuth2(
     process.env.GOOGLE_CLIENT_ID,
     process.env.GOOGLE_CLIENT_SECRET,
@@ -50,8 +97,7 @@ export function getOAuthClient() {
   const saved = loadSavedTokens();
   if (saved) {
     client.setCredentials(saved);
-    // Auto-save refreshed tokens
-    client.on('tokens', (tokens) => {
+    client.on('tokens', tokens => {
       const merged = { ...saved, ...tokens };
       saveTokens(merged);
       client.setCredentials(merged);
@@ -61,127 +107,104 @@ export function getOAuthClient() {
 }
 
 export async function getDriveService() {
-  // 1. Service account — works for folders shared with it
   if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
-    const creds = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
-    const auth = new google.auth.GoogleAuth({
-      credentials: creds,
-      scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-    });
+    const credentials = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON);
+    const auth = new google.auth.GoogleAuth({ credentials, scopes: ['https://www.googleapis.com/auth/drive.readonly'] });
     return google.drive({ version: 'v3', auth });
   }
 
-  // 2. Persisted OAuth token — works for any folder the connected Google account can see
   const saved = loadSavedTokens();
-  if (saved) {
-    const client = getOAuthClient();
-    return google.drive({ version: 'v3', auth: client });
-  }
-
-  // 3. API key — works for public "anyone with the link" folders
-  if (process.env.GOOGLE_API_KEY) {
-    return google.drive({ version: 'v3', auth: process.env.GOOGLE_API_KEY });
-  }
-
-  throw new Error('No Google Drive credentials. Connect via OAuth in the Drive Sync tab.');
+  if (saved) return google.drive({ version: 'v3', auth: getOAuthClient() });
+  if (process.env.GOOGLE_API_KEY) return google.drive({ version: 'v3', auth: process.env.GOOGLE_API_KEY });
+  throw new Error('No Google Drive credentials are configured.');
 }
 
 export function hasDriveAccess() {
-  return !!(
-    process.env.GOOGLE_SERVICE_ACCOUNT_JSON ||
-    loadSavedTokens() ||
-    process.env.GOOGLE_API_KEY
-  );
+  try {
+    return Boolean(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || loadSavedTokens() || process.env.GOOGLE_API_KEY);
+  } catch {
+    return false;
+  }
 }
 
-// ── Folder listing ────────────────────────────────────────────────────────────
+function validDriveId(value) {
+  const id = String(value || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,200}$/.test(id)) throw new Error('Invalid Google Drive identifier.');
+  return id;
+}
 
-export async function listDriveFolder(drive, folderId, recursive = false) {
-  const files = [];
+export async function listDriveFolder(drive, folderId, recursive = false, depth = 0, accumulator = []) {
+  const safeFolderId = validDriveId(folderId);
+  if (depth > MAX_RECURSION_DEPTH) throw new Error('Google Drive folder nesting exceeds the configured limit.');
   let pageToken;
 
   do {
-    const res = await drive.files.list({
-      q: `'${folderId}' in parents and trashed = false`,
+    const response = await drive.files.list({
+      q: `'${safeFolderId}' in parents and trashed = false`,
       fields: 'nextPageToken, files(id, name, mimeType, size, thumbnailLink, webViewLink, parents)',
       pageSize: 200,
       pageToken,
       supportsAllDrives: true,
       includeItemsFromAllDrives: true,
     });
-    const items = res.data.files || [];
 
-    for (const f of items) {
-      if (f.mimeType === 'application/vnd.google-apps.folder') {
-        if (recursive) {
-          const sub = await listDriveFolder(drive, f.id, true);
-          files.push(...sub);
-        }
+    for (const file of response.data.files || []) {
+      if (file.mimeType === 'application/vnd.google-apps.folder') {
+        if (recursive) await listDriveFolder(drive, file.id, true, depth + 1, accumulator);
       } else {
-        files.push({
-          ...f,
-          contentType: MIME_TO_TYPE[f.mimeType] || 'link',
-          driveUrl: `https://drive.google.com/file/d/${f.id}/preview`,
-          viewUrl: f.webViewLink || `https://drive.google.com/file/d/${f.id}/view`,
+        accumulator.push({
+          ...file,
+          contentType: MIME_TO_TYPE[file.mimeType] || 'link',
+          driveUrl: `https://drive.google.com/file/d/${file.id}/preview`,
+          viewUrl: file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`,
         });
+        if (accumulator.length >= MAX_DRIVE_FILES) throw new Error(`Google Drive listing exceeds the ${MAX_DRIVE_FILES}-file limit.`);
       }
     }
-    pageToken = res.data.nextPageToken;
+    pageToken = response.data.nextPageToken;
   } while (pageToken);
 
-  return files;
+  return accumulator;
 }
 
-// Try service account → OAuth token → API key, in order
 export async function listDriveFolderAny(folderId, recursive = false) {
   const errors = [];
 
-  // 1. Service account
   if (process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
     try {
       const drive = await getDriveService();
-      const files = await listDriveFolder(drive, folderId, recursive);
-      return { files, method: 'service_account' };
-    } catch (err) {
-      errors.push(`Service account: ${err.message}`);
+      return { files: await listDriveFolder(drive, folderId, recursive), method: 'service_account' };
+    } catch (error) {
+      errors.push(`Service account: ${error.message}`);
     }
   }
 
-  // 2. Persisted OAuth (user account — broadest access)
-  const saved = loadSavedTokens();
-  if (saved) {
-    try {
-      const client = getOAuthClient();
-      const drive = google.drive({ version: 'v3', auth: client });
-      const files = await listDriveFolder(drive, folderId, recursive);
-      return { files, method: 'oauth' };
-    } catch (err) {
-      errors.push(`OAuth: ${err.message}`);
+  try {
+    const saved = loadSavedTokens();
+    if (saved) {
+      const drive = google.drive({ version: 'v3', auth: getOAuthClient() });
+      return { files: await listDriveFolder(drive, folderId, recursive), method: 'oauth' };
     }
+  } catch (error) {
+    errors.push(`OAuth: ${error.message}`);
   }
 
-  // 3. API key (public folders only)
   if (process.env.GOOGLE_API_KEY) {
     try {
       const drive = google.drive({ version: 'v3', auth: process.env.GOOGLE_API_KEY });
-      const files = await listDriveFolder(drive, folderId, recursive);
-      return { files, method: 'api_key' };
-    } catch (err) {
-      errors.push(`API key: ${err.message}`);
+      return { files: await listDriveFolder(drive, folderId, recursive), method: 'api_key' };
+    } catch (error) {
+      errors.push(`API key: ${error.message}`);
     }
   }
 
-  throw new Error(
-    errors.length
-      ? `Drive access failed — ${errors[errors.length - 1]}. Connect your Google account via OAuth in the Drive Sync tab.`
-      : 'No Google Drive credentials configured.'
-  );
+  throw new Error(errors.length ? `Drive access failed: ${errors.at(-1)}` : 'No Google Drive credentials configured.');
 }
 
 export function buildDrivePreviewUrl(fileId) {
-  return `https://drive.google.com/file/d/${fileId}/preview`;
+  return `https://drive.google.com/file/d/${validDriveId(fileId)}/preview`;
 }
 
 export function buildDriveViewUrl(fileId) {
-  return `https://drive.google.com/file/d/${fileId}/view`;
+  return `https://drive.google.com/file/d/${validDriveId(fileId)}/view`;
 }

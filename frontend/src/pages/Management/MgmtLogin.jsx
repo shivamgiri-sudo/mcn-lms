@@ -44,7 +44,6 @@ export default function MgmtLogin({ onLogin }) {
         border: dark ? '1px solid rgba(255,255,255,.1)' : '1px solid rgba(245,158,11,.2)', borderRadius: 24,
         padding: '40px 36px', boxShadow: dark ? '0 24px 64px rgba(0,0,0,.4)' : '0 24px 64px rgba(245,158,11,.12)',
       }}>
-        {/* MCN Logo */}
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <img src="/mcn-logo.png" alt="MCN" style={{ height: 36, objectFit: 'contain', opacity: .85 }} />
         </div>
@@ -58,7 +57,7 @@ export default function MgmtLogin({ onLogin }) {
             boxShadow: '0 12px 32px rgba(245,158,11,.35)',
           }}>MGMT</div>
           <h2 style={{ color: dark ? '#fff' : '#78350f', fontSize: 22, fontWeight: 800, letterSpacing: '-.02em', margin: '0 0 6px' }}>Management Dashboard</h2>
-          <p style={{ color: dark ? 'rgba(255,255,255,.45)' : '#6b7280', fontSize: 13, margin: 0 }}>Executive analytics & training KPIs</p>
+          <p style={{ color: dark ? 'rgba(255,255,255,.45)' : '#6b7280', fontSize: 13, margin: 0 }}>Secure executive analytics and training governance</p>
         </div>
 
         <form onSubmit={login}>
@@ -66,7 +65,7 @@ export default function MgmtLogin({ onLogin }) {
             <label style={{ display: 'block', fontSize: 11, fontWeight: 700, color: dark ? 'rgba(255,255,255,.5)' : '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Login ID</label>
             <input
               style={{ width: '100%', background: dark ? 'rgba(255,255,255,.07)' : '#f3f4f6', border: `1.5px solid ${dark ? 'rgba(255,255,255,.12)' : '#d1d5db'}`, borderRadius: 10, padding: '11px 14px', color: dark ? '#fff' : '#111827', fontSize: 14, outline: 'none', fontFamily: 'inherit' }}
-              placeholder="CEO-001"
+              placeholder="Enter management login ID"
               value={loginId}
               onChange={e => setLoginId(e.target.value)}
               autoComplete="username"
@@ -116,8 +115,7 @@ export default function MgmtLogin({ onLogin }) {
         </form>
 
         <div style={{ marginTop: 20, padding: '12px 16px', background: dark ? 'rgba(255,255,255,.04)' : 'rgba(245,158,11,.06)', borderRadius: 10, border: `1px solid ${dark ? 'rgba(255,255,255,.07)' : 'rgba(245,158,11,.12)'}`, textAlign: 'center' }}>
-          <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.35)' : '#9ca3af' }}>Demo: </span>
-          <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.55)' : '#6b7280', fontFamily: 'monospace' }}>CEO-001 / ceo123</span>
+          <span style={{ fontSize: 11.5, color: dark ? 'rgba(255,255,255,.45)' : '#6b7280' }}>Authorized management users only. All access is monitored and audited.</span>
         </div>
       </div>
     </div>

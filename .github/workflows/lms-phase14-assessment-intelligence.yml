@@ -1,0 +1,209 @@
+name: LMS Phase 14 Assessment Intelligence
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-security-assurance
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'deploy/**'
+      - 'docs/**'
+      - '.github/workflows/lms-phase14-assessment-intelligence.yml'
+  push:
+    branches:
+      - agent/lms-assessment-intelligence
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase14-assessment-intelligence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Migration integrity regressions and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_phase14
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_phase14
+      SESSION_SECRET: phase14-session-secret-longer-than-thirty-two-characters
+      OAUTH_STATE_SECRET: phase14-oauth-secret-longer-than-thirty-two-characters
+      APP_ENCRYPTION_KEY: phase14-encryption-key-longer-than-thirty-two-characters
+      FRONTEND_URL: http://127.0.0.1:4000
+      LMS_RUN_SCHEDULERS: 'false'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+
+      - name: Generate and validate Prisma
+        working-directory: backend
+        run: |
+          npx prisma generate
+          npm run db:validate
+
+      - name: Apply first fifteen migrations
+        run: |
+          mv backend/prisma/migrations/20260727120000_assessment_intelligence /tmp/20260727120000_assessment_intelligence
+          cd backend
+          npx prisma migrate deploy
+
+      - name: Seed legacy assessment data before Phase 14
+        working-directory: backend
+        run: |
+          node --input-type=module <<'NODE'
+          import { PrismaClient } from '@prisma/client';
+          const prisma = new PrismaClient();
+          try {
+            await prisma.classroomMaster.create({
+              data: {
+                classroomId: 'CLS-P14',
+                classroomName: 'Phase 14 Legacy Classroom',
+                process: 'Operations',
+                lob: 'Verification',
+                branch: 'Noida',
+                active: true,
+              },
+            });
+            await prisma.assessmentMaster.create({
+              data: {
+                assessmentId: 'ASM-P14',
+                classroomId: 'CLS-P14',
+                assessmentName: 'Legacy Knowledge Check',
+                passingPct: 60,
+                attemptLimit: 3,
+                timeLimitMins: 30,
+                active: true,
+              },
+            });
+            await prisma.questionBank.create({
+              data: {
+                questionId: 'Q-P14-001',
+                assessmentId: 'ASM-P14',
+                questionText: 'Which control protects an immutable attempt form?',
+                optionA: 'HMAC integrity signature',
+                optionB: 'Client local storage',
+                optionC: 'Query-string token',
+                optionD: 'Anonymous access',
+                correctOption: 'A',
+                marks: 1,
+                negativeMarks: 0,
+                difficulty: 'Medium',
+                active: true,
+                explanation: 'The server signs the exact attempt snapshot.',
+              },
+            });
+          } finally {
+            await prisma.$disconnect();
+          }
+          NODE
+
+      - name: Apply Phase 14 migration
+        shell: bash
+        run: |
+          set -o pipefail
+          mv /tmp/20260727120000_assessment_intelligence backend/prisma/migrations/20260727120000_assessment_intelligence
+          cd backend
+          npx prisma migrate deploy 2>&1 | tee /tmp/phase14-migrate.log
+
+      - name: Verify complete migration and schema inventory
+        run: |
+          applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_phase14 -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          test "$applied" = "16"
+          tables=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N information_schema -e "SELECT COUNT(*) FROM tables WHERE table_schema='lms_phase14' AND table_name IN ('assessment_blueprint','assessment_blueprint_rule','assessment_question_metadata','assessment_attempt_form','assessment_question_response','assessment_accommodation','assessment_item_analytics','assessment_quality_alert','assessment_remedial_recommendation');")
+          test "$tables" = "9"
+          seeded=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_phase14 -e "SELECT COUNT(*) FROM assessment_question_metadata WHERE question_id='Q-P14-001' AND review_status='APPROVED';")
+          test "$seeded" = "1"
+          permissions=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_phase14 -e "SELECT COUNT(*) FROM permission_master WHERE permission_key IN ('assessment.blueprint.manage','assessment.question.review','assessment.analytics.view','assessment.accommodation.manage');")
+          test "$permissions" = "4"
+          generated=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N information_schema -e "SELECT COUNT(*) FROM columns WHERE table_schema='lms_phase14' AND ((table_name='assessment_blueprint' AND column_name IN ('published_assessment_key','draft_assessment_key')) OR (table_name='assessment_accommodation' AND column_name='active_employee_key') OR (table_name='assessment_quality_alert' AND column_name='open_alert_key')) AND extra LIKE '%STORED GENERATED%';")
+          test "$generated" = "4"
+
+      - name: Prove constraints fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysql_cmd=(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase14)
+
+          if "${mysql_cmd[@]}" -e "INSERT INTO assessment_blueprint (blueprint_id,assessment_id,blueprint_name,version_no,status,total_questions,created_by) VALUES (UUID(),'ASM-P14','Invalid zero',1,'DRAFT',0,'ci');"; then
+            echo 'Blueprint question-count check did not reject zero.' >&2
+            exit 1
+          fi
+
+          "${mysql_cmd[@]}" -e "INSERT INTO assessment_blueprint (blueprint_id,assessment_id,blueprint_name,version_no,status,total_questions,created_by) VALUES ('BP-P14-1','ASM-P14','Published one',1,'PUBLISHED',1,'ci');"
+          if "${mysql_cmd[@]}" -e "INSERT INTO assessment_blueprint (blueprint_id,assessment_id,blueprint_name,version_no,status,total_questions,created_by) VALUES ('BP-P14-2','ASM-P14','Published two',2,'PUBLISHED',1,'ci');"; then
+            echo 'Second active published blueprint was accepted.' >&2
+            exit 1
+          fi
+
+          if "${mysql_cmd[@]}" -e "INSERT INTO assessment_accommodation (accommodation_id,employee_id,time_multiplier,effective_from,status,reason,approved_by) VALUES (UUID(),'EMP-P14-BAD',0.5,CURRENT_TIMESTAMP(3),'APPROVED','Invalid multiplier evidence for CI','ci');"; then
+            echo 'Accommodation multiplier check did not reject 0.5.' >&2
+            exit 1
+          fi
+
+          "${mysql_cmd[@]}" -e "INSERT INTO assessment_accommodation (accommodation_id,employee_id,time_multiplier,effective_from,status,reason,approved_by) VALUES ('ACC-P14-1','EMP-P14',1.25,CURRENT_TIMESTAMP(3),'APPROVED','Approved accessibility support for CI','ci');"
+          if "${mysql_cmd[@]}" -e "INSERT INTO assessment_accommodation (accommodation_id,employee_id,time_multiplier,effective_from,status,reason,approved_by) VALUES ('ACC-P14-2','EMP-P14',1.50,CURRENT_TIMESTAMP(3),'APPROVED','Second active accommodation should fail','ci');"; then
+            echo 'Second approved accommodation was accepted.' >&2
+            exit 1
+          fi
+
+      - name: Validate repository policies
+        run: |
+          node deploy/scripts/validate-migration-safety.mjs --json | tee /tmp/phase14-migration-policy.json
+          node deploy/scripts/validate-route-security.mjs --json | tee /tmp/phase14-route-policy.json
+
+      - name: Check backend JavaScript
+        run: find backend/src backend/test deploy/scripts -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
+
+      - name: Run complete backend regression suite
+        working-directory: backend
+        run: npm test
+
+      - name: Audit backend production dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build and audit frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npm audit --omit=dev --audit-level=high
+
+      - name: Upload Phase 14 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase14-assessment-intelligence-evidence
+          path: |
+            /tmp/phase14-migrate.log
+            /tmp/phase14-migration-policy.json
+            /tmp/phase14-route-policy.json
+          if-no-files-found: warn
+          retention-days: 30
