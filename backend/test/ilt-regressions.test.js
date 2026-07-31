@@ -96,7 +96,7 @@ test('role routes enforce server-side permissions and ownership', () => {
 
 test('ILT routes are mounted before the SPA fallback', () => {
   const mount = server.indexOf("app.use('/api/ilt', iltRoutes)");
-  const fallback = server.indexOf("app.get('*'");
+  const fallback = server.indexOf('app.get(/^(?!\\/api\\/)');
   assert.ok(mount > 0, 'ILT route mount is missing');
   assert.ok(fallback > mount, 'ILT routes must be mounted before the SPA fallback');
 });

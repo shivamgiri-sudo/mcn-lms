@@ -145,7 +145,7 @@ test('notification runtime and hooks are mounted before product routes and SPA f
   const calendarMount = integration.indexOf("router.use('/calendar', calendarRoutes)");
   const integrationMount = server.indexOf("app.use('/api', certificationHooks)");
   const iltMount = server.indexOf("app.use('/api/ilt', iltRoutes)");
-  const fallback = server.indexOf("app.get('*'");
+  const fallback = server.indexOf('app.get(/^(?!\\/api\\/)');
   assert.ok(runtimeMount > 0);
   assert.ok(hookMount > runtimeMount);
   assert.ok(notificationMount > hookMount);

@@ -178,8 +178,7 @@ app.use('/api/ilt', iltRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));
-  app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api/')) return next();
+  app.get(/^(?!\/api\/).*/, (_req, res) => {
     return res.sendFile(path.join(frontendDist, 'index.html'));
   });
 } else {
