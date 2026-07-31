@@ -23,6 +23,7 @@ test('HRMS connector contains no embedded credentials or internal defaults', asy
 test('HRMS employee sync provisions LMS users and applies independent module rules', async () => {
   const controller = await source('src/controllers/hrmsSeed.js');
   const routes = await source('src/routes/admin.js');
+  const server = await source('src/server.js');
   const config = await source('src/utils/hrmsConfig.js');
   const independentModules = await source('src/services/independentModules.js');
 
@@ -36,6 +37,9 @@ test('HRMS employee sync provisions LMS users and applies independent module rul
   assert.match(controller, /forcePasswordReset:\s*true/);
   assert.match(controller, /autoAssignModulesForNewUser/);
   assert.match(controller, /HRMS_EMPLOYEE_PROVISION/);
+  assert.match(controller, /export async function provisionHrmsEmployees/);
+  assert.match(server, /runHrmsEmployeeProvisioning/);
+  assert.match(server, /HRMS_EMPLOYEE_SYNC_INTERVAL_MINUTES/);
   assert.match(independentModules, /scope_type = 'Designation'/);
   assert.match(independentModules, /assignedModule\.create/);
   assert.doesNotMatch(controller, /slice\(-4\)/);

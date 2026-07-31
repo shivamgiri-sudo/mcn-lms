@@ -385,6 +385,33 @@ export async function syncEmployees(req, res) {
   }
 }
 
+export async function provisionHrmsEmployees({ dryRun = false, limit = 200, since = null, userId = 'hrms-worker' } = {}) {
+  let payload = null;
+  const req = {
+    query: dryRun ? { dryRun: '1', limit, since } : { limit, since },
+    body: { dryRun, limit, since },
+    userId,
+  };
+  const res = {
+    json(value) {
+      payload = value;
+      return value;
+    },
+    status(code) {
+      return {
+        json(value) {
+          const error = new Error(value?.message || `HRMS employee provisioning failed with HTTP ${code}`);
+          error.statusCode = code;
+          error.payload = value;
+          throw error;
+        },
+      };
+    },
+  };
+  await syncEmployees(req, res);
+  return payload;
+}
+
 export async function detectHRMSTables(req, res) {
   try {
     const tables = await detectTables();

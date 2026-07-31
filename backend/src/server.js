@@ -13,6 +13,7 @@ import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/ses
 import { startScheduler } from './utils/scheduler.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
+import { provisionHrmsEmployees } from './controllers/hrmsSeed.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
 import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 
@@ -263,6 +264,24 @@ async function runCertificationLifecycleSync() {
   }
 }
 
+async function runHrmsEmployeeProvisioning() {
+  if (process.env.HRMS_EMPLOYEE_AUTO_SYNC === 'false') return;
+  const limit = Number.parseInt(process.env.HRMS_EMPLOYEE_SYNC_LIMIT || '200', 10);
+  try {
+    const result = await provisionHrmsEmployees({
+      dryRun: false,
+      limit: Number.isFinite(limit) && limit > 0 ? limit : 200,
+      userId: 'hrms-worker',
+    });
+    const summary = result?.summary;
+    if (summary) {
+      console.log(`[HRMS] Employee provisioning scanned ${summary.scanned}, created ${summary.created}, assigned ${summary.assigned}.`);
+    }
+  } catch (error) {
+    console.warn('[HRMS] Employee provisioning skipped:', error.message);
+  }
+}
+
 function scheduleDailyEmail() {
   const now = new Date();
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 1, 30, 0));
@@ -300,6 +319,10 @@ function startBackgroundWork() {
   runCertificationLifecycleSync();
   const certificationTimer = setInterval(runCertificationLifecycleSync, 6 * 60 * 60 * 1000);
   certificationTimer.unref?.();
+  runHrmsEmployeeProvisioning();
+  const hrmsIntervalMinutes = Number.parseInt(process.env.HRMS_EMPLOYEE_SYNC_INTERVAL_MINUTES || '15', 10);
+  const hrmsTimer = setInterval(runHrmsEmployeeProvisioning, (Number.isFinite(hrmsIntervalMinutes) && hrmsIntervalMinutes > 0 ? hrmsIntervalMinutes : 15) * 60 * 1000);
+  hrmsTimer.unref?.();
   async function cleanVideoWatchLogs() {
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     try {
