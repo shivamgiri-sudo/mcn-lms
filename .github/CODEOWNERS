@@ -1,0 +1,25 @@
+# Default repository owner
+* @shivamgiri-sudo
+
+# Security, identity and authorization
+/backend/src/middleware/ @shivamgiri-sudo
+/backend/src/controllers/authController.js @shivamgiri-sudo
+/backend/src/controllers/bridgeController.js @shivamgiri-sudo
+/backend/src/services/runtimeGovernance.js @shivamgiri-sudo
+/backend/src/routes/runtimeAdmin.js @shivamgiri-sudo
+/SECURITY.md @shivamgiri-sudo
+
+# Database schema and forward-only migrations
+/backend/prisma/schema.prisma @shivamgiri-sudo
+/backend/prisma/migrations/ @shivamgiri-sudo
+/deploy/migrations.expected @shivamgiri-sudo
+
+# Release, infrastructure and workflow controls
+/Dockerfile @shivamgiri-sudo
+/deploy/ @shivamgiri-sudo
+/.github/workflows/ @shivamgiri-sudo
+/.github/CODEOWNERS @shivamgiri-sudo
+
+# Public certificate and evidence surfaces
+/backend/src/routes/publicVerification.js @shivamgiri-sudo
+/backend/src/routes/evaluatorGovernance.js @shivamgiri-sudo
