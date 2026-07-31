@@ -1,0 +1,260 @@
+name: LMS Phase 8 CI
+
+on:
+  pull_request:
+    branches: [agent/lms-evaluator-calibration]
+  push:
+    branches: [agent/lms-evaluator-quality-operations]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase8-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Evaluator operations backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_ci
+      SESSION_SECRET: phase8-session-secret-that-is-longer-than-32-characters
+      APP_ENCRYPTION_KEY: phase8-encryption-key-that-is-longer-than-32-characters
+      FRONTEND_URL: http://localhost:5173
+      LMS_RUN_SCHEDULERS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Apply all stacked migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in \
+            prisma/migrations/20260724090000_secure_password_recovery/migration.sql \
+            prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql \
+            prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql \
+            prisma/migrations/20260724170000_instructor_led_training/migration.sql \
+            prisma/migrations/20260724200000_notification_outbox_calendar_feeds/migration.sql \
+            prisma/migrations/20260724201000_notification_template_supplement/migration.sql \
+            prisma/migrations/20260724230000_practical_assessment_rubrics/migration.sql \
+            prisma/migrations/20260724231000_practical_notification_templates/migration.sql \
+            prisma/migrations/20260724233000_evaluator_calibration_reliability/migration.sql \
+            prisma/migrations/20260724233500_calibration_program_history_guard/migration.sql \
+            prisma/migrations/20260725090000_evaluator_quality_operations/migration.sql
+          do
+            echo "Applying $migration"
+            mysql --show-warnings --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < "$migration"
+          done
+      - name: Verify evaluator operations schema and templates
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N -e "
+            SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema='lms_ci'
+               AND table_name IN (
+                 'evaluator_authorization_certificate',
+                 'evaluator_calibration_anchor_evidence',
+                 'evaluator_reliability_cohort_snapshot'
+               );
+            SELECT COUNT(*) FROM notification_template
+             WHERE event_type IN (
+               'CALIBRATION_ASSIGNED','CALIBRATION_DUE_REMINDER','CALIBRATION_OVERDUE',
+               'EVALUATOR_AUTHORIZATION_EXPIRING','EVALUATOR_AUTHORIZATION_EXPIRED',
+               'EVALUATOR_RELIABILITY_WATCH','EVALUATOR_RECALIBRATION_REQUIRED',
+               'EVALUATOR_CERTIFICATE_ISSUED'
+             ) AND channel IN ('IN_APP','EMAIL');
+            SELECT COUNT(DISTINCT CONCAT(table_name, ':', index_name))
+              FROM information_schema.statistics
+             WHERE table_schema='lms_ci' AND non_unique=0
+               AND index_name IN (
+                 'uq_evaluator_certificate_code','uq_evaluator_certificate_authorization',
+                 'uq_evaluator_certificate_hash','uq_calibration_anchor_evidence_version',
+                 'uq_evaluator_cohort_period'
+               );
+            SELECT COUNT(*) FROM information_schema.check_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN (
+                 'chk_evaluator_certificate_type','chk_evaluator_certificate_status',
+                 'chk_evaluator_certificate_validity','chk_evaluator_certificate_hash',
+                 'chk_calibration_anchor_evidence_type','chk_calibration_anchor_evidence_status',
+                 'chk_calibration_anchor_evidence_visibility','chk_calibration_anchor_evidence_size',
+                 'chk_calibration_anchor_evidence_source','chk_calibration_anchor_evidence_hash',
+                 'chk_evaluator_cohort_period','chk_evaluator_cohort_type',
+                 'chk_evaluator_cohort_score','chk_evaluator_cohort_agreement',
+                 'chk_evaluator_cohort_critical','chk_evaluator_cohort_moderation'
+               );
+            SELECT COUNT(*) FROM information_schema.referential_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN (
+                 'fk_evaluator_certificate_authorization','fk_evaluator_certificate_template',
+                 'fk_evaluator_certificate_program','fk_evaluator_certificate_assignment',
+                 'fk_calibration_anchor_evidence_anchor','fk_evaluator_cohort_template'
+               );
+          " lms_ci | tee phase8-schema-check.txt
+          test "$(sed -n '1p' phase8-schema-check.txt)" = "3"
+          test "$(sed -n '2p' phase8-schema-check.txt)" = "16"
+          test "$(sed -n '3p' phase8-schema-check.txt)" = "5"
+          test "$(sed -n '4p' phase8-schema-check.txt)" = "16"
+          test "$(sed -n '5p' phase8-schema-check.txt)" = "6"
+      - name: Verify certificate evidence and cohort database guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO practical_assessment_template
+              (template_id,template_code,template_name,version_no,passing_pct,max_attempts,
+               evaluator_count,blind_evaluation,moderation_threshold_pct,status,active,created_by,published_by,published_at)
+            VALUES ('11000000-1000-1000-1000-100000000001','CI-OPS-RUBRIC','CI Operations Rubric',1,70,2,2,1,15,'PUBLISHED',1,'ci','ci',UTC_TIMESTAMP(3));
+            INSERT INTO practical_rubric_section
+              (section_id,template_id,section_code,section_title,sort_order,weight_pct)
+            VALUES ('12000000-2000-2000-2000-200000000001','11000000-1000-1000-1000-100000000001','CORE','Core',1,100);
+            INSERT INTO practical_rubric_criterion
+              (criterion_id,section_id,criterion_code,criterion_title,sort_order,max_score,
+               weight_pct,critical,critical_min_score,evidence_required)
+            VALUES ('13000000-3000-3000-3000-300000000001','12000000-2000-2000-2000-200000000001','JUDGEMENT','Judgement',1,5,100,1,3,0);
+            INSERT INTO evaluator_calibration_program
+              (program_id,program_code,program_name,template_id,passing_pct,min_anchor_cases,
+               max_attempts,authorization_valid_days,default_score_tolerance,
+               minimum_agreement_pct,maximum_severity_index,status,active,created_by,published_by,published_at)
+            VALUES ('14000000-4000-4000-4000-400000000001','CI-OPS-CAL','CI Operations Calibration','11000000-1000-1000-1000-100000000001',85,1,3,180,1,80,8,'PUBLISHED',1,'ci','ci',UTC_TIMESTAMP(3));
+            INSERT INTO evaluator_calibration_anchor
+              (anchor_id,program_id,anchor_code,anchor_title,scenario_description,sort_order,active)
+            VALUES ('15000000-5000-5000-5000-500000000001','14000000-4000-4000-4000-400000000001','A1','Operations Anchor','Observed evidence for operations validation.',1,1);
+            INSERT INTO evaluator_calibration_expected_score
+              (expected_score_id,anchor_id,criterion_id,expected_score,tolerance,expected_critical_fail)
+            VALUES ('16000000-6000-6000-6000-600000000001','15000000-5000-5000-5000-500000000001','13000000-3000-3000-3000-300000000001',4,1,0);
+            INSERT INTO evaluator_calibration_assignment
+              (assignment_id,program_id,evaluator_id,evaluator_type,attempt_no,status,
+               assigned_by,submitted_at,score_pct,agreement_pct,critical_agreement_pct,result,certified_at,valid_until)
+            VALUES ('17000000-7000-7000-7000-700000000001','14000000-4000-4000-4000-400000000001','EVAL-OPS-1','coordinator',1,'PASSED','ci',UTC_TIMESTAMP(3),100,100,100,'PASS',UTC_TIMESTAMP(3),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 180 DAY));
+            INSERT INTO evaluator_authorization
+              (authorization_id,evaluator_id,evaluator_type,template_id,program_id,
+               calibration_assignment_id,status,calibration_score_pct,authorized_by,valid_until)
+            VALUES ('18000000-8000-8000-8000-800000000001','EVAL-OPS-1','coordinator','11000000-1000-1000-1000-100000000001','14000000-4000-4000-4000-400000000001','17000000-7000-7000-7000-700000000001','ACTIVE',100,'ci',DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 180 DAY));
+            INSERT INTO evaluator_reliability_snapshot
+              (snapshot_id,period_start,period_end,template_id,evaluator_id,evaluator_type,
+               evaluation_count,paired_evaluation_count,average_score_pct,
+               agreement_within_five_pct,critical_agreement_pct,moderation_rate_pct,
+               severity_index,reliability_status,calculated_by)
+            VALUES ('19000000-9000-9000-9000-900000000001',CURRENT_DATE - INTERVAL 29 DAY,CURRENT_DATE,'11000000-1000-1000-1000-100000000001','EVAL-OPS-1','coordinator',10,6,88,90,100,5,2,'RELIABLE','ci');
+            INSERT INTO evaluator_authorization_certificate
+              (certificate_id,certificate_code,authorization_id,evaluator_id,evaluator_type,
+               template_id,program_id,calibration_assignment_id,valid_from,valid_until,status,
+               verification_hash,snapshot_json,issued_by)
+            VALUES ('1a000000-a000-a000-a000-a00000000001','MCN-EVAL-CI-OPS-0001','18000000-8000-8000-8000-800000000001','EVAL-OPS-1','coordinator','11000000-1000-1000-1000-100000000001','14000000-4000-4000-4000-400000000001','17000000-7000-7000-7000-700000000001',UTC_TIMESTAMP(3),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 180 DAY),'ACTIVE',REPEAT('a',64),JSON_OBJECT('evaluatorName','CI Evaluator','templateName','CI Operations Rubric'),'ci');
+            INSERT INTO evaluator_calibration_anchor_evidence
+              (evidence_id,anchor_id,evidence_code,evidence_title,evidence_type,
+               source_url,content_hash,version_no,status,visibility,created_by)
+            VALUES ('1b000000-b000-b000-b000-b00000000001','15000000-5000-5000-5000-500000000001','DOC-1','Approved operations evidence','DOCUMENT','https://example.invalid/evidence.pdf',REPEAT('b',64),1,'APPROVED','EVALUATOR','ci');
+            INSERT INTO evaluator_reliability_cohort_snapshot
+              (cohort_snapshot_id,period_start,period_end,template_id,cohort_type,cohort_value,
+               evaluator_count,evaluation_count,paired_evaluation_count,average_score_pct,
+               average_agreement_pct,average_critical_agreement_pct,average_moderation_rate_pct,
+               average_absolute_severity_index,reliable_count,calculated_by)
+            VALUES ('1c000000-c000-c000-c000-c00000000001',CURRENT_DATE - INTERVAL 29 DAY,CURRENT_DATE,'11000000-1000-1000-1000-100000000001','COMPANY','ALL',1,10,6,88,90,100,5,2,1,'ci');
+          "
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO evaluator_authorization_certificate
+              (certificate_id,certificate_code,authorization_id,evaluator_id,evaluator_type,
+               template_id,program_id,valid_from,valid_until,status,verification_hash,snapshot_json,issued_by)
+            VALUES ('1a000000-a000-a000-a000-a00000000002','MCN-EVAL-CI-OPS-0002','18000000-8000-8000-8000-800000000001','EVAL-OPS-1','coordinator','11000000-1000-1000-1000-100000000001','14000000-4000-4000-4000-400000000001',UTC_TIMESTAMP(3),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 180 DAY),'ACTIVE',REPEAT('c',64),JSON_OBJECT('test',true),'ci');
+          "; then
+            echo 'Duplicate certificate for one authorization was incorrectly accepted.' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO evaluator_calibration_anchor_evidence
+              (evidence_id,anchor_id,evidence_code,evidence_title,evidence_type,version_no,status,visibility,created_by)
+            VALUES ('1b000000-b000-b000-b000-b00000000002','15000000-5000-5000-5000-500000000001','EMPTY','Invalid empty evidence','DOCUMENT',1,'DRAFT','EVALUATOR','ci');
+          "; then
+            echo 'Evidence without a governed source was incorrectly accepted.' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO evaluator_reliability_cohort_snapshot
+              (cohort_snapshot_id,period_start,period_end,template_id,cohort_type,cohort_value,
+               average_agreement_pct,calculated_by)
+            VALUES ('1c000000-c000-c000-c000-c00000000002',CURRENT_DATE - INTERVAL 29 DAY,CURRENT_DATE,'11000000-1000-1000-1000-100000000001','BRANCH','CI',120,'ci');
+          "; then
+            echo 'Invalid cohort agreement percentage was incorrectly accepted.' >&2
+            exit 1
+          fi
+      - name: Check backend JavaScript syntax
+        run: find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run backend regressions with diagnostics
+        id: regressions
+        shell: bash
+        run: |
+          set +e
+          npm test > phase8-regression.log 2>&1
+          code=$?
+          cat phase8-regression.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload Phase 8 regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase8-regression-diagnostics
+          path: backend/phase8-regression.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce backend regressions
+        if: steps.regressions.outputs.exit_code != '0'
+        run: |
+          echo 'Phase 8 regressions failed. Inspect phase8-regression-diagnostics.' >&2
+          exit 1
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    name: Phase 8 frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --ignore-scripts
+      - name: Build production frontend
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

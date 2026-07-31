@@ -1,0 +1,213 @@
+name: LMS Phase 5 CI
+
+on:
+  pull_request:
+    branches: [agent/lms-instructor-led-training]
+  push:
+    branches: [agent/lms-notifications-calendar-feeds]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase5-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Notifications and calendar backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+          MYSQL_ROOT_PASSWORD: root_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=15
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_ci
+      SESSION_SECRET: phase5-session-secret-that-is-longer-than-32-characters
+      APP_ENCRYPTION_KEY: phase5-encryption-key-that-is-longer-than-32-characters
+      FRONTEND_URL: http://localhost:5173
+      LMS_RUN_SCHEDULERS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Apply all stacked migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in \
+            prisma/migrations/20260724090000_secure_password_recovery/migration.sql \
+            prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql \
+            prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql \
+            prisma/migrations/20260724170000_instructor_led_training/migration.sql \
+            prisma/migrations/20260724200000_notification_outbox_calendar_feeds/migration.sql \
+            prisma/migrations/20260724201000_notification_template_supplement/migration.sql
+          do
+            echo "Applying $migration"
+            mysql --show-warnings --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < "$migration"
+          done
+      - name: Verify notification and calendar schema
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N -e "
+            SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema='lms_ci'
+               AND table_name IN (
+                 'notification_event','notification_template','notification_preference',
+                 'notification_outbox','notification_inbox','notification_escalation_rule',
+                 'notification_escalation_instance','calendar_feed_token',
+                 'calendar_feed_access_log','meeting_provider_config'
+               );
+            SELECT COUNT(*) FROM permission_master
+             WHERE permission_key IN (
+               'notify.view_self','notify.manage_scope','notify.configure',
+               'notify.audit','calendar.feed_self','calendar.manage_scope'
+             );
+            SELECT COUNT(DISTINCT CONCAT(table_name, ':', index_name))
+              FROM information_schema.statistics
+             WHERE table_schema='lms_ci' AND non_unique=0
+               AND index_name IN (
+                 'uq_notification_event_idempotency','uq_notification_outbox_idempotency',
+                 'uq_notification_inbox_idempotency','uq_calendar_feed_token_hash'
+               );
+            SELECT COUNT(*) FROM information_schema.check_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN (
+                 'chk_notification_event_status','chk_notification_outbox_channel',
+                 'chk_notification_outbox_status','chk_notification_digest',
+                 'chk_calendar_feed_scope','chk_meeting_provider'
+               );
+            SELECT COUNT(*) FROM notification_template;
+            SELECT COUNT(*) FROM notification_escalation_rule;
+          " lms_ci | tee phase5-schema-check.txt
+          test "$(sed -n '1p' phase5-schema-check.txt)" = "10"
+          test "$(sed -n '2p' phase5-schema-check.txt)" = "6"
+          test "$(sed -n '3p' phase5-schema-check.txt)" = "4"
+          test "$(sed -n '4p' phase5-schema-check.txt)" = "6"
+          test "$(sed -n '5p' phase5-schema-check.txt)" -ge "15"
+          test "$(sed -n '6p' phase5-schema-check.txt)" -ge "2"
+      - name: Verify durable idempotency and token hashing constraints
+        run: |
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO notification_event
+              (event_id,event_type,entity_type,entity_id,payload_json,idempotency_key)
+            VALUES ('10000000-0000-0000-0000-000000000001','CI_EVENT','CI','CI-1',JSON_OBJECT('test',true),'ci:event:1');
+            INSERT INTO notification_outbox
+              (outbox_id,event_id,recipient_type,recipient_id,channel,body_text,idempotency_key)
+            VALUES ('20000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','trainee','EMP-CI','IN_APP','CI message','ci:outbox:1');
+            INSERT INTO notification_inbox
+              (inbox_id,outbox_id,user_type,user_id,event_type,title,body_text,idempotency_key)
+            VALUES ('30000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000001','trainee','EMP-CI','CI_EVENT','CI','CI message','ci:inbox:1');
+            INSERT INTO calendar_feed_token
+              (token_id,user_type,user_id,token_hash,token_prefix,feed_scope,created_by)
+            VALUES ('40000000-0000-0000-0000-000000000001','trainee','EMP-CI',REPEAT('a',64),'prefix1234','SELF','ci');
+          "
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO notification_event
+              (event_id,event_type,entity_type,entity_id,payload_json,idempotency_key)
+            VALUES ('10000000-0000-0000-0000-000000000002','CI_EVENT','CI','CI-2',JSON_OBJECT(),'ci:event:1');
+          "; then
+            echo 'Duplicate notification event idempotency key was accepted.' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO notification_outbox
+              (outbox_id,event_id,recipient_type,recipient_id,channel,body_text,idempotency_key)
+            VALUES ('20000000-0000-0000-0000-000000000002','10000000-0000-0000-0000-000000000001','trainee','EMP-CI','IN_APP','Duplicate','ci:outbox:1');
+          "; then
+            echo 'Duplicate notification outbox idempotency key was accepted.' >&2
+            exit 1
+          fi
+          test "$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "SELECT LENGTH(token_hash) FROM calendar_feed_token WHERE token_id='40000000-0000-0000-0000-000000000001'")" = "64"
+          test "$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='lms_ci' AND table_name='calendar_feed_token' AND column_name='token'")" = "0"
+      - name: Verify channel and status constraints
+        run: |
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO notification_outbox
+              (outbox_id,event_id,recipient_type,recipient_id,channel,body_text,idempotency_key)
+            VALUES ('50000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001','trainee','EMP-CI','FAX','Invalid','ci:fax');
+          "; then
+            echo 'Invalid notification channel was accepted.' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO notification_preference
+              (preference_id,user_type,user_id,event_type,channel,digest_mode)
+            VALUES ('60000000-0000-0000-0000-000000000001','trainee','EMP-CI','*','IN_APP','HOURLY');
+          "; then
+            echo 'Invalid digest mode was accepted.' >&2
+            exit 1
+          fi
+      - name: Check backend JavaScript syntax
+        run: find src prisma test -type f -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run backend regressions with diagnostics
+        id: regressions
+        shell: bash
+        run: |
+          set +e
+          npm test > phase5-regression.log 2>&1
+          code=$?
+          cat phase5-regression.log
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          exit 0
+      - name: Upload Phase 5 regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase5-regression-diagnostics
+          path: backend/phase5-regression.log
+          if-no-files-found: error
+          retention-days: 14
+      - name: Enforce backend regressions
+        if: steps.regressions.outputs.exit_code != '0'
+        run: |
+          echo 'Phase 5 regressions failed. Inspect phase5-regression-diagnostics.' >&2
+          exit 1
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  frontend:
+    name: Phase 5 frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci --ignore-scripts
+      - name: Build production frontend
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

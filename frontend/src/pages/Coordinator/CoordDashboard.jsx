@@ -6,6 +6,8 @@ import BatchDetail from './BatchDetail.jsx';
 import PendingActivities from './PendingActivities.jsx';
 import QueryLog from './QueryLog.jsx';
 import CoordReportsTab from './CoordReportsTab.jsx';
+import CompetencyGapsTab from './CompetencyGapsTab.jsx';
+import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 export default function CoordDashboard({ user, onLogout }) {
   const { theme, toggle: toggleTheme } = useTheme();
@@ -22,6 +24,8 @@ export default function CoordDashboard({ user, onLogout }) {
 
   const tabs = [
     { id: 'batches', label: '📋 Batches' },
+    { id: 'live-training', label: '🗓️ Live Training' },
+    { id: 'competencies', label: '🎯 Competency Gaps' },
     { id: 'pending', label: '⏳ Pending Activities' },
     { id: 'queries', label: '💬 Trainee Q&A' },
     { id: 'reports', label: '📥 Reports' },
@@ -38,6 +42,7 @@ export default function CoordDashboard({ user, onLogout }) {
           </div>
         </div>
         <div className="row" style={{ gap: 8 }}>
+          <a className="btn small secondary" href="/training-calendar?role=coordinator">🗓️ Training Calendar</a>
           <button className="btn small secondary" onClick={loadStats}>↺ Refresh</button>
           <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'var(--muted)', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" onClick={onLogout}>Logout</button>
@@ -60,14 +65,16 @@ export default function CoordDashboard({ user, onLogout }) {
         <BatchDetail batchNo={selectedBatch} onBack={() => setSelectedBatch(null)} />
       ) : (
         <>
-          <div className="tabs">
-            {tabs.map(t => (
-              <button key={t.id} className={`tab-btn${activeTab === t.id ? ' active' : ''}`} onClick={() => setActiveTab(t.id)}>
-                {t.label}
+          <div className="tabs" role="tablist" aria-label="Coordinator portal sections">
+            {tabs.map(tab => (
+              <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={`tab-btn${activeTab === tab.id ? ' active' : ''}`} onClick={() => setActiveTab(tab.id)}>
+                {tab.label}
               </button>
             ))}
           </div>
           {activeTab === 'batches' && <BatchList onSelectBatch={setSelectedBatch} user={user} />}
+          {activeTab === 'live-training' && <TrainingCalendarEntryCard role="coordinator" />}
+          {activeTab === 'competencies' && <CompetencyGapsTab />}
           {activeTab === 'pending' && <PendingActivities />}
           {activeTab === 'queries' && <QueryLog />}
           {activeTab === 'reports' && <CoordReportsTab />}
