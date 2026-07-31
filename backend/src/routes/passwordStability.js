@@ -8,6 +8,7 @@ import { audit } from '../utils/audit.js';
 import { deriveCsrfToken } from '../security/csrf.js';
 import assessmentIntelligenceRoutes from './assessmentIntelligence.js';
 import assessmentIntelligenceCoordinatorRoutes from './assessmentIntelligenceCoordinator.js';
+import mobileLearningRoutes from './mobileLearning.js';
 
 const router = Router();
 
@@ -20,10 +21,11 @@ function assessmentJsonSafe(_req, res, next) {
   next();
 }
 
-// Phase 14 is mounted through the platform router already registered at /api.
-// Every product endpoint keeps its own session, role, permission and data-scope guard.
+// Product domains are mounted through the platform router already registered at /api.
+// Every endpoint keeps its own session, role, permission and data-scope guard.
 router.use('/assessment-intelligence/coordinator', assessmentJsonSafe, assessmentIntelligenceCoordinatorRoutes);
 router.use('/assessment-intelligence', assessmentJsonSafe, assessmentIntelligenceRoutes);
+router.use('/mobile', assessmentJsonSafe, mobileLearningRoutes);
 
 // Safe double-submit-token bootstrap for deployments where the frontend and API
 // use separate origins. The token is bound to the HttpOnly session credential,

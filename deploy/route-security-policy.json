@@ -20,7 +20,8 @@
     "development.js",
     "ilt.js",
     "assessmentIntelligence.js",
-    "assessmentIntelligenceCoordinator.js"
+    "assessmentIntelligenceCoordinator.js",
+    "mobileLearning.js"
   ],
   "forbiddenUrlTokenPatterns": [
     "?token=",
