@@ -52,8 +52,6 @@ CREATE TABLE IF NOT EXISTS content_accessibility_asset (
   UNIQUE KEY uq_content_accessibility_version (content_id, language_code, asset_type, version_no),
   UNIQUE KEY uq_content_accessibility_active (active_asset_key),
   KEY idx_content_accessibility_lookup (content_id, status, language_code),
-  CONSTRAINT fk_content_accessibility_content FOREIGN KEY (content_id)
-    REFERENCES content_master(content_id) ON DELETE CASCADE,
   CONSTRAINT chk_content_accessibility_type CHECK (asset_type IN ('CAPTION','TRANSCRIPT','AUDIO_DESCRIPTION','EASY_READ','ALT_TEXT')),
   CONSTRAINT chk_content_accessibility_format CHECK (asset_format IN ('TEXT','VTT','SRT','URL','FILE_REFERENCE')),
   CONSTRAINT chk_content_accessibility_status CHECK (status IN ('DRAFT','IN_REVIEW','APPROVED','RETIRED','REJECTED')),
@@ -90,8 +88,6 @@ CREATE TABLE IF NOT EXISTS offline_content_grant (
   UNIQUE KEY uq_offline_active_device_content (active_grant_key),
   KEY idx_offline_grant_employee (employee_id, status, expires_at),
   KEY idx_offline_grant_content (content_id, status),
-  CONSTRAINT fk_offline_grant_content FOREIGN KEY (content_id)
-    REFERENCES content_master(content_id) ON DELETE CASCADE,
   CONSTRAINT chk_offline_grant_status CHECK (status IN ('ACTIVE','EXPIRED','REVOKED','CONSUMED')),
   CONSTRAINT chk_offline_grant_expiry CHECK (expires_at > issued_at),
   CONSTRAINT chk_offline_grant_seconds CHECK (max_offline_seconds BETWEEN 60 AND 259200 AND accepted_seconds <= max_offline_seconds)
@@ -120,8 +116,6 @@ CREATE TABLE IF NOT EXISTS offline_learning_event (
   KEY idx_offline_event_content (content_id, event_type, synced_at),
   CONSTRAINT fk_offline_event_grant FOREIGN KEY (grant_id)
     REFERENCES offline_content_grant(grant_id) ON DELETE CASCADE,
-  CONSTRAINT fk_offline_event_content FOREIGN KEY (content_id)
-    REFERENCES content_master(content_id) ON DELETE CASCADE,
   CONSTRAINT chk_offline_event_type CHECK (event_type IN ('OPEN','HEARTBEAT','PAUSE','CLOSE')),
   CONSTRAINT chk_offline_event_seconds CHECK (seconds_delta <= 120),
   CONSTRAINT chk_offline_event_position CHECK (duration_seconds = 0 OR position_seconds <= duration_seconds)
