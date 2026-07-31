@@ -1,0 +1,212 @@
+name: LMS Phase 10 CI
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-evaluator-governance
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/lms-phase10-ci.yml'
+  push:
+    branches:
+      - agent/lms-production-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase10-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-runtime-backend:
+    name: Production runtime governance backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_ci
+      SESSION_SECRET: phase10-session-secret-that-is-longer-than-32-characters
+      APP_ENCRYPTION_KEY: phase10-encryption-key-that-is-longer-than-32-characters
+      FRONTEND_URL: http://localhost:5173
+      LMS_RUN_SCHEDULERS: 'false'
+      LMS_INSTANCE_ROLE: CI
+      LMS_INSTANCE_ID: phase10-ci-instance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Apply all stacked migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in \
+            prisma/migrations/20260724090000_secure_password_recovery/migration.sql \
+            prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql \
+            prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql \
+            prisma/migrations/20260724170000_instructor_led_training/migration.sql \
+            prisma/migrations/20260724200000_notification_outbox_calendar_feeds/migration.sql \
+            prisma/migrations/20260724201000_notification_template_supplement/migration.sql \
+            prisma/migrations/20260724230000_practical_assessment_rubrics/migration.sql \
+            prisma/migrations/20260724231000_practical_notification_templates/migration.sql \
+            prisma/migrations/20260724233000_evaluator_calibration_reliability/migration.sql \
+            prisma/migrations/20260724233500_calibration_program_history_guard/migration.sql \
+            prisma/migrations/20260725090000_evaluator_quality_operations/migration.sql \
+            prisma/migrations/20260725120000_evaluator_appeals_governance/migration.sql \
+            prisma/migrations/20260725121000_evaluator_appeal_notification_supplement/migration.sql \
+            prisma/migrations/20260725150000_production_runtime_governance/migration.sql
+          do
+            echo "Applying $migration"
+            mysql --show-warnings --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < "$migration"
+          done
+      - name: Verify runtime schema permissions and default rollouts
+        shell: bash
+        run: |
+          set -euo pipefail
+          table_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema='lms_ci'
+               AND table_name IN ('platform_runtime_lease','platform_runtime_instance','platform_feature_flag');")
+          permission_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM permission_master
+             WHERE permission_key IN ('runtime.view','runtime.manage');")
+          flag_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM platform_feature_flag
+             WHERE feature_key IN ('evaluator_quality','calibration_appeals')
+               AND scope_type='GLOBAL' AND scope_value='' AND enabled=1
+               AND kill_switch=0 AND rollout_percentage=100.00;")
+          unique_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM information_schema.statistics
+             WHERE table_schema='lms_ci' AND table_name='platform_feature_flag'
+               AND index_name='uq_platform_feature_scope' AND non_unique=0;")
+          check_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM information_schema.check_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN (
+                 'chk_platform_runtime_lease_key','chk_platform_runtime_lease_owner','chk_platform_runtime_lease_generation',
+                 'chk_platform_runtime_instance_role','chk_platform_runtime_instance_status','chk_platform_runtime_instance_process',
+                 'chk_platform_feature_key','chk_platform_feature_scope','chk_platform_feature_scope_value',
+                 'chk_platform_feature_enabled','chk_platform_feature_kill','chk_platform_feature_rollout',
+                 'chk_platform_feature_window','chk_platform_feature_version','chk_platform_feature_active'
+               );")
+          test "$table_count" = "3"
+          test "$permission_count" = "2"
+          test "$flag_count" = "2"
+          test "$unique_count" = "3"
+          test "$check_count" = "15"
+      - name: Verify runtime database rejection guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO platform_runtime_lease (lease_key,owner_id,lease_until,generation)
+            VALUES ('ci-invalid-generation','ci-owner',DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 1 MINUTE),0);"; then
+            echo 'Invalid lease generation was accepted' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO platform_runtime_instance
+              (instance_id,instance_role,hostname,process_id,status)
+            VALUES ('ci-invalid-instance','UNKNOWN','ci',1,'HEALTHY');"; then
+            echo 'Invalid instance role was accepted' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO platform_feature_flag
+              (flag_id,feature_key,display_name,scope_type,scope_value,enabled,rollout_percentage,created_by)
+            VALUES (UUID(),'ci_invalid_global','Invalid global','GLOBAL','not-empty',1,100,'ci');"; then
+            echo 'Invalid global scope value was accepted' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO platform_feature_flag
+              (flag_id,feature_key,display_name,scope_type,scope_value,enabled,rollout_percentage,created_by)
+            VALUES (UUID(),'ci_invalid_rollout','Invalid rollout','BRANCH','NOIDA',1,101,'ci');"; then
+            echo 'Rollout above 100 percent was accepted' >&2
+            exit 1
+          fi
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO platform_feature_flag
+              (flag_id,feature_key,display_name,scope_type,scope_value,enabled,rollout_percentage,created_by)
+            VALUES (UUID(),'ci_duplicate','Duplicate scope','BRANCH','NOIDA',1,50,'ci');"
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO platform_feature_flag
+              (flag_id,feature_key,display_name,scope_type,scope_value,enabled,rollout_percentage,created_by)
+            VALUES (UUID(),'ci_duplicate','Duplicate scope two','BRANCH','NOIDA',1,60,'ci');"; then
+            echo 'Duplicate feature scope was accepted' >&2
+            exit 1
+          fi
+      - name: Check backend JavaScript syntax
+        run: find src test -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run backend regressions with diagnostics
+        id: regressions
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/phase10-regressions.log
+          status=${PIPESTATUS[0]}
+          echo "$status" > /tmp/phase10-regressions.status
+          exit 0
+      - name: Upload Phase 10 regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase10-regression-diagnostics
+          path: |
+            /tmp/phase10-regressions.log
+            /tmp/phase10-regressions.status
+          retention-days: 14
+      - name: Enforce backend regressions
+        run: test "$(cat /tmp/phase10-regressions.status)" = "0"
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  production-runtime-frontend:
+    name: Phase 10 frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build production frontend
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

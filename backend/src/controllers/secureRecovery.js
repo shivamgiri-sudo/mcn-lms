@@ -314,7 +314,17 @@ export async function completePasswordRecovery(req, res) {
         if (updated.count !== 1) throw new Error('RECOVERY_ACCOUNT_NOT_FOUND');
       }
 
-      await tx.portalSession.deleteMany({ where: { userId: token.user_id } });
+      await tx.$executeRaw`
+      UPDATE portal_sessions
+         SET revoked_at = COALESCE(revoked_at, NOW(3)),
+             revoked_reason = COALESCE(revoked_reason, 'Password recovery completed'),
+             elevation_authenticated_at = NULL,
+             elevation_expires_at = NULL,
+             elevation_reason = NULL,
+             updated_at = NOW(3)
+       WHERE user_id = ${token.user_id}
+         AND revoked_at IS NULL
+    `;
       await tx.$executeRaw`
         DELETE FROM password_reset_tokens
         WHERE user_type = ${userType}
