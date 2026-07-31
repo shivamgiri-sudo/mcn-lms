@@ -29,11 +29,12 @@ import ComplianceExport from './ComplianceExport.jsx';
 import CommConfigTab from './CommConfigTab.jsx';
 import NotificationConfigTab from './NotificationConfigTab.jsx';
 import SystemHealthTab from './SystemHealthTab.jsx';
+import RuntimeOperationsTab from './RuntimeOperationsTab.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
-const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health']);
+const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health', 'runtime-operations']);
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -69,6 +70,7 @@ const NAV = [
     { id: 'comm-config', label: 'Communications', icon: '📡' },
     { id: 'notif-config', label: 'Notifications', icon: '🔔' },
     { id: 'system-health', label: 'System Health', icon: '🛠️' },
+    { id: 'runtime-operations', label: 'Runtime & Rollout', icon: '🚦' },
   ]},
 ];
 
@@ -165,6 +167,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'comm-config' && <CommConfigTab />}
           {activeId === 'notif-config' && <NotificationConfigTab />}
           {activeId === 'system-health' && <SystemHealthTab />}
+          {activeId === 'runtime-operations' && <RuntimeOperationsTab />}
           {activeId === 'batch-detail' && <BatchDetailPage batchNo={page.context?.batchNo} navigate={navigate} onBack={() => navigate('batches')} />}
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}

@@ -1,0 +1,110 @@
+name: LMS Disaster Recovery Readiness
+
+on:
+  pull_request:
+    paths:
+      - 'deploy/scripts/backup.sh'
+      - 'deploy/scripts/restore-rehearsal.sh'
+      - 'deploy/scripts/dr-drill.sh'
+      - 'deploy/scripts/validate-slo-policy.mjs'
+      - 'deploy/slo-policy.json'
+      - 'deploy/docker-compose.staging.yml'
+      - 'deploy/.env.staging.example'
+      - '.github/workflows/lms-dr-readiness.yml'
+  push:
+    branches:
+      - agent/lms-master-hardening
+  schedule:
+    - cron: '30 2 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-dr-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  recovery-drill:
+    name: Backup restore RTO and RPO proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Prepare isolated drill environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp deploy/.env.staging.example deploy/.env.staging
+          sed -i \
+            -e 's/CHANGE_ME_ROOT_DATABASE_PASSWORD/root_password/g' \
+            -e 's/CHANGE_ME_APPLICATION_DATABASE_PASSWORD/lms_ci_password/g' \
+            -e 's/CHANGE_ME_MINIMUM_32_CHARACTER_SESSION_SECRET/recovery-session-secret-longer-than-thirty-two/g' \
+            -e 's/CHANGE_ME_MINIMUM_32_CHARACTER_OAUTH_SECRET/recovery-oauth-secret-longer-than-thirty-two/g' \
+            -e 's/CHANGE_ME_MINIMUM_32_CHARACTER_BRIDGE_SECRET/recovery-bridge-secret-longer-than-thirty-two/g' \
+            -e 's/CHANGE_ME_MINIMUM_32_CHARACTER_HR_API_KEY/recovery-hr-api-key-longer-than-thirty-two/g' \
+            -e 's/CHANGE_ME_MINIMUM_32_CHARACTER_TOKEN_KEY/recovery-token-key-longer-than-thirty-two/g' \
+            deploy/.env.staging
+          mkdir -p /tmp/lms-dr-backups /tmp/lms-dr-reports
+
+      - name: Start isolated MySQL 8
+        shell: bash
+        run: |
+          set -euo pipefail
+          LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.staging" \
+            docker compose --env-file deploy/.env.staging \
+              -f deploy/docker-compose.staging.yml up -d --wait mysql
+
+      - name: Install Prisma runtime
+        working-directory: backend
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+
+      - name: Apply complete LMS schema
+        working-directory: backend
+        env:
+          DATABASE_URL: mysql://lms_app:lms_ci_password@127.0.0.1:3306/lms_staging
+        run: npx prisma migrate deploy
+
+      - name: Run measured disaster recovery drill
+        shell: bash
+        run: |
+          set -euo pipefail
+          ENV_FILE="$(pwd)/deploy/.env.staging" \
+          COMPOSE_FILE="$(pwd)/deploy/docker-compose.staging.yml" \
+          BACKUP_DIR=/tmp/lms-dr-backups \
+          DR_REPORT_DIR=/tmp/lms-dr-reports \
+          bash deploy/scripts/dr-drill.sh
+          report=$(find /tmp/lms-dr-reports -type f -name 'dr-*.json' -print -quit)
+          test -n "$report"
+          jq -e '.status == "PASS"' "$report" >/dev/null
+          jq -e '.recovery.totalDurationSeconds <= .recovery.rtoTargetSeconds' "$report" >/dev/null
+          jq -e '.backup.ageSecondsAtDrillStart <= .recovery.rpoTargetSeconds' "$report" >/dev/null
+
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lms-disaster-recovery-evidence
+          path: |
+            /tmp/lms-dr-backups/*.sha256
+            /tmp/lms-dr-reports/*.json
+          if-no-files-found: warn
+          retention-days: 90
+
+      - name: Destroy isolated drill environment
+        if: always()
+        shell: bash
+        run: |
+          LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.staging" \
+            docker compose --env-file deploy/.env.staging \
+              -f deploy/docker-compose.staging.yml down -v --remove-orphans || true

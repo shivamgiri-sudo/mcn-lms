@@ -1,286 +1,197 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../../utils/api.js';
+
+const ENGINE_BASE = '/assessment-intelligence/learner';
+
+function formatTime(seconds) {
+  const safe = Math.max(0, Number(seconds || 0));
+  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+}
+
+function priorityClass(priority) {
+  if (priority === 'CRITICAL' || priority === 'HIGH') return 'bad';
+  if (priority === 'MEDIUM') return 'warn';
+  return 'info';
+}
 
 export default function AssessmentModal({ assessmentId, onClose }) {
   const [data, setData] = useState(null);
   const [answers, setAnswers] = useState({});
+  const [responseSeconds, setResponseSeconds] = useState({});
+  const [flags, setFlags] = useState({});
   const [started, setStarted] = useState(false);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [msg, setMsg] = useState('');
+  const [message, setMessage] = useState('');
   const [timeLeft, setTimeLeft] = useState(null);
   const timerRef = useRef(null);
-  const startedAtRef = useRef(null);
+  const lastInteractionRef = useRef(Date.now());
+  const submittedRef = useRef(false);
+  const autoSubmitRef = useRef(null);
 
   useEffect(() => {
     load();
     return () => clearInterval(timerRef.current);
-  }, []);
+  }, [assessmentId]);
+
+  useEffect(() => {
+    autoSubmitRef.current = () => submitAssessment(true);
+  });
 
   async function load() {
     setLoading(true);
-    const res = await api.get(`/trainee/assessment/${assessmentId}`, 'trainee');
+    setMessage('');
+    const response = await api.get(`${ENGINE_BASE}/assessment/${assessmentId}`, 'trainee');
     setLoading(false);
-    if (res.ok) setData(res.data);
-    else setMsg(res.message || 'Failed to load assessment.');
+    if (!response.ok) {
+      setMessage(response.message || 'Failed to load assessment.');
+      return;
+    }
+    setData(response.data);
+    setTimeLeft(Math.max(0, Number(response.data?.assessment?.timeLeftSeconds ?? response.data?.assessment?.effectiveTimeLimitSeconds ?? 0)));
+    startTimer();
   }
 
-  function startAssessment() {
-    setStarted(true);
-    startedAtRef.current = Date.now();
-    const secs = (data.assessment.timeLimitMins || 30) * 60;
-    setTimeLeft(secs);
+  function startTimer() {
+    clearInterval(timerRef.current);
     timerRef.current = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) { clearInterval(timerRef.current); submitAssessment(true); return 0; }
-        return prev - 1;
+      setTimeLeft(previous => {
+        if (previous === null) return previous;
+        if (previous <= 1) {
+          clearInterval(timerRef.current);
+          queueMicrotask(() => autoSubmitRef.current?.());
+          return 0;
+        }
+        return previous - 1;
       });
     }, 1000);
   }
 
-  async function submitAssessment(autoSubmit = false) {
-    if (!autoSubmit) {
-      const unanswered = (data?.questions || []).filter(q => !answers[q.questionId]).length;
-      if (unanswered > 0 && !window.confirm(`${unanswered} question(s) unanswered. Submit anyway?`)) return;
-    }
-    clearInterval(timerRef.current);
-    setSubmitting(true);
-    const timeTaken = Math.round((Date.now() - (startedAtRef.current || Date.now())) / 1000);
-    const res = await api.post(`/trainee/assessment/${assessmentId}/submit`, { answers, timeTakenSeconds: timeTaken }, 'trainee');
-    setSubmitting(false);
-    if (res.ok) setResult(res.data);
-    else setMsg(res.message || 'Submission failed.');
+  function begin() {
+    setStarted(true);
+    lastInteractionRef.current = Date.now();
   }
 
-  function formatTime(secs) {
-    const m = Math.floor(secs / 60), s = secs % 60;
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  function chooseAnswer(questionId, option) {
+    const now = Date.now();
+    const elapsed = Math.max(0, Math.min(3600, Math.round((now - lastInteractionRef.current) / 1000)));
+    lastInteractionRef.current = now;
+    setResponseSeconds(previous => ({ ...previous, [questionId]: Number(previous[questionId] || 0) + elapsed }));
+    setAnswers(previous => ({ ...previous, [questionId]: option }));
+  }
+
+  async function submitAssessment(autoSubmitted = false) {
+    if (submittedRef.current || submitting || !data?.assessment?.attemptId) return;
+    if (!autoSubmitted) {
+      const unanswered = data.questions.filter(question => !answers[question.questionId]).length;
+      if (unanswered && !window.confirm(`${unanswered} question(s) are unanswered. Submit anyway?`)) return;
+    }
+    submittedRef.current = true;
+    clearInterval(timerRef.current);
+    setSubmitting(true);
+    setMessage('');
+    const response = await api.post(`${ENGINE_BASE}/assessment/${assessmentId}/submit`, {
+      attemptId: data.assessment.attemptId,
+      answers,
+      responseSeconds,
+      flags,
+      autoSubmitted,
+    }, 'trainee');
+    setSubmitting(false);
+    if (response.ok) {
+      setResult(response.data);
+      return;
+    }
+    submittedRef.current = false;
+    setMessage(response.message || 'Submission failed.');
+    if (!autoSubmitted && timeLeft > 0) startTimer();
   }
 
   const answered = Object.keys(answers).length;
   const total = data?.questions?.length || 0;
-  const isWarningTime = timeLeft !== null && timeLeft < 60;
+  const warningTime = timeLeft !== null && timeLeft < 60;
+  const accommodation = data?.assessment?.accommodation || null;
+  const displayPreferences = accommodation?.displayPreferences || {};
+  const fontScale = Math.max(0.9, Math.min(1.5, Number(displayPreferences.fontScale || 1)));
+  const highContrast = Boolean(displayPreferences.highContrast);
+  const flaggedCount = useMemo(() => Object.values(flags).filter(Boolean).length, [flags]);
 
   return (
     <div className="modal-overlay">
-      <div className="modal-box" style={{ maxWidth: 760 }}>
+      <div className="modal-box" style={{ maxWidth: 900, fontSize: `${fontScale}em`, ...(highContrast ? { background: '#fff', color: '#000', border: '3px solid #000' } : {}) }}>
         <div className="modal-head">
-          <div>
+          <div style={{ minWidth: 0 }}>
             <b>{data?.assessment?.assessmentName || 'Assessment'}</b>
-            {data && (
-              <div className="row" style={{ gap: 8, marginTop: 5 }}>
-                <span className="pill">Pass: {data.assessment.passingPct}%</span>
-                <span className="pill">{data.assessment.attemptsUsed}/{data.assessment.attemptLimit} attempts</span>
-              </div>
-            )}
+            {data && <div className="row" style={{ gap: 7, marginTop: 6, flexWrap: 'wrap' }}>
+              <span className="pill">Pass {data.assessment.passingPct}%</span>
+              <span className="pill">Attempt {data.assessment.attemptNo}/{data.assessment.attemptLimit}</span>
+              <span className="pill info">{data.questions.length} governed questions</span>
+              {data.assessment.blueprintVersion && <span className="pill accent">Blueprint v{data.assessment.blueprintVersion}</span>}
+              {accommodation && <span className="pill ok">Accommodation applied</span>}
+            </div>}
           </div>
-          <button className="btn small secondary" onClick={onClose}>✕</button>
+          <div className="row" style={{ gap: 8 }}>
+            {timeLeft !== null && !result && <span className={`pill ${warningTime ? 'bad' : 'info'}`} style={{ fontVariantNumeric: 'tabular-nums', fontWeight: 900 }}>{warningTime ? '⚠ ' : ''}{formatTime(timeLeft)}</span>}
+            <button className="btn small secondary" onClick={onClose}>✕</button>
+          </div>
         </div>
 
         <div className="modal-body">
           {loading && <div style={{ padding: 40, textAlign: 'center' }}><div className="spinner" /></div>}
-          {msg && <div className="toast bad">{msg}</div>}
+          {message && <div className="toast bad" style={{ marginBottom: 12 }}>{message}</div>}
 
-          {/* Result view */}
-          {result && (
-            <div>
-              <div style={{
-                textAlign: 'center', padding: '28px 20px',
-                background: result.result === 'Pass' ? 'var(--ok-soft)' : 'var(--bad-soft)',
-                borderRadius: 16, marginBottom: 20,
-                border: `2px solid ${result.result === 'Pass' ? '#a7f3d0' : '#fecaca'}`,
-              }}>
-                <div style={{ fontSize: 52, marginBottom: 4 }}>
-                  {result.result === 'Pass' ? '🎉' : '📝'}
-                </div>
-                <div style={{ fontSize: 44, fontWeight: 900, color: result.result === 'Pass' ? 'var(--ok)' : 'var(--bad)', letterSpacing: '-.03em' }}>
-                  {result.percentage}%
-                </div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: result.result === 'Pass' ? 'var(--ok)' : 'var(--bad)', marginTop: 4 }}>
-                  {result.result}
-                </div>
-                <div className="row" style={{ gap: 12, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}>
-                  <span className="pill ok">✓ {result.correct} correct</span>
-                  <span className="pill bad">✗ {result.wrong} wrong</span>
-                  {result.blank > 0 && <span className="pill">{result.blank} skipped</span>}
-                </div>
-                <div style={{ marginTop: 8, fontSize: 13, color: 'var(--muted)' }}>Passing score: {result.passingPct}%</div>
+          {result && <ResultView result={result} onClose={onClose} />}
+
+          {!started && !result && data && <div>
+            <div className="card" style={{ marginBottom: 16, padding: 20 }}>
+              <h3 className="section-title">Instructions</h3>
+              <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.65 }}>{data.assessment.instructions || 'Answer each question carefully. This form is generated and timed by the server.'}</p>
+              <div className="row" style={{ gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
+                <span className="pill info">{data.questions.length} questions</span>
+                <span className="pill info">{data.assessment.timeLimitMins} effective minutes</span>
+                <span className="pill info">Pass at {data.assessment.passingPct}%</span>
+                <span className="pill">{data.assessment.attemptLimit - data.assessment.attemptsUsed} attempt(s) available</span>
               </div>
-
-              {result.result === 'Pass' ? (
-                <div className="ok-box" style={{ marginBottom: 14, textAlign: 'center' }}>
-                  🎉 Congratulations! You passed with {result.percentage}%.
-                  {result.percentage >= 90 && ' Excellent performance!'}
-                </div>
-              ) : (
-                <div className="warn-box" style={{ marginBottom: 14 }}>
-                  <b>Not quite there yet.</b> You scored {result.percentage}% but need {result.passingPct}% to pass.
-                  {result.attemptsLeft > 0
-                    ? ` You have ${result.attemptsLeft} attempt(s) remaining.`
-                    : result.attemptsLeft === 0
-                    ? ' You have used all your attempts.'
-                    : ''}
-                </div>
-              )}
-
-              <h3 className="section-title">Answer Review</h3>
-              {(() => {
-                const revealAnswers = result.result === 'Pass' || result.attemptsLeft === 0;
-                return (result.review || []).map((q, i) => {
-                  const correct = revealAnswers ? q.yourAnswer === q.correctOption : null;
-                  const notAnswered = !q.yourAnswer;
-
-                const yourAnswerColor = notAnswered
-                  ? 'var(--muted)'
-                  : !revealAnswers
-                  ? 'var(--fg)'
-                  : correct
-                  ? 'var(--ok)'
-                  : 'var(--bad)';
-
-                const borderColor = notAnswered
-                  ? 'var(--line)'
-                  : correct === true
-                  ? '#a7f3d0'
-                  : correct === false
-                  ? '#fecaca'
-                  : 'var(--line)';
-
-                const bgColor = notAnswered
-                  ? '#fafafa'
-                  : correct === true
-                  ? 'var(--ok-soft)'
-                  : correct === false
-                  ? 'var(--bad-soft)'
-                  : '#fafafa';
-
-                return (
-                  <div key={q.questionId} style={{
-                    border: `1.5px solid ${borderColor}`,
-                    borderRadius: 12, padding: 14, marginBottom: 9,
-                    background: bgColor,
-                  }}>
-                    <b style={{ fontSize: 13 }}>Q{i + 1}. {q.questionText}</b>
-                    <div className="row" style={{ gap: 12, marginTop: 7, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12.5 }}>
-                        Your answer:{' '}
-                        <b style={{ color: yourAnswerColor }}>
-                          {q.yourAnswer || 'Not answered'}
-                        </b>
-                      </span>
-                      {revealAnswers && q.correctOption && (
-                        <span style={{ fontSize: 12.5 }}>
-                          Correct: <b style={{ color: 'var(--ok)' }}>{q.correctOption}</b>
-                        </span>
-                      )}
-                      {!revealAnswers && !notAnswered && (
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          Answer hidden — attempt again to reveal
-                        </span>
-                      )}
-                    </div>
-                    {revealAnswers && q.explanation && (
-                      <div style={{ marginTop: 7, fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>
-                        💡 {q.explanation}
-                      </div>
-                    )}
-                  </div>
-                );
-              });
-              })()}
-              <button className="btn secondary" style={{ width: '100%', marginTop: 12 }} onClick={onClose}>Close</button>
+              {accommodation && <div className="ok-box" style={{ marginTop: 12 }}><b>Approved accommodation applied.</b> {Number(accommodation.timeMultiplier || 1).toFixed(2)}× time{accommodation.extraBreakMinutes ? ` · ${accommodation.extraBreakMinutes} extra break minutes` : ''}{accommodation.languageCode ? ` · ${accommodation.languageCode}` : ''}.</div>}
+              <div className="warn-box" style={{ marginTop: 12 }}>The server timer began when this form was issued. Remaining time: <b>{formatTime(timeLeft)}</b>.</div>
+              {data.bestResult && <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: data.bestResult.result === 'Pass' ? 'var(--ok-soft)' : 'var(--bad-soft)', fontSize: 13 }}>Previous best: <b>{data.bestResult.bestPercentage}% ({data.bestResult.result})</b></div>}
             </div>
-          )}
+            <button className="btn accent" style={{ width: '100%', padding: '12px 0' }} onClick={begin} disabled={timeLeft <= 0}>Begin governed assessment →</button>
+          </div>}
 
-          {/* Intro screen */}
-          {!started && !result && data && (
-            <div>
-              <div className="card" style={{ marginBottom: 18, padding: 20 }}>
-                <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 10 }}>Instructions</div>
-                <p style={{ fontSize: 13.5, color: 'var(--muted)', lineHeight: 1.65 }}>
-                  {data.assessment.instructions || 'Answer all questions. Each correct answer carries marks as specified.'}
-                </p>
-                <div className="row" style={{ gap: 8, marginTop: 14, flexWrap: 'wrap' }}>
-                  <span className="pill info">{data.questions.length} questions</span>
-                  <span className="pill info">{data.assessment.timeLimitMins} minutes</span>
-                  <span className="pill info">Pass at {data.assessment.passingPct}%</span>
-                  <span className="pill">{data.assessment.attemptLimit - data.assessment.attemptsUsed} attempt(s) left</span>
-                </div>
-                {data.bestResult && (
-                  <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 10, background: data.bestResult.result === 'Pass' ? 'var(--ok-soft)' : 'var(--bad-soft)', fontSize: 13 }}>
-                    Previous best: <b style={{ color: data.bestResult.result === 'Pass' ? 'var(--ok)' : 'var(--bad)' }}>
-                      {data.bestResult.bestPercentage}% ({data.bestResult.result})
-                    </b>
-                  </div>
-                )}
-              </div>
-              <button className="btn accent" style={{ width: '100%', padding: '12px 0', fontSize: 14 }} onClick={startAssessment}>
-                Start Assessment →
-              </button>
+          {started && !result && data && <div>
+            <div className="card" style={{ marginBottom: 14, padding: 12, position: 'sticky', top: 0, zIndex: 4 }}>
+              <div className="row between" style={{ gap: 12, flexWrap: 'wrap' }}><div><b style={{ fontSize: 13 }}>{answered}/{total} answered</b><span style={{ fontSize: 12, color: 'var(--muted)', marginLeft: 8 }}>{total - answered} remaining · {flaggedCount} flagged</span></div><b style={{ color: warningTime ? 'var(--bad)' : 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatTime(timeLeft)}</b></div>
+              <div className="progress-shell" style={{ height: 6, marginTop: 8 }}><div className="progress-bar" style={{ width: `${total ? Math.round((answered / total) * 100) : 0}%` }} /></div>
             </div>
-          )}
 
-          {/* Questions */}
-          {started && !result && data && (
-            <div>
-              <div className="row between" style={{ marginBottom: 14, padding: '10px 14px', background: '#f8fafc', borderRadius: 12, border: '1.5px solid var(--line)' }}>
-                <span style={{ fontSize: 13, fontWeight: 700 }}>
-                  {answered}/{total} answered
-                </span>
-                <span style={{
-                  fontWeight: 900, fontSize: 16, letterSpacing: '.02em',
-                  color: isWarningTime ? 'var(--bad)' : answered === total ? 'var(--ok)' : 'var(--ink)',
-                  fontVariantNumeric: 'tabular-nums',
-                }}>
-                  {isWarningTime ? '⚠ ' : ''}{formatTime(timeLeft)}
-                </span>
+            {data.questions.map((question, index) => <div key={question.questionId} className="card" style={{ marginBottom: 12, border: flags[question.questionId] ? '2px solid var(--warn)' : undefined }}>
+              <div className="row between" style={{ gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+                <div><b style={{ fontSize: 13.5, lineHeight: 1.5 }}><span style={{ color: 'var(--accent)' }}>Q{index + 1}.</span> {question.questionText}</b><div className="row" style={{ gap: 6, marginTop: 6, flexWrap: 'wrap' }}>{question.topic && <span className="pill info">{question.topic}</span>}{question.difficulty && <span className="pill">{question.difficulty}</span>}{question.cognitiveLevel && <span className="pill">{question.cognitiveLevel}</span>}<span className="pill accent">{question.marks} mark(s)</span></div></div>
+                <button type="button" className="btn small secondary" onClick={() => setFlags(previous => ({ ...previous, [question.questionId]: !previous[question.questionId] }))}>{flags[question.questionId] ? '⚑ Flagged' : '⚐ Review'}</button>
               </div>
+              {['A', 'B', 'C', 'D'].filter(option => question[`option${option}`]).map(option => <button type="button" key={option} className={`option-row${answers[question.questionId] === option ? ' selected' : ''}`} onClick={() => chooseAnswer(question.questionId, option)} style={{ width: '100%', textAlign: 'left' }}><span style={{ width: 26, height: 26, borderRadius: 7, display: 'grid', placeItems: 'center', background: answers[question.questionId] === option ? 'var(--brand)' : 'var(--line)', color: answers[question.questionId] === option ? '#fff' : 'var(--muted)', fontWeight: 900, flexShrink: 0 }}>{option}</span><span>{question[`option${option}`]}</span></button>)}
+            </div>)}
 
-              {data.questions.map((q, i) => (
-                <div key={q.questionId} className="card" style={{ marginBottom: 12 }}>
-                  <b style={{ fontSize: 13.5, lineHeight: 1.5, display: 'block', marginBottom: 10 }}>
-                    <span style={{ color: 'var(--accent)', marginRight: 6 }}>Q{i + 1}.</span>
-                    {q.questionText}
-                  </b>
-                  <div>
-                    {['A', 'B', 'C', 'D'].filter(opt => q[`option${opt}`]).map(opt => (
-                      <div
-                        key={opt}
-                        className={`option-row${answers[q.questionId] === opt ? ' selected' : ''}`}
-                        onClick={() => setAnswers(prev => ({ ...prev, [q.questionId]: opt }))}
-                      >
-                        <div style={{
-                          width: 24, height: 24, borderRadius: 6,
-                          background: answers[q.questionId] === opt ? 'var(--brand)' : 'var(--line)',
-                          color: answers[q.questionId] === opt ? '#fff' : 'var(--muted)',
-                          display: 'grid', placeItems: 'center',
-                          fontWeight: 900, fontSize: 11, flexShrink: 0,
-                        }}>
-                          {opt}
-                        </div>
-                        <span style={{ fontSize: 13.5 }}>{q[`option${opt}`]}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-
-              <div className="row" style={{ gap: 10, marginTop: 18 }}>
-                <button
-                  className="btn accent"
-                  style={{ flex: 1, justifyContent: 'center', padding: '12px 0' }}
-                  onClick={() => submitAssessment(false)}
-                  disabled={submitting}
-                >
-                  {submitting ? 'Submitting...' : `Submit Assessment (${answered}/${total})`}
-                </button>
-                <button className="btn secondary" onClick={onClose}>Cancel</button>
-              </div>
-            </div>
-          )}
+            <div className="row" style={{ gap: 10, marginTop: 18 }}><button className="btn accent" style={{ flex: 1, justifyContent: 'center', padding: '12px 0' }} onClick={() => submitAssessment(false)} disabled={submitting}>{submitting ? 'Submitting…' : `Submit assessment (${answered}/${total})`}</button><button className="btn secondary" onClick={onClose}>Cancel</button></div>
+          </div>}
         </div>
       </div>
     </div>
   );
+}
+
+function ResultView({ result, onClose }) {
+  return <div>
+    <div style={{ textAlign: 'center', padding: '28px 20px', background: result.result === 'Pass' ? 'var(--ok-soft)' : 'var(--bad-soft)', borderRadius: 16, marginBottom: 18, border: `2px solid ${result.result === 'Pass' ? '#a7f3d0' : '#fecaca'}` }}>
+      <div style={{ fontSize: 52 }}>{result.result === 'Pass' ? '🎉' : '🧭'}</div><div style={{ fontSize: 44, fontWeight: 900, color: result.result === 'Pass' ? 'var(--ok)' : 'var(--bad)' }}>{result.percentage}%</div><div style={{ fontSize: 20, fontWeight: 800 }}>{result.result}</div>
+      <div className="row" style={{ gap: 10, justifyContent: 'center', marginTop: 12, flexWrap: 'wrap' }}><span className="pill ok">✓ {result.correct} correct</span><span className="pill bad">✗ {result.wrong} wrong</span><span className="pill">{result.blank} blank</span><span className="pill info">{result.attemptsLeft} attempt(s) left</span></div>
+    </div>
+    {result.result !== 'Pass' && <div className="warn-box" style={{ marginBottom: 14 }}><b>Evidence-based next steps are ready.</b> Review the missed concepts before your next attempt.</div>}
+    {(result.recommendations || []).length > 0 && <section style={{ marginBottom: 18 }}><h3 className="section-title">Recommended remediation</h3><div style={{ display: 'grid', gap: 9 }}>{result.recommendations.map(item => <div key={item.recommendationId || `${item.recommendationType}-${item.referenceId}`} className="card" style={{ padding: 14 }}><div className="row between" style={{ gap: 10, alignItems: 'flex-start' }}><div><b style={{ fontSize: 13.5 }}>{item.title}</b><p style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4 }}>{item.reason}</p></div><span className={`pill ${priorityClass(item.priority)}`}>{item.priority}</span></div></div>)}</div></section>}
+    <h3 className="section-title">Answer review</h3>
+    {(result.review || []).map((question, index) => <div key={question.questionId} className="card" style={{ marginBottom: 9, padding: 14 }}><div className="row between" style={{ gap: 10, alignItems: 'flex-start' }}><b style={{ fontSize: 13 }}>Q{index + 1}. {question.questionText}</b>{question.isCorrect !== null && <span className={`pill ${question.isCorrect ? 'ok' : 'bad'}`}>{question.isCorrect ? 'Correct' : 'Review'}</span>}</div><div className="row" style={{ gap: 12, marginTop: 8, flexWrap: 'wrap', fontSize: 12.5 }}><span>Your answer: <b>{question.yourAnswer || 'Not answered'}</b></span>{question.correctOption && <span>Correct: <b style={{ color: 'var(--ok)' }}>{question.correctOption}</b></span>}{question.topic && <span className="pill info">{question.topic}</span>}{question.difficulty && <span className="pill">{question.difficulty}</span>}</div>{question.explanation && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', fontStyle: 'italic' }}>💡 {question.explanation}</div>}</div>)}
+    <button className="btn secondary" style={{ width: '100%', marginTop: 12 }} onClick={onClose}>Close</button>
+  </div>;
 }

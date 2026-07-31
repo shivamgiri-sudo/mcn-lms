@@ -1,0 +1,157 @@
+name: LMS defect
+
+description: Report a reproducible product, data, permission or workflow defect.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not report credentials, personal data, authorization bypasses or security vulnerabilities here. Use the private Security reporting link instead.
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      description: Where did the issue occur?
+      options:
+        - Local development
+        - Test / QA
+        - Staging
+        - Production
+    validations:
+      required: true
+
+  - type: input
+    id: page
+    attributes:
+      label: Page or route
+      description: Enter the exact page name and route.
+      placeholder: "Runtime & Rollout — /admin/runtime"
+    validations:
+      required: true
+
+  - type: input
+    id: section
+    attributes:
+      label: Section and area
+      description: Identify the specific card, table, form, modal, field or action.
+      placeholder: "Feature flags table → Edit rollout modal → Percentage field"
+    validations:
+      required: true
+
+  - type: input
+    id: identity_scope
+    attributes:
+      label: Role and access scope
+      description: State the user role and authorized branch/process scope. Do not include names or personal data.
+      placeholder: "Branch Admin — Noida / Onfido"
+    validations:
+      required: true
+
+  - type: input
+    id: business_scope
+    attributes:
+      label: Affected branch, process or batch
+      placeholder: "Noida — Onfido — Batch 423"
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Provide numbered steps from login/navigation to the failure.
+      placeholder: |
+        1. Sign in as Branch Admin.
+        2. Open Runtime & Rollout.
+        3. Select the feature flag.
+        4. Change rollout percentage to 25.
+        5. Save.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      placeholder: "The rollout is saved and remains restricted to the authorized branch."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      placeholder: "The save fails with HTTP 500 and no validation message is displayed."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: Reproduction frequency
+      options:
+        - Every attempt
+        - Intermittent
+        - Happened once
+        - Unable to retry safely
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Business impact
+      options:
+        - Critical — security, broad outage or data integrity risk
+        - High — required workflow unavailable or materially incorrect
+        - Moderate — degraded workflow with a workaround
+        - Low — minor usability or cosmetic issue
+    validations:
+      required: true
+
+  - type: input
+    id: timestamp
+    attributes:
+      label: Occurrence time
+      description: Include timezone.
+      placeholder: "2026-07-26 14:30 IST"
+    validations:
+      required: true
+
+  - type: input
+    id: request_id
+    attributes:
+      label: Request ID or trace reference
+      description: Copy the X-Request-Id or support reference when available.
+      placeholder: "rc-01J..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots and redacted evidence
+      description: Drag screenshots or logs here. Remove passwords, tokens, personal data and client documents.
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional technical context
+      description: Browser, device, app version, deployment ID, recent change or workaround.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed credentials, tokens, personal data and client documents from this report.
+          required: true
+        - label: I searched existing issues and did not find the same defect.
+          required: true
