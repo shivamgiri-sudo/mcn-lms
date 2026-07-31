@@ -5,7 +5,7 @@ MCNmeet is the LMS-owned live training meeting service. It uses a self-hosted Ji
 ## Target URLs
 
 - LMS join page: `https://<lms-host>/MCNmeet`
-- Internal meeting server: `https://mcnmeet.local` or your real DNS name
+- Internal meeting server: `https://mcnmeet.teammas.in`
 - Default room: `MCNmeet`
 
 ## Host Requirements
@@ -18,32 +18,42 @@ The full server must run on a Linux host with:
 - UDP `10000` open
 - DNS name pointing to the host if using public TLS
 
-This Windows workstation cannot run the stack currently because Docker and WSL are not installed.
+This Windows workstation cannot run the stack currently because Docker and WSL are not installed. Deploy this package on the HRMS Linux server.
+
+## DNS And Firewall
+
+Create this DNS record before enabling Let's Encrypt:
+
+```text
+mcnmeet.teammas.in  A  115.241.59.220
+```
+
+The currently tested HRMS public IP is reachable on ports `22`, `80`, and `443`. Jitsi also needs:
+
+```text
+UDP 10000
+TCP 4443
+```
+
+Open these on the HRMS server firewall and any router/security-group in front of it.
 
 ## Deploy Steps
 
-1. Download the official `docker-jitsi-meet` stable release on the Linux host.
-2. Copy its upstream `compose.yaml` or `docker-compose.yml` into this folder as `docker-jitsi-meet.yml`.
-3. Copy `.env.example` to `.env`.
-4. Replace:
-   - `PUBLIC_URL`
-   - `LETSENCRYPT_DOMAIN`
-   - `LETSENCRYPT_EMAIL`
-   - `JWT_APP_SECRET`
-5. Generate upstream Jitsi passwords as required by the release.
-6. Start the stack:
+Copy this folder to the HRMS Linux server and run:
 
 ```bash
-docker compose -f docker-jitsi-meet.yml --env-file .env up -d
+sudo bash install-on-hrms.sh
 ```
 
-7. Build the LMS frontend with the internal server URL:
+The installer downloads the official `docker-jitsi-meet` release, builds `.env` from the upstream template plus MCNmeet overrides, generates Jitsi passwords when the upstream helper is present, and starts the Docker Compose stack.
+
+Build the LMS frontend with the internal server URL:
 
 ```bash
-VITE_MCNMEET_URL=https://mcnmeet.local npm run build --prefix frontend
+VITE_MCNMEET_URL=https://mcnmeet.teammas.in npm run build --prefix frontend
 ```
 
-8. Set live-training session links to LMS-owned URLs:
+Set live-training session links to LMS-owned URLs:
 
 ```text
 /MCNmeet?room=MCNmeet&role=learner
