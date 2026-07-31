@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "effectiveDate": "2026-07-26",
+  "service": "MCN LMS",
+  "measurementWindowDays": 30,
+  "objectives": {
+    "availabilityPct": 99.9,
+    "readinessPct": 99.95,
+    "maximumErrorRatePct": 1,
+    "maximumP95LatencyMs": 1500,
+    "maximumP99LatencyMs": 3000,
+    "maximumNotificationBacklog": 5000,
+    "minimumHealthyWebInstances": 1,
+    "minimumHealthyWorkerInstances": 1
+  },
+  "recovery": {
+    "rtoMinutes": 60,
+    "rpoMinutes": 15,
+    "backupSuccessPct": 100,
+    "restoreDrillFrequencyDays": 30,
+    "backupRetentionDays": 35
+  },
+  "endpoints": {
+    "liveness": "/api/runtime/health/live",
+    "readiness": "/api/runtime/health/ready"
+  },
+  "burnRateAlerts": [
+    {
+      "name": "fast-burn",
+      "shortWindowMinutes": 60,
+      "longWindowMinutes": 360,
+      "multiplier": 14.4,
+      "severity": "critical"
+    },
+    {
+      "name": "slow-burn",
+      "shortWindowMinutes": 360,
+      "longWindowMinutes": 4320,
+      "multiplier": 6,
+      "severity": "high"
+    }
+  ],
+  "releaseGates": {
+    "requireReadiness": true,
+    "requireSmoke": true,
+    "requireBoundedLoad": true,
+    "requireBackup": true,
+    "requireRestoreEvidence": true,
+    "requireHealthyWorker": true,
+    "requireApprovedManifest": true
+  }
+}

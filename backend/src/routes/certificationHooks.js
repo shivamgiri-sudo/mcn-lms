@@ -7,6 +7,8 @@ import { calibrationRuntime } from '../middleware/calibrationRuntime.js';
 import { calibrationStandardsGuard } from '../middleware/calibrationStandardsGuard.js';
 import { calibrationOperationsHooks } from '../middleware/calibrationOperationsHooks.js';
 import { evaluatorAuthorizationGate } from '../middleware/evaluatorAuthorizationGate.js';
+import { calibrationFeatureGate } from '../middleware/runtimeFeatureGate.js';
+import { runtimeHeartbeatMiddleware } from '../services/runtimeGovernance.js';
 import notificationRoutes from './notifications.js';
 import calendarRoutes from './calendar.js';
 import practicalRoutes from './practical.js';
@@ -14,6 +16,8 @@ import practicalCatalogRoutes from './practicalCatalog.js';
 import calibrationRoutes from './calibration.js';
 import calibrationCatalogRoutes from './calibrationCatalog.js';
 import calibrationOperationsRoutes from './calibrationOperations.js';
+import calibrationAppealRoutes from './calibrationAppeals.js';
+import runtimeGovernanceRoutes from './runtimeGovernance.js';
 import { syncCertificationLifecycleForEmployee } from '../services/developmentGovernance.js';
 
 const router = Router();
@@ -21,14 +25,18 @@ const router = Router();
 // Platform middleware is mounted here because this router is registered at /api
 // before every product route in server.js. This preserves post-response event
 // capture and keeps new governed modules on the existing authentication topology.
+router.use(runtimeHeartbeatMiddleware);
 router.use(notificationRuntime);
 router.use(calibrationRuntime);
 router.use(notificationEventHooks);
 router.use(practicalNotificationHooks);
 router.use(calibrationOperationsHooks);
 router.use(calibrationStandardsGuard);
+router.use(runtimeGovernanceRoutes);
 router.use('/notifications', notificationRoutes);
 router.use('/calendar', calendarRoutes);
+router.use('/calibration', calibrationFeatureGate);
+router.use('/calibration', calibrationAppealRoutes);
 router.use('/calibration', calibrationOperationsRoutes);
 router.use('/calibration', calibrationCatalogRoutes);
 router.use('/calibration', calibrationRoutes);

@@ -1,0 +1,97 @@
+name: mcn-lms-staging
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    env_file:
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --transaction-isolation=READ-COMMITTED
+    ports:
+      - "127.0.0.1:${MYSQL_HOST_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+  migrate:
+    image: ${LMS_IMAGE}
+    env_file:
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
+    environment:
+      LMS_RUN_MIGRATIONS: "false"
+      LMS_RUN_SCHEDULERS: "false"
+      LMS_INSTANCE_ROLE: CI
+      LMS_INSTANCE_ID: ${DEPLOYMENT_ID:-staging}-migrator
+      SERVE_FRONTEND: "false"
+    command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  app:
+    image: ${LMS_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
+    environment:
+      LMS_RUN_MIGRATIONS: "false"
+      LMS_RUN_SCHEDULERS: "false"
+      LMS_INSTANCE_ROLE: WEB
+      LMS_INSTANCE_ID: ${DEPLOYMENT_ID:-staging}-web-1
+      SERVE_FRONTEND: "true"
+      PORT: 4000
+    ports:
+      - "${LMS_HTTP_PORT:-4000}:4000"
+    volumes:
+      - uploads_data:/app/backend/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:4000/api/runtime/health/ready >/dev/null"]
+      interval: 15s
+      timeout: 5s
+      retries: 12
+      start_period: 45s
+
+  worker:
+    image: ${LMS_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - ${LMS_SERVICE_ENV_FILE:-.env.staging}
+    environment:
+      LMS_RUN_MIGRATIONS: "false"
+      LMS_RUN_SCHEDULERS: "true"
+      LMS_INSTANCE_ROLE: WORKER
+      LMS_INSTANCE_ID: ${DEPLOYMENT_ID:-staging}-worker-1
+      SERVE_FRONTEND: "false"
+      PORT: 4001
+    volumes:
+      - uploads_data:/app/backend/uploads
+    depends_on:
+      mysql:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+      app:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  uploads_data:

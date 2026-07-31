@@ -1,0 +1,289 @@
+name: LMS Master Hardening
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-release-candidate
+  push:
+    branches:
+      - agent/lms-master-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-master-hardening-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governance-and-database:
+    name: Governance migration and regression proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_master
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_master
+      SESSION_SECRET: master-hardening-session-secret-longer-than-thirty-two
+      OAUTH_STATE_SECRET: master-hardening-oauth-secret-longer-than-thirty-two
+      APP_ENCRYPTION_KEY: master-hardening-encryption-key-longer-than-thirty-two
+      FRONTEND_URL: http://127.0.0.1:4000
+      LMS_RUN_SCHEDULERS: 'false'
+      LMS_INSTANCE_ROLE: CI
+      LMS_INSTANCE_ID: master-hardening-ci
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install and validate backend
+        working-directory: backend
+        run: |
+          npm ci --ignore-scripts
+          npx prisma generate
+          npm run db:validate
+
+      - name: Verify canonical migration chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          find backend/prisma/migrations -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort > /tmp/master-actual-migrations
+          sort deploy/migrations.expected > /tmp/master-expected-migrations
+          diff -u /tmp/master-expected-migrations /tmp/master-actual-migrations
+          test "$(wc -l < /tmp/master-actual-migrations)" = "15"
+
+      - name: Rehearse clean MySQL installation
+        working-directory: backend
+        run: npx prisma migrate deploy
+
+      - name: Verify clean migration state
+        shell: bash
+        run: |
+          set -euo pipefail
+          applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_master -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_master -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;")
+          test "$applied" = "15"
+          test "$failed" = "0"
+
+      - name: Validate release manifest and SLO contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          node deploy/scripts/validate-release-manifest.mjs deploy/release-manifest.example.json --template
+          if node deploy/scripts/validate-release-manifest.mjs deploy/release-manifest.example.json; then
+            echo 'Template manifest must fail strict release validation.' >&2
+            exit 1
+          fi
+          node deploy/scripts/validate-slo-policy.mjs deploy/slo-policy.json
+
+      - name: Validate JavaScript shell and workflow syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          find backend/src backend/test deploy/scripts -type f \( -name '*.js' -o -name '*.mjs' \) -print0 | xargs -0 -n1 node --check
+          bash -n deploy/scripts/*.sh
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y shellcheck >/dev/null
+          shellcheck deploy/scripts/*.sh
+          ruby -e 'require "yaml"; Dir[".github/workflows/*.yml"].each { |f| YAML.parse_file(f) or abort("invalid YAML: #{f}") }'
+
+      - name: Run complete backend regressions
+        working-directory: backend
+        run: npm test
+
+      - name: Audit backend production dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Render staging and production topologies
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp deploy/.env.staging.example deploy/.env.staging
+          cp deploy/.env.production.example deploy/.env.production
+          LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.staging" docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml config > /tmp/master-staging-compose.yml
+          LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.production" docker compose --env-file deploy/.env.production -f deploy/docker-compose.production.yml config > /tmp/master-production-compose.yml
+          grep -q 'host_ip: 127.0.0.1' /tmp/master-production-compose.yml
+          if grep -Eq 'published: "3306"|0\.0\.0\.0:3306' /tmp/master-production-compose.yml; then
+            echo 'Production MySQL exposure is forbidden.' >&2
+            exit 1
+          fi
+
+      - name: Upload governance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-hardening-governance-evidence
+          path: |
+            /tmp/master-actual-migrations
+            /tmp/master-expected-migrations
+            /tmp/master-staging-compose.yml
+            /tmp/master-production-compose.yml
+          if-no-files-found: warn
+          retention-days: 30
+
+  frontend:
+    name: Frontend production build and audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run build
+      - run: npm audit --omit=dev --audit-level=high
+
+  image-runtime:
+    name: Immutable image runtime and load proof
+    needs:
+      - governance-and-database
+      - frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_runtime
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build exact immutable image
+        run: docker build --build-arg VITE_API_URL= --label org.opencontainers.image.revision=${GITHUB_SHA} -t mcn-lms-master:${GITHUB_SHA} .
+
+      - name: Verify non-root image identity
+        run: test "$(docker image inspect mcn-lms-master:${GITHUB_SHA} --format '{{.Config.User}}')" = "lms"
+
+      - name: Apply all migrations through release image
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_runtime \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=master-runtime-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=master-runtime-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=master-runtime-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=master-runtime-hr-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=master-runtime-token-key-longer-than-thirty-two \
+            -e LMS_INSTANCE_ROLE=CI \
+            -e LMS_INSTANCE_ID=master-migrator \
+            -e SERVE_FRONTEND=false \
+            mcn-lms-master:${GITHUB_SHA} ./node_modules/.bin/prisma migrate deploy
+
+      - name: Start exact web and worker image
+        run: |
+          docker run -d --name lms-master-web --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_runtime \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e API_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=master-runtime-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=master-runtime-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=master-runtime-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=master-runtime-hr-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=master-runtime-token-key-longer-than-thirty-two \
+            -e APP_ENCRYPTION_KEY=master-runtime-app-key-longer-than-thirty-two \
+            -e SCORM_CONTENT_ORIGIN=https://scorm.example.invalid \
+            -e LMS_RUN_SCHEDULERS=false \
+            -e LMS_INSTANCE_ROLE=WEB \
+            -e LMS_INSTANCE_ID=master-web-1 \
+            -e APP_VERSION=master-${GITHUB_SHA} \
+            -e DEPLOYMENT_ID=${GITHUB_RUN_ID} \
+            -e SERVE_FRONTEND=true \
+            -e PORT=4000 \
+            mcn-lms-master:${GITHUB_SHA}
+          docker run -d --name lms-master-worker --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_runtime \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=master-runtime-session-secret-longer-than-thirty-two \
+            -e OAUTH_STATE_SECRET=master-runtime-oauth-secret-longer-than-thirty-two \
+            -e BRIDGE_SECRET=master-runtime-bridge-secret-longer-than-thirty-two \
+            -e HR_API_KEY=master-runtime-hr-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=master-runtime-token-key-longer-than-thirty-two \
+            -e APP_ENCRYPTION_KEY=master-runtime-app-key-longer-than-thirty-two \
+            -e SCORM_CONTENT_ORIGIN=https://scorm.example.invalid \
+            -e LMS_RUN_SCHEDULERS=true \
+            -e LMS_INSTANCE_ROLE=WORKER \
+            -e LMS_INSTANCE_ID=master-worker-1 \
+            -e APP_VERSION=master-${GITHUB_SHA} \
+            -e DEPLOYMENT_ID=${GITHUB_RUN_ID} \
+            -e SERVE_FRONTEND=false \
+            -e PORT=4001 \
+            mcn-lms-master:${GITHUB_SHA}
+
+      - name: Run authorization and readiness smoke
+        run: BASE_URL=http://127.0.0.1:4000 bash deploy/scripts/smoke-test.sh
+
+      - name: Run bounded runtime load
+        run: |
+          BASE_URL=http://127.0.0.1:4000 \
+          LOAD_CONCURRENCY=25 \
+          LOAD_REQUESTS=500 \
+          LOAD_P95_LIMIT_MS=1500 \
+          LOAD_MAX_ERROR_PCT=1 \
+          node deploy/scripts/load-smoke.mjs | tee /tmp/master-load.json
+
+      - name: Verify runtime ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 8
+          instances=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_runtime -e "SELECT COUNT(*) FROM platform_runtime_instance WHERE instance_id IN ('master-web-1','master-worker-1') AND status IN ('STARTING','HEALTHY');")
+          duplicate_leases=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_runtime -e "SELECT COUNT(*) FROM (SELECT lease_key,COUNT(*) c FROM platform_runtime_lease GROUP BY lease_key HAVING c>1) d;")
+          test "$instances" = "2"
+          test "$duplicate_leases" = "0"
+
+      - name: Capture runtime evidence
+        if: always()
+        shell: bash
+        run: |
+          docker logs lms-master-web > /tmp/master-web.log 2>&1 || true
+          docker logs lms-master-worker > /tmp/master-worker.log 2>&1 || true
+          docker ps -a > /tmp/master-containers.txt
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: master-hardening-runtime-evidence
+          path: |
+            /tmp/master-load.json
+            /tmp/master-web.log
+            /tmp/master-worker.log
+            /tmp/master-containers.txt
+          if-no-files-found: warn
+          retention-days: 30
