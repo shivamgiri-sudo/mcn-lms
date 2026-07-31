@@ -9,6 +9,22 @@ const DEFAULT_MAPPING = {
   department: { table: 'departments', cols: { name: 'department_name', active: 'status' } },
   designation: { table: 'designations', cols: { title: 'designation_title', active: 'status' } },
   processlob: { table: 'process_lob_master', cols: { process: 'process', lob: 'lob', active: 'active' } },
+  employee: {
+    table: 'employees',
+    cols: {
+      employeeId: 'employee_id',
+      name: 'employee_name',
+      email: 'email',
+      mobile: 'mobile',
+      branch: 'branch',
+      process: 'process',
+      lob: 'lob',
+      designation: 'designation',
+      department: 'department',
+      doj: 'doj',
+      active: 'status',
+    },
+  },
 };
 
 export function loadMapping() {

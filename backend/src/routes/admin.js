@@ -40,7 +40,7 @@ import {
 import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
 import { getNotifConfig, saveNotifConfig } from '../controllers/notifConfig.js';
 import { contentUpload } from '../utils/upload.js';
-import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, detectHRMSTables, hrmsStatus } from '../controllers/hrmsSeed.js';
+import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, syncEmployees, detectHRMSTables, hrmsStatus } from '../controllers/hrmsSeed.js';
 import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigController.js';
 
 const auth = [requireSession, requireRole('admin')];
@@ -194,6 +194,7 @@ router.post('/hrms/sync/branches', ...superElevatedAuth, syncBranches);
 router.post('/hrms/sync/departments', ...superElevatedAuth, syncDepartments);
 router.post('/hrms/sync/designations', ...superElevatedAuth, syncDesignations);
 router.post('/hrms/sync/processlob', ...superElevatedAuth, syncProcessLob);
+router.post('/hrms/sync/employees', ...superElevatedAuth, syncEmployees);
 router.get('/hrms/config', ...superAuth, getHrmsConfig);
 router.put('/hrms/config', ...superElevatedAuth, setHrmsConfig);
 

@@ -50,7 +50,7 @@ function HrmsMapping({ onToast }) {
   }
 
   async function doSync(entity) {
-    const endpoint = { branch: 'branches', department: 'departments', designation: 'designations', processlob: 'processlob' }[entity];
+    const endpoint = { branch: 'branches', department: 'departments', designation: 'designations', processlob: 'processlob', employee: 'employees' }[entity];
     setSyncing(entity);
     const res = await api.post(`/admin/hrms/sync/${endpoint}`, {}, 'admin');
     setSyncing('');
@@ -58,11 +58,36 @@ function HrmsMapping({ onToast }) {
     else onToast(res.message || `Failed to sync ${entity}.`, false);
   }
 
+  async function dryRunEmployees() {
+    setSyncing('employee-dry');
+    const res = await api.post('/admin/hrms/sync/employees?dryRun=1', { dryRun: true, limit: 50 }, 'admin');
+    setSyncing('');
+    if (res.ok) {
+      const summary = res.summary || {};
+      onToast(`Employee dry run: ${summary.wouldCreate || 0} would be created, ${summary.existing || 0} already exist, ${summary.skipped || 0} skipped.`, true);
+    } else {
+      onToast(res.message || 'Employee dry run failed.', false);
+    }
+  }
+
   const entities = [
     { key: 'branch', label: 'Branch', cols: [{ key: 'name', label: 'Name' }, { key: 'code', label: 'Code' }, { key: 'city', label: 'City' }, { key: 'state', label: 'State' }, { key: 'active', label: 'Active' }] },
     { key: 'department', label: 'Department', cols: [{ key: 'name', label: 'Name' }, { key: 'active', label: 'Active' }] },
     { key: 'designation', label: 'Designation', cols: [{ key: 'title', label: 'Title' }, { key: 'active', label: 'Active' }] },
     { key: 'processlob', label: 'Process & LOB', cols: [{ key: 'process', label: 'Process' }, { key: 'lob', label: 'LOB' }, { key: 'active', label: 'Active' }] },
+    { key: 'employee', label: 'Employee Provisioning', cols: [
+      { key: 'employeeId', label: 'Employee ID' },
+      { key: 'name', label: 'Name' },
+      { key: 'email', label: 'Email' },
+      { key: 'mobile', label: 'Mobile' },
+      { key: 'branch', label: 'Branch' },
+      { key: 'process', label: 'Process' },
+      { key: 'lob', label: 'LOB' },
+      { key: 'designation', label: 'Designation' },
+      { key: 'department', label: 'Department' },
+      { key: 'doj', label: 'DOJ' },
+      { key: 'active', label: 'Active' },
+    ] },
   ];
 
   const statusIcon = status?.reachable ? '\u2705' : '\u274C';
@@ -89,9 +114,14 @@ function HrmsMapping({ onToast }) {
           <div key={entity.key} style={{ marginBottom: 16, padding: 12, background: 'var(--bg2, #f5f5f5)', borderRadius: 8 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <b>{entity.label}</b>
-              <button className="btn xs accent" disabled={syncing === entity.key} onClick={() => doSync(entity.key)}>
-                {syncing === entity.key ? 'Syncing...' : `Sync Now`}
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {entity.key === 'employee' && <button className="btn xs secondary" disabled={syncing === 'employee-dry'} onClick={dryRunEmployees}>
+                  {syncing === 'employee-dry' ? 'Checking...' : 'Dry Run'}
+                </button>}
+                <button className="btn xs accent" disabled={syncing === entity.key} onClick={() => doSync(entity.key)}>
+                  {syncing === entity.key ? 'Syncing...' : `Sync Now`}
+                </button>
+              </div>
             </div>
             <div style={{ display: 'grid', gap: 8 }}>
               <div className="field">
@@ -104,7 +134,7 @@ function HrmsMapping({ onToast }) {
                 </select>
               </div>
               {ecfg.table && (
-                <div style={{ display: 'grid', gridTemplateColumns: `repeat(${entity.cols.length}, 1fr)`, gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
                   {entity.cols.map(col => (
                     <div key={col.key} className="field">
                       <label style={{ fontSize: 12 }}>{col.label} <span style={{ color: 'var(--muted)', fontWeight: 400 }}>&#8594; {col.key}</span></label>

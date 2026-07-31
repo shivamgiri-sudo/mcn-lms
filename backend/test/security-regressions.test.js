@@ -20,6 +20,28 @@ test('HRMS connector contains no embedded credentials or internal defaults', asy
   assert.match(text, /Missing required HRMS configuration/);
 });
 
+test('HRMS employee sync provisions LMS users and applies independent module rules', async () => {
+  const controller = await source('src/controllers/hrmsSeed.js');
+  const routes = await source('src/routes/admin.js');
+  const config = await source('src/utils/hrmsConfig.js');
+  const independentModules = await source('src/services/independentModules.js');
+
+  assert.match(config, /employee:\s*{/);
+  assert.match(config, /employeeId:\s*'employee_id'/);
+  assert.match(routes, /router\.post\('\/hrms\/sync\/employees', \.\.\.superElevatedAuth, syncEmployees\)/);
+  assert.match(controller, /export async function syncEmployees/);
+  assert.match(controller, /dryRun/);
+  assert.match(controller, /traineeMaster\.create/);
+  assert.match(controller, /userMaster\.create/);
+  assert.match(controller, /forcePasswordReset:\s*true/);
+  assert.match(controller, /autoAssignModulesForNewUser/);
+  assert.match(controller, /HRMS_EMPLOYEE_PROVISION/);
+  assert.match(independentModules, /scope_type = 'Designation'/);
+  assert.match(independentModules, /assignedModule\.create/);
+  assert.doesNotMatch(controller, /slice\(-4\)/);
+  assert.doesNotMatch(controller, /1234/);
+});
+
 test('portal sessions are cookie-first and never accepted from URL query parameters', async () => {
   const middleware = await source('src/middleware/auth.js');
   const session = await source('src/utils/session.js');
