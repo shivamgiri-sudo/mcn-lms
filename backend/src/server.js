@@ -71,6 +71,8 @@ const allowedOrigins = String(process.env.FRONTEND_URL || '')
   .split(',')
   .map(origin => origin.trim())
   .filter(Boolean);
+allowedOrigins.push(`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`);
+if (process.env.LOCAL_NETWORK_IP) allowedOrigins.push(`http://${process.env.LOCAL_NETWORK_IP}:${PORT}`);
 if (!isProduction) allowedOrigins.push('http://localhost:5173', 'http://localhost:3000');
 const uniqueAllowedOrigins = [...new Set(allowedOrigins)];
 

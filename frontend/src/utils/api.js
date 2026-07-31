@@ -92,7 +92,7 @@ function resolveRequestUrl(url) {
     throw new Error('API request path must be a same-origin relative path.');
   }
   if (value.startsWith('/api/')) return `${API_ORIGIN}${value}`;
-  return `${BASE}/${value}`;
+  return `${BASE}/${value.replace(/^\/+/, '')}`;
 }
 
 function handleSessionFailure(status, data, type) {

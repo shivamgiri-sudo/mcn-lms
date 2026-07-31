@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 const RouterContext = createContext(null);
 
@@ -27,6 +27,10 @@ function navigateTo(to, { replace = false } = {}) {
 
 export function BrowserRouter({ children }) {
   const [location, setLocation] = useState(currentLocation);
+  const navigate = useCallback((to, options) => {
+    navigateTo(to, options);
+    setLocation(currentLocation());
+  }, []);
 
   useEffect(() => {
     const update = () => setLocation(currentLocation());
@@ -34,7 +38,7 @@ export function BrowserRouter({ children }) {
     return () => window.removeEventListener('popstate', update);
   }, []);
 
-  const value = useMemo(() => ({ location, navigate: navigateTo }), [location]);
+  const value = useMemo(() => ({ location, navigate }), [location, navigate]);
   return <RouterContext.Provider value={value}>{children}</RouterContext.Provider>;
 }
 
@@ -59,11 +63,16 @@ export function useSearchParams() {
 }
 
 export function Navigate({ to, replace = false }) {
-  useEffect(() => navigateTo(to, { replace }), [to, replace]);
+  const context = useContext(RouterContext);
+  if (!context) throw new Error('Navigate must be used inside BrowserRouter.');
+  useEffect(() => context.navigate(to, { replace }), [context, to, replace]);
   return null;
 }
 
 export function Link({ to, replace = false, onClick, children, ...props }) {
+  const context = useContext(RouterContext);
+  if (!context) throw new Error('Link must be used inside BrowserRouter.');
+
   function handleClick(event) {
     onClick?.(event);
     if (
@@ -76,7 +85,7 @@ export function Link({ to, replace = false, onClick, children, ...props }) {
       || props.target
     ) return;
     event.preventDefault();
-    navigateTo(to, { replace });
+    context.navigate(to, { replace });
   }
   return <a {...props} href={to} onClick={handleClick}>{children}</a>;
 }
