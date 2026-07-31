@@ -4,9 +4,13 @@ on:
   pull_request:
     branches:
       - agent/lms-master-hardening
+      - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
   push:
     branches:
       - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
+      - agent/lms-secure-browser-sessions
   workflow_dispatch:
 
 permissions:
@@ -40,6 +44,11 @@ jobs:
       NODE_ENV: test
       DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security
       SESSION_SECRET: security-assurance-session-secret-longer-than-thirty-two
+      CSRF_SECRET: security-assurance-csrf-secret-longer-than-thirty-two
+      SESSION_FINGERPRINT_SECRET: security-assurance-fingerprint-secret-longer-than-thirty-two
+      HRMS_ASSERTION_SECRET: security-assurance-hrms-assertion-longer-than-thirty-two
+      HRMS_ASSERTION_ISSUER: mcn-hrms-security-ci
+      HRMS_ASSERTION_AUDIENCE: mcn-lms-security-ci
       OAUTH_STATE_SECRET: security-assurance-oauth-secret-longer-than-thirty-two
       APP_ENCRYPTION_KEY: security-assurance-encryption-key-longer-than-thirty-two
       FRONTEND_URL: http://127.0.0.1:4000
@@ -72,7 +81,8 @@ jobs:
         run: |
           applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
           failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;")
-          test "$applied" = "15"
+          expected=$(grep -cv '^[[:space:]]*$' deploy/migrations.expected)
+          test "$applied" = "$expected"
           test "$failed" = "0"
       - name: Check backend JavaScript
         run: find backend/src backend/test deploy/scripts -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
@@ -131,8 +141,13 @@ jobs:
             -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security_runtime \
             -e FRONTEND_URL=http://127.0.0.1:4000 \
             -e SESSION_SECRET=security-assurance-session-secret-longer-than-thirty-two \
+            -e CSRF_SECRET=security-assurance-csrf-secret-longer-than-thirty-two \
+            -e SESSION_FINGERPRINT_SECRET=security-assurance-fingerprint-secret-longer-than-thirty-two \
+            -e HRMS_ASSERTION_SECRET=security-assurance-hrms-assertion-longer-than-thirty-two \
+            -e HRMS_ASSERTION_ISSUER=mcn-hrms-security-ci \
+            -e HRMS_ASSERTION_AUDIENCE=mcn-lms-security-ci \
+            -e BRIDGE_ALLOW_LEGACY_SECRET=false \
             -e OAUTH_STATE_SECRET=security-assurance-oauth-secret-longer-than-thirty-two \
-            -e BRIDGE_SECRET=security-assurance-bridge-secret-longer-than-thirty-two \
             -e HR_API_KEY=security-assurance-hr-api-key-longer-than-thirty-two \
             -e GOOGLE_TOKEN_ENCRYPTION_KEY=security-assurance-token-key-longer-than-thirty-two \
             -e LMS_INSTANCE_ROLE=CI \
@@ -147,8 +162,13 @@ jobs:
             -e FRONTEND_URL=http://127.0.0.1:4000 \
             -e API_URL=http://127.0.0.1:4000 \
             -e SESSION_SECRET=security-assurance-session-secret-longer-than-thirty-two \
+            -e CSRF_SECRET=security-assurance-csrf-secret-longer-than-thirty-two \
+            -e SESSION_FINGERPRINT_SECRET=security-assurance-fingerprint-secret-longer-than-thirty-two \
+            -e HRMS_ASSERTION_SECRET=security-assurance-hrms-assertion-longer-than-thirty-two \
+            -e HRMS_ASSERTION_ISSUER=mcn-hrms-security-ci \
+            -e HRMS_ASSERTION_AUDIENCE=mcn-lms-security-ci \
+            -e BRIDGE_ALLOW_LEGACY_SECRET=false \
             -e OAUTH_STATE_SECRET=security-assurance-oauth-secret-longer-than-thirty-two \
-            -e BRIDGE_SECRET=security-assurance-bridge-secret-longer-than-thirty-two \
             -e HR_API_KEY=security-assurance-hr-api-key-longer-than-thirty-two \
             -e GOOGLE_TOKEN_ENCRYPTION_KEY=security-assurance-token-key-longer-than-thirty-two \
             -e APP_ENCRYPTION_KEY=security-assurance-app-key-longer-than-thirty-two \
@@ -166,8 +186,13 @@ jobs:
             -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security_runtime \
             -e FRONTEND_URL=http://127.0.0.1:4000 \
             -e SESSION_SECRET=security-assurance-session-secret-longer-than-thirty-two \
+            -e CSRF_SECRET=security-assurance-csrf-secret-longer-than-thirty-two \
+            -e SESSION_FINGERPRINT_SECRET=security-assurance-fingerprint-secret-longer-than-thirty-two \
+            -e HRMS_ASSERTION_SECRET=security-assurance-hrms-assertion-longer-than-thirty-two \
+            -e HRMS_ASSERTION_ISSUER=mcn-hrms-security-ci \
+            -e HRMS_ASSERTION_AUDIENCE=mcn-lms-security-ci \
+            -e BRIDGE_ALLOW_LEGACY_SECRET=false \
             -e OAUTH_STATE_SECRET=security-assurance-oauth-secret-longer-than-thirty-two \
-            -e BRIDGE_SECRET=security-assurance-bridge-secret-longer-than-thirty-two \
             -e HR_API_KEY=security-assurance-hr-api-key-longer-than-thirty-two \
             -e GOOGLE_TOKEN_ENCRYPTION_KEY=security-assurance-token-key-longer-than-thirty-two \
             -e APP_ENCRYPTION_KEY=security-assurance-app-key-longer-than-thirty-two \

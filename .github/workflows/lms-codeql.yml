@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - agent/lms-master-hardening
+      - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
     paths:
       - 'backend/src/**'
       - 'frontend/src/**'
@@ -13,6 +15,8 @@ on:
   push:
     branches:
       - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
+      - agent/lms-secure-browser-sessions
   schedule:
     - cron: '15 1 * * 2'
   workflow_dispatch:

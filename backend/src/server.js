@@ -9,13 +9,14 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
-import { cleanExpiredSessions } from './utils/session.js';
+import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
 import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 
+import browserAuthRoutes from './routes/browserAuth.js';
 import passwordStabilityRoutes from './routes/passwordStability.js';
 import certificationHooks from './routes/certificationHooks.js';
 import authRoutes from './routes/auth.js';
@@ -39,6 +40,8 @@ import talentRoutes from './routes/talent.js';
 import talentEvidenceRoutes from './routes/talentEvidence.js';
 import developmentRoutes from './routes/development.js';
 import iltRoutes from './routes/ilt.js';
+
+validateSessionSecurityConfig(process.env);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -80,7 +83,15 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-HR-API-Key'],
+  allowedHeaders: [
+    'Authorization',
+    'Content-Type',
+    'X-Request-Id',
+    'X-HR-API-Key',
+    'X-LMS-Role',
+    'X-CSRF-Token',
+  ],
+  exposedHeaders: ['X-Request-Id', 'X-LMS-Session-Role', 'X-LMS-Session-Expires-At', 'X-LMS-Elevated-Until'],
 }));
 
 app.use(morgan(isProduction ? 'combined' : 'dev'));
@@ -136,6 +147,10 @@ async function readiness(_req, res) {
 app.get('/api/health/ready', readiness);
 app.get('/api/health', readiness);
 
+// Secure cookie/CSRF routes are mounted first and own every authentication
+// state change. Legacy route modules remain for non-overlapping recovery and
+// profile endpoints plus an explicitly controlled compatibility window.
+app.use('/api', browserAuthRoutes);
 app.use('/api', passwordStabilityRoutes);
 app.use('/api', certificationHooks);
 app.use('/api/auth', authRoutes);
