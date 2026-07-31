@@ -1,0 +1,250 @@
+name: LMS Security Assurance
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-master-hardening
+      - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
+  push:
+    branches:
+      - agent/lms-security-assurance
+      - agent/lms-assessment-intelligence
+      - agent/lms-secure-browser-sessions
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-security-assurance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  policy-and-regressions:
+    name: Security policy migration and regression proof
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_security
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security
+      SESSION_SECRET: security-assurance-session-secret-longer-than-thirty-two
+      CSRF_SECRET: security-assurance-csrf-secret-longer-than-thirty-two
+      SESSION_FINGERPRINT_SECRET: security-assurance-fingerprint-secret-longer-than-thirty-two
+      HRMS_ASSERTION_SECRET: security-assurance-hrms-assertion-longer-than-thirty-two
+      HRMS_ASSERTION_ISSUER: mcn-hrms-security-ci
+      HRMS_ASSERTION_AUDIENCE: mcn-lms-security-ci
+      OAUTH_STATE_SECRET: security-assurance-oauth-secret-longer-than-thirty-two
+      APP_ENCRYPTION_KEY: security-assurance-encryption-key-longer-than-thirty-two
+      FRONTEND_URL: http://127.0.0.1:4000
+      LMS_RUN_SCHEDULERS: 'false'
+      LMS_INSTANCE_ROLE: CI
+      LMS_INSTANCE_ID: security-assurance-ci
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        working-directory: backend
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Validate forward-only migration policy
+        run: node deploy/scripts/validate-migration-safety.mjs --json | tee /tmp/migration-safety.json
+      - name: Validate route authentication policy
+        run: node deploy/scripts/validate-route-security.mjs --json | tee /tmp/route-security.json
+      - name: Apply complete migration chain
+        working-directory: backend
+        run: npx prisma migrate deploy
+      - name: Verify migration history
+        run: |
+          applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          failed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NULL OR rolled_back_at IS NOT NULL;")
+          expected=$(grep -cv '^[[:space:]]*$' deploy/migrations.expected)
+          test "$applied" = "$expected"
+          test "$failed" = "0"
+      - name: Check backend JavaScript
+        run: find backend/src backend/test deploy/scripts -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
+      - name: Run complete backend regression suite
+        working-directory: backend
+        run: npm test
+      - name: Audit backend production dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+      - name: Build and audit frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npm audit --omit=dev --audit-level=high
+      - name: Upload policy evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-policy-evidence
+          path: |
+            /tmp/migration-safety.json
+            /tmp/route-security.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  exact-image-runtime:
+    name: Exact image headers content and load proof
+    needs: policy-and-regressions
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_security_runtime
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build exact production image
+        run: docker build --build-arg VITE_API_URL= --label org.opencontainers.image.revision=${GITHUB_SHA} -t mcn-lms-security:${GITHUB_SHA} .
+      - name: Verify non-root image identity
+        run: test "$(docker image inspect mcn-lms-security:${GITHUB_SHA} --format '{{.Config.User}}')" = "lms"
+      - name: Apply migrations through exact image
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security_runtime \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=security-assurance-session-secret-longer-than-thirty-two \
+            -e CSRF_SECRET=security-assurance-csrf-secret-longer-than-thirty-two \
+            -e SESSION_FINGERPRINT_SECRET=security-assurance-fingerprint-secret-longer-than-thirty-two \
+            -e HRMS_ASSERTION_SECRET=security-assurance-hrms-assertion-longer-than-thirty-two \
+            -e HRMS_ASSERTION_ISSUER=mcn-hrms-security-ci \
+            -e HRMS_ASSERTION_AUDIENCE=mcn-lms-security-ci \
+            -e BRIDGE_ALLOW_LEGACY_SECRET=false \
+            -e OAUTH_STATE_SECRET=security-assurance-oauth-secret-longer-than-thirty-two \
+            -e HR_API_KEY=security-assurance-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=security-assurance-token-key-longer-than-thirty-two \
+            -e LMS_INSTANCE_ROLE=CI \
+            -e LMS_INSTANCE_ID=security-assurance-migrator \
+            -e SERVE_FRONTEND=false \
+            mcn-lms-security:${GITHUB_SHA} ./node_modules/.bin/prisma migrate deploy
+      - name: Start exact web and worker image
+        run: |
+          docker run -d --name lms-security-web --network host \
+            -e NODE_ENV=production \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security_runtime \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e API_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=security-assurance-session-secret-longer-than-thirty-two \
+            -e CSRF_SECRET=security-assurance-csrf-secret-longer-than-thirty-two \
+            -e SESSION_FINGERPRINT_SECRET=security-assurance-fingerprint-secret-longer-than-thirty-two \
+            -e HRMS_ASSERTION_SECRET=security-assurance-hrms-assertion-longer-than-thirty-two \
+            -e HRMS_ASSERTION_ISSUER=mcn-hrms-security-ci \
+            -e HRMS_ASSERTION_AUDIENCE=mcn-lms-security-ci \
+            -e BRIDGE_ALLOW_LEGACY_SECRET=false \
+            -e OAUTH_STATE_SECRET=security-assurance-oauth-secret-longer-than-thirty-two \
+            -e HR_API_KEY=security-assurance-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=security-assurance-token-key-longer-than-thirty-two \
+            -e APP_ENCRYPTION_KEY=security-assurance-app-key-longer-than-thirty-two \
+            -e SCORM_CONTENT_ORIGIN=https://scorm.example.invalid \
+            -e LMS_RUN_SCHEDULERS=false \
+            -e LMS_INSTANCE_ROLE=WEB \
+            -e LMS_INSTANCE_ID=security-web-1 \
+            -e APP_VERSION=security-${GITHUB_SHA} \
+            -e DEPLOYMENT_ID=${GITHUB_RUN_ID} \
+            -e SERVE_FRONTEND=true \
+            -e PORT=4000 \
+            mcn-lms-security:${GITHUB_SHA}
+          docker run -d --name lms-security-worker --network host \
+            -e NODE_ENV=production \
+            -e DATABASE_URL=mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_security_runtime \
+            -e FRONTEND_URL=http://127.0.0.1:4000 \
+            -e SESSION_SECRET=security-assurance-session-secret-longer-than-thirty-two \
+            -e CSRF_SECRET=security-assurance-csrf-secret-longer-than-thirty-two \
+            -e SESSION_FINGERPRINT_SECRET=security-assurance-fingerprint-secret-longer-than-thirty-two \
+            -e HRMS_ASSERTION_SECRET=security-assurance-hrms-assertion-longer-than-thirty-two \
+            -e HRMS_ASSERTION_ISSUER=mcn-hrms-security-ci \
+            -e HRMS_ASSERTION_AUDIENCE=mcn-lms-security-ci \
+            -e BRIDGE_ALLOW_LEGACY_SECRET=false \
+            -e OAUTH_STATE_SECRET=security-assurance-oauth-secret-longer-than-thirty-two \
+            -e HR_API_KEY=security-assurance-hr-api-key-longer-than-thirty-two \
+            -e GOOGLE_TOKEN_ENCRYPTION_KEY=security-assurance-token-key-longer-than-thirty-two \
+            -e APP_ENCRYPTION_KEY=security-assurance-app-key-longer-than-thirty-two \
+            -e SCORM_CONTENT_ORIGIN=https://scorm.example.invalid \
+            -e LMS_RUN_SCHEDULERS=true \
+            -e LMS_INSTANCE_ROLE=WORKER \
+            -e LMS_INSTANCE_ID=security-worker-1 \
+            -e APP_VERSION=security-${GITHUB_SHA} \
+            -e DEPLOYMENT_ID=${GITHUB_RUN_ID} \
+            -e SERVE_FRONTEND=false \
+            -e PORT=4001 \
+            mcn-lms-security:${GITHUB_SHA}
+      - name: Verify live security headers and protected content
+        run: |
+          for attempt in $(seq 1 60); do
+            curl --fail --silent http://127.0.0.1:4000/api/runtime/health/ready >/dev/null && break
+            sleep 2
+          done
+          curl --fail --silent -D /tmp/security-headers.txt -o /tmp/security-body.html http://127.0.0.1:4000/
+          grep -qi '^content-security-policy:' /tmp/security-headers.txt
+          grep -qi "frame-ancestors 'self'" /tmp/security-headers.txt
+          grep -qi '^x-frame-options: SAMEORIGIN' /tmp/security-headers.txt
+          grep -qi '^strict-transport-security:' /tmp/security-headers.txt
+          test "$(curl --silent --output /tmp/protected-content.json --write-out '%{http_code}' http://127.0.0.1:4000/api/content/files/example.pdf)" = "401"
+      - name: Run bounded runtime load
+        run: |
+          docker run --rm --network host --entrypoint node \
+            -e BASE_URL=http://127.0.0.1:4000 \
+            -e LOAD_CONCURRENCY=25 \
+            -e LOAD_REQUESTS=500 \
+            -e LOAD_P95_LIMIT_MS=1500 \
+            -e LOAD_MAX_ERROR_PCT=1 \
+            -e LOAD_REQUEST_TIMEOUT_MS=5000 \
+            -v "${GITHUB_WORKSPACE}/deploy/scripts/load-smoke.mjs:/tmp/load-smoke.mjs:ro" \
+            mcn-lms-security:${GITHUB_SHA} /tmp/load-smoke.mjs | tee /tmp/security-load.json
+      - name: Verify runtime ownership
+        run: |
+          web=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security_runtime -e "SELECT COUNT(*) FROM platform_runtime_instance WHERE instance_role='WEB' AND instance_id='security-web-1';")
+          worker=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_security_runtime -e "SELECT COUNT(*) FROM platform_runtime_instance WHERE instance_role='WORKER' AND instance_id='security-worker-1';")
+          test "$web" = "1"
+          test "$worker" = "1"
+      - name: Upload runtime security evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-runtime-evidence
+          path: |
+            /tmp/security-headers.txt
+            /tmp/protected-content.json
+            /tmp/security-load.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Stop containers
+        if: always()
+        run: docker rm -f lms-security-web lms-security-worker 2>/dev/null || true

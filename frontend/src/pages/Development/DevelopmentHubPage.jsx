@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Navigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useSearchParams } from '../../utils/browserRouter.jsx';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import LearnerDevelopmentView from './LearnerDevelopmentView.jsx';
 import CoordinatorDevelopmentView from './CoordinatorDevelopmentView.jsx';
