@@ -206,13 +206,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tracked_env_files="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -vE '(^|/)\.env(\.[A-Za-z0-9_-]+)?\.example || true)"
-          if [ -n "$tracked_env_files" ]; then
-            echo "$tracked_env_files"
-            echo 'Tracked environment files detected.' >&2
-            exit 1
-          fi
- || true)"
+          tracked_env_files="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -vE '(^|/)\.env(\.[A-Za-z0-9_-]+)?\.example$' || true)"
           if [ -n "$tracked_env_files" ]; then
             echo "$tracked_env_files"
             echo 'Tracked environment files detected.' >&2
