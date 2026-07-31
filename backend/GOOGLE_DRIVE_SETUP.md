@@ -1,274 +1,239 @@
-# Google Drive Sync — Local Setup Guide
+# Google Drive Sync — Secure Setup Guide
 
-The LMS backend supports **three ways** to authenticate with Google Drive.
-Use whichever fits your situation. You only need **one** of them.
+The LMS backend supports three Google Drive authentication methods. Configure only one method unless you are deliberately testing fallback behaviour.
 
-```
-Priority order (automatic):
-  1. Service Account  ← best for production / shared company drives
-  2. OAuth Token      ← best for personal Google account drives
-  3. API Key          ← only works for public "anyone with the link" folders
-```
+Priority order:
+
+1. Service account — recommended for production and shared company folders
+2. OAuth — suitable for an individually managed Google account
+3. Restricted API key — suitable only for public read-only folders
+
+Never commit credentials, downloaded Google key files, OAuth tokens, or copied environment values to Git.
 
 ---
 
-## Method 1 — Service Account (Recommended)
+## Method 1 — Service Account
 
-Use this if your Drive folders are owned by a Google Workspace account
-(company Google account) or if you want fully automated access with no
-browser login required.
+Use a service account when Drive folders belong to a Google Workspace organisation or the LMS requires unattended read-only access.
 
-### Step 1 — Create a Google Cloud Project
+### 1. Create a Google Cloud project
 
-1. Go to https://console.cloud.google.com
-2. Click the project dropdown (top-left) → **New Project**
-3. Give it a name like `MCN-LMS` → **Create**
-4. Make sure the new project is selected in the dropdown
+1. Open Google Cloud Console.
+2. Create or select the project that will own the LMS integration.
+3. Record the project ID in your protected deployment documentation.
 
-### Step 2 — Enable the Google Drive API
+### 2. Enable Google Drive API
 
-1. In the left sidebar: **APIs & Services → Library**
-2. Search for **Google Drive API**
-3. Click it → **Enable**
+1. Open **APIs & Services → Library**.
+2. Search for **Google Drive API**.
+3. Enable it for the selected project.
 
-### Step 3 — Create a Service Account
+### 3. Create the service account
 
-1. In the left sidebar: **APIs & Services → Credentials**
-2. Click **+ Create Credentials → Service Account**
-3. Fill in:
-   - Name: `lms-drive-reader`
-   - Description: `LMS backend Drive access`
-4. Click **Create and Continue**
-5. For Role: select **Basic → Viewer** (read-only is enough)
-6. Click **Done**
+1. Open **APIs & Services → Credentials**.
+2. Choose **Create Credentials → Service Account**.
+3. Use a descriptive name such as `lms-drive-reader`.
+4. Grant only the minimum read-only role required for the folders the LMS will consume.
+5. Finish account creation.
 
-### Step 4 — Download the JSON key
+### 4. Download the Google-generated JSON file
 
-1. In the **Credentials** page, click on the service account you just created
-2. Go to the **Keys** tab
-3. Click **Add Key → Create New Key**
-4. Choose **JSON** → **Create**
-5. A `.json` file downloads automatically — keep it safe, treat it like a password
+1. Open the new service account.
+2. Select **Keys → Add Key → Create New Key**.
+3. Choose **JSON**.
+4. Store the downloaded file in an approved secret-management location.
 
-The file looks like this:
+A service-account document contains fields such as:
+
 ```json
 {
   "type": "service_account",
-  "project_id": "mcn-lms-xxxxx",
-  "private_key_id": "abc123...",
-  "private_key": "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----\n",
-  "client_email": "lms-drive-reader@mcn-lms-xxxxx.iam.gserviceaccount.com",
-  "client_id": "123456789",
-  ...
+  "project_id": "YOUR_PROJECT_ID",
+  "private_key_id": "YOUR_GOOGLE_KEY_ID",
+  "private_key": "VALUE_SUPPLIED_ONLY_BY_GOOGLE_CLOUD",
+  "client_email": "YOUR_SERVICE_ACCOUNT_EMAIL",
+  "client_id": "YOUR_GOOGLE_CLIENT_ID"
 }
 ```
 
-### Step 5 — Share your Drive folder with the service account
+The placeholder above is deliberately not a usable key. Never paste real key material into documentation, issue comments, pull requests, chat messages, source files, or CI logs.
 
-1. Open Google Drive in your browser
-2. Right-click the folder that contains your LMS content
-3. Click **Share**
-4. Paste the **client_email** from the JSON file
-   (e.g. `lms-drive-reader@mcn-lms-xxxxx.iam.gserviceaccount.com`)
-5. Set permission to **Viewer**
-6. Click **Send** (no notification needed)
+### 5. Share Drive folders
 
-> Repeat this for every top-level folder you want the LMS to sync from.
+For every top-level folder the LMS may read:
 
-### Step 6 — Add the JSON to your .env
+1. Open the folder in Google Drive.
+2. Choose **Share**.
+3. Add the service account email from the downloaded JSON file.
+4. Grant **Viewer** access only.
+5. Remove access when the integration is retired.
 
-Convert the JSON to a single line and paste it into `.env`:
+### 6. Configure the protected environment
 
-**Option A — Manual (Windows):**
-1. Open the downloaded JSON file in Notepad
-2. Select all → Copy
-3. In `.env`, paste it as the value of `GOOGLE_SERVICE_ACCOUNT_JSON`:
+Store the complete downloaded JSON document in your deployment secret manager and expose it to the backend as:
 
 ```env
-GOOGLE_SERVICE_ACCOUNT_JSON={"type":"service_account","project_id":"mcn-lms-xxxxx","private_key_id":"abc123","private_key":"-----BEGIN RSA PRIVATE KEY-----\nMIIE...\n-----END RSA PRIVATE KEY-----\n","client_email":"lms-drive-reader@mcn-lms-xxxxx.iam.gserviceaccount.com","client_id":"123456789","auth_uri":"https://accounts.google.com/o/oauth2/auth","token_uri":"https://oauth2.googleapis.com/token","auth_provider_x509_cert_url":"https://www.googleapis.com/oauth2/v1/certs","client_x509_cert_url":"https://www.googleapis.com/robot/v1/metadata/x509/lms-drive-reader%40mcn-lms-xxxxx.iam.gserviceaccount.com"}
+GOOGLE_SERVICE_ACCOUNT_JSON=<complete-json-from-your-protected-secret-store>
 ```
 
-**Option B — Using Node.js (any OS):**
-```bash
-node -e "const j=require('./your-service-account-file.json'); console.log(JSON.stringify(j));"
-```
-Copy the output and paste as the value of `GOOGLE_SERVICE_ACCOUNT_JSON` in `.env`.
+Do not commit the JSON file or a rendered one-line copy. On a local developer machine, use an untracked `.env` file only when an approved secret manager is unavailable.
 
-**Option C — Using PowerShell (Windows):**
-```powershell
-(Get-Content "your-service-account-file.json" -Raw) -replace "`r`n","\n" -replace "`n","\n"
-```
+To produce a single-line value locally without printing it into shell history, use a secure interactive secret-loading method. Avoid commands that echo the credential into CI or shared terminal logs.
 
-> **Important:** The value must be all on one line in the `.env` file.
-> If the JSON contains newlines in the `private_key` field, they must be
-> kept as literal `\n` characters (not real line breaks).
+### 7. Verify access
 
-### Step 7 — Verify it works
-
-Start the backend (`npm run dev`) and in the Admin portal:
-- Go to any Classroom → **Drive Sync** tab
-- Paste a Google Drive folder URL or folder ID
-- Click **Sync** — files should appear
+1. Start the backend with the protected environment loaded.
+2. Sign in as an authorised administrator.
+3. Open the classroom Drive Sync area.
+4. Sync a folder that has been shared with the service account.
+5. Confirm only approved files are returned.
 
 ---
 
-## Method 2 — OAuth (Personal Google Account)
+## Method 2 — OAuth
 
-Use this if your Drive content is under your personal Google account
-and you want to connect it through a browser login flow.
+Use OAuth when an authorised Google account must connect through the browser.
 
-### Step 1 — Create OAuth 2.0 Credentials
+### 1. Create OAuth credentials
 
-1. Go to https://console.cloud.google.com
-2. Create a project (or reuse the one from Method 1)
-3. Enable the **Google Drive API** (same as Method 1 Step 2)
-4. Go to **APIs & Services → Credentials**
-5. Click **+ Create Credentials → OAuth client ID**
-6. If prompted, configure the OAuth consent screen first:
-   - User Type: **External**
-   - App name: `MCN LMS`
-   - Support email: your email
-   - Scopes: add `https://www.googleapis.com/auth/drive.readonly`
-   - Test users: add your own Google email address
-   - Save and Continue through all steps
-7. Back on Create OAuth client ID:
-   - Application type: **Web application**
-   - Name: `LMS Local`
-   - Authorized redirect URIs: add `http://localhost:4000/api/drive/oauth2callback`
-   - Click **Create**
-8. Copy the **Client ID** and **Client Secret** shown
+1. Enable Google Drive API in the selected project.
+2. Configure the OAuth consent screen.
+3. Request only the read-only Drive scope required by the LMS.
+4. Create a **Web application** OAuth client.
+5. Register the exact callback URL.
 
-### Step 2 — Add to .env
+Local callback:
+
+```text
+http://localhost:4000/api/drive/oauth2callback
+```
+
+Production callback example:
+
+```text
+https://lms.example.com/api/drive/oauth2callback
+```
+
+### 2. Configure protected environment values
 
 ```env
-GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-GOOGLE_CLIENT_SECRET=GOCSPX-your-client-secret
+GOOGLE_CLIENT_ID=YOUR_GOOGLE_OAUTH_CLIENT_ID
+GOOGLE_CLIENT_SECRET=VALUE_FROM_YOUR_SECRET_MANAGER
 GOOGLE_REDIRECT_URI=http://localhost:4000/api/drive/oauth2callback
+GOOGLE_TOKEN_ENCRYPTION_KEY=REPLACE_WITH_AT_LEAST_32_RANDOM_CHARACTERS
+DRIVE_TOKEN_FILE=drive-token.enc
 ```
 
-### Step 3 — Connect via the Admin portal
+The callback URI must match the value registered in Google Cloud exactly, including scheme, host, port, and path.
 
-1. Start the backend (`npm run dev`)
-2. Log into the Admin portal
-3. Go to any Classroom → **Drive Sync** tab
-4. Click **Connect Google Account**
-5. A browser window opens — log in with your Google account
-6. Grant the requested permissions
-7. You will be redirected back and see "Connected" status
+### 3. Connect the account
 
-The token is saved in `backend/drive-token.json` and reused automatically.
-You only need to connect once (tokens auto-refresh).
+1. Start the backend.
+2. Sign in as an authorised administrator.
+3. Open the classroom Drive Sync area.
+4. Select **Connect Google Account**.
+5. Complete the Google consent flow.
 
-> **Localhost deployment note:** For local testing, the redirect URI
-> `http://localhost:4000/api/drive/oauth2callback` must exactly match
-> what you configured in Google Cloud Console (including the port).
+Refresh tokens are stored only in the encrypted file configured by `DRIVE_TOKEN_FILE`. The encryption key must be supplied separately through the protected environment and must never be stored beside the encrypted token file.
+
+To revoke access, revoke the OAuth grant in Google Account security settings and remove the encrypted token file from the protected runtime volume during an authorised maintenance change.
 
 ---
 
-## Method 3 — API Key (Public Folders Only)
+## Method 3 — Restricted API Key
 
-Use this **only** if all your Drive folders are set to
-"Anyone with the link can view". This is the simplest setup but
-only works for publicly shared content.
+Use this method only for folders intentionally configured as public, read-only content. It provides no access to private files.
 
-### Step 1 — Create an API key
+### 1. Create and restrict the key
 
-1. Go to https://console.cloud.google.com
-2. Enable the **Google Drive API**
-3. Go to **APIs & Services → Credentials**
-4. Click **+ Create Credentials → API Key**
-5. Copy the key shown
-6. (Recommended) Click **Restrict Key**:
-   - API restrictions → Restrict to → Google Drive API
+1. Enable Google Drive API.
+2. Create an API key.
+3. Restrict the key to Google Drive API.
+4. Apply appropriate application restrictions where supported.
+5. Store the value in an approved secret manager.
 
-### Step 2 — Add to .env
+### 2. Configure the environment
 
 ```env
-GOOGLE_API_KEY=AIzaSy-your-api-key-here
+GOOGLE_API_KEY=VALUE_FROM_YOUR_SECRET_MANAGER
 ```
 
-### Step 3 — Make folders public
+### 3. Confirm public-folder governance
 
-For each Drive folder containing LMS content:
-1. Right-click the folder → **Share**
-2. Under "General access" → change to **Anyone with the link**
-3. Permission: **Viewer**
-4. Copy the link
-
-This method requires no browser login and works on any hosting platform.
+Before using this method, confirm that publishing the folder is permitted by company policy and does not expose employee, client, training, or operationally sensitive information.
 
 ---
 
-## For Render (Production Deployment)
+## Production configuration
 
-**Never put credentials directly in code or commit them to git.**
+Use the hosting platform's protected environment or secret-manager integration. Configure only the variables required by the selected method:
 
-In the Render dashboard for your backend service:
-1. Go to **Environment → Environment Variables**
-2. Add the variables you need:
+| Variable | Purpose |
+|---|---|
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Complete service-account JSON from protected storage |
+| `GOOGLE_CLIENT_ID` | OAuth client identifier |
+| `GOOGLE_CLIENT_SECRET` | OAuth client secret |
+| `GOOGLE_REDIRECT_URI` | Exact authorised callback URI |
+| `GOOGLE_TOKEN_ENCRYPTION_KEY` | Encryption key for persisted OAuth tokens |
+| `DRIVE_TOKEN_FILE` | Encrypted token-file location |
+| `GOOGLE_API_KEY` | Restricted API key for public folders only |
+| `DRIVE_MAX_FILES` | Maximum files returned during one sync |
+| `DRIVE_MAX_RECURSION_DEPTH` | Maximum folder traversal depth |
 
-| Key | Value |
-|-----|-------|
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Paste the full JSON as a single line |
-| `GOOGLE_CLIENT_ID` | Your OAuth client ID (if using OAuth) |
-| `GOOGLE_CLIENT_SECRET` | Your OAuth client secret (if using OAuth) |
-| `GOOGLE_REDIRECT_URI` | Your deployed backend URL + `/api/drive/oauth2callback` |
-| `GOOGLE_API_KEY` | Your API key (if using API key method) |
-
-For `GOOGLE_SERVICE_ACCOUNT_JSON` on Render, paste the raw JSON value
-(single line, no wrapping quotes around the whole thing).
+Recommended production method: service account with Viewer access to explicitly shared folders.
 
 ---
 
-## Checking which method is active
+## Verify the active method
 
-Make a GET request (with your admin session token) to:
-```
+With an authorised administrator session, request:
+
+```text
 GET /api/drive/token-status
 ```
 
-Response will show which auth method is currently active and whether
-Drive access is configured.
-
----
-
-## Summary — which method to use
-
-| Situation | Method |
-|-----------|--------|
-| Company Google Workspace folders | **Service Account** |
-| Personal Google Drive folders | **OAuth** |
-| Publicly shared folders (no login) | **API Key** |
-| Production on Render | **Service Account** (most reliable, no browser needed) |
-| Quick local test with public folder | **API Key** |
+The response identifies the configured authentication method without returning credential values.
 
 ---
 
 ## Troubleshooting
 
-### "No Google Drive credentials" error
-You have none of the three env vars set. Add at least one:
-`GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_CLIENT_ID`+`GOOGLE_CLIENT_SECRET`, or `GOOGLE_API_KEY`.
+### No Google Drive credentials
 
-### "The caller does not have permission" (403)
-For Service Account: the folder has not been shared with the service account email.
-Go to Drive → right-click the folder → Share → add the `client_email` from the JSON.
+Configure one supported method:
 
-### "File not found" (404)
-The folder ID is wrong, or the folder was not shared with the service account / is not public.
+- service account JSON; or
+- OAuth client ID, client secret, redirect URI, encryption key, and encrypted token-file location; or
+- restricted API key for public folders.
 
-### OAuth redirect mismatch error
-The redirect URI in your `.env` does not exactly match what is in Google Cloud Console.
-They must be identical including `http://` vs `https://` and port number.
+### Permission denied
 
-### "invalid_grant" OAuth error
-The saved `drive-token.json` has expired. Delete it and reconnect:
-```bash
-rm backend/drive-token.json
-```
-Then click "Connect Google Account" in the Admin portal again.
+For a service account, confirm the folder was shared with the exact service-account email and that inherited folder restrictions allow read access.
 
-### JSON parse error for service account
-The `GOOGLE_SERVICE_ACCOUNT_JSON` value has unescaped newlines.
-The `private_key` field must have `\n` as escaped characters, not real line breaks.
-Use the Node.js one-liner in Method 1 Step 6 to generate the correct single-line JSON.
+For OAuth, confirm the connected account has access and the requested scope is still authorised.
+
+### File not found
+
+Confirm the folder or file ID, sharing permissions, and Drive ownership. A private item cannot be read through the public API-key method.
+
+### OAuth redirect mismatch
+
+The configured redirect URI and Google Cloud OAuth redirect URI must be identical.
+
+### OAuth grant expired or revoked
+
+Reconnect through the administrator portal after revoking the old Google grant. Remove the encrypted token file only through an authorised maintenance process; never replace it with a plaintext token file.
+
+### Service-account JSON parse error
+
+Load the complete Google-downloaded JSON document from protected storage. Do not manually reconstruct key material or copy a key-shaped example from documentation.
+
+### Security incident
+
+If any Google credential was committed, pasted into a public location, or exposed through logs:
+
+1. revoke or delete it immediately in Google Cloud;
+2. rotate dependent credentials;
+3. remove it from active environments;
+4. follow the private vulnerability-reporting process in `SECURITY.md`;
+5. do not rely on deleting the latest source file as a substitute for credential rotation.

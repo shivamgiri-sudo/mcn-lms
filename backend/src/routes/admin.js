@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { requireSession, requireRole, requireSuperAdmin } from '../middleware/auth.js';
+import { requireSession, requireRole, requireSuperAdmin, requireRecentElevation } from '../middleware/auth.js';
 import { validate, classroomSchema, moduleSchema, assessmentSchema, batchSchema } from '../utils/validate.js';
 import {
   getAdminDashboard,
@@ -45,6 +45,7 @@ import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigControlle
 
 const auth = [requireSession, requireRole('admin')];
 const superAuth = [requireSession, requireRole('admin'), requireSuperAdmin];
+const superElevatedAuth = [requireSession, requireRole('admin'), requireSuperAdmin, requireRecentElevation];
 const router = Router();
 
 router.get('/dashboard', ...auth, getAdminDashboard);
@@ -54,7 +55,7 @@ router.post('/reset-password', ...auth, resetAdminPassword);
 router.get('/classrooms', ...auth, listClassrooms);
 router.post('/classrooms', ...auth, validate(classroomSchema), createClassroom);
 router.put('/classrooms/:classroomId', ...auth, updateClassroom);
-router.delete('/classrooms/:classroomId', ...superAuth, deleteClassroom);
+router.delete('/classrooms/:classroomId', ...superElevatedAuth, deleteClassroom);
 
 router.get('/classrooms/:classroomId/modules', ...auth, listModules);
 router.post('/classrooms/:classroomId/modules', ...auth, validate(moduleSchema), createModule);
@@ -98,21 +99,21 @@ router.get('/reports/attendance-log', ...auth, exportAttendanceLog);
 router.get('/reports/certification-evidence', ...auth, exportCertificationEvidence);
 router.get('/reports/broadcast-assignments', ...auth, exportBroadcastAssignments);
 router.get('/reports/qa-activity', ...auth, exportQAActivity);
-router.post('/trainees/:employeeId/reset-password', ...superAuth, resetTraineePassword);
+router.post('/trainees/:employeeId/reset-password', ...superElevatedAuth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);
-router.delete('/trainees/:employeeId', ...superAuth, deleteTraineeAccount);
+router.delete('/trainees/:employeeId', ...superElevatedAuth, deleteTraineeAccount);
 router.get('/trainees/:empId/detail', ...auth, getTraineeDetail);
 
-// Permanent employee-ID mapping changes the identity key and is company-level governance.
+// Permanent employee-ID mapping changes the identity key and requires elevation.
 router.get('/emp-mapping/temp-trainees', ...superAuth, getTempTrainees);
-router.post('/trainees/:employeeId/map-emp-id', ...superAuth, adminMapSingleEmpId);
-router.post('/emp-mapping/bulk', ...superAuth, adminBulkMapEmpIds);
+router.post('/trainees/:employeeId/map-emp-id', ...superElevatedAuth, adminMapSingleEmpId);
+router.post('/emp-mapping/bulk', ...superElevatedAuth, adminBulkMapEmpIds);
 
-// Certification policy is centrally governed.
+// Certification policy is centrally governed and requires elevated approval.
 router.get('/cert-rules', ...auth, listCertificationRules);
-router.post('/cert-rules', ...superAuth, saveCertificationRule);
-router.put('/cert-rules/:id', ...superAuth, updateCertificationRule);
-router.delete('/cert-rules/:id', ...superAuth, deleteCertificationRule);
+router.post('/cert-rules', ...superElevatedAuth, saveCertificationRule);
+router.put('/cert-rules/:id', ...superElevatedAuth, updateCertificationRule);
+router.delete('/cert-rules/:id', ...superElevatedAuth, deleteCertificationRule);
 
 router.post('/classrooms/:classroomId/sync-drive', ...auth, syncClassroomFromDrive);
 router.post('/assign-module', ...auth, assignModule);
@@ -122,9 +123,9 @@ router.post('/validate-employee-ids', ...auth, validateEmployeeIds);
 router.get('/broadcast-targets', ...auth, getBroadcastTargets);
 
 router.get('/process-lob', ...auth, getProcessLobList);
-router.post('/process-lob', ...superAuth, saveProcessLob);
-router.put('/process-lob/:id', ...superAuth, updateProcessLob);
-router.delete('/process-lob/:id', ...superAuth, deleteProcessLob);
+router.post('/process-lob', ...superElevatedAuth, saveProcessLob);
+router.put('/process-lob/:id', ...superElevatedAuth, updateProcessLob);
+router.delete('/process-lob/:id', ...superElevatedAuth, deleteProcessLob);
 
 router.get('/batches', ...auth, listBatches);
 router.post('/batches', ...auth, validate(batchSchema), adminCreateBatch);
@@ -135,49 +136,49 @@ router.get('/batches/:batchNo/content-progress', ...auth, getBatchContentProgres
 router.put('/batches/:batchNo', ...auth, adminUpdateBatch);
 router.put('/batches/:batchNo/coordinator', ...auth, adminUpdateBatchCoordinator);
 router.post('/batches/:batchNo/close', ...auth, closeBatch);
-router.delete('/batches/:batchNo', ...superAuth, deleteBatch);
+router.delete('/batches/:batchNo', ...superElevatedAuth, deleteBatch);
 
 router.get('/coordinators', ...auth, listCoordinators);
 router.get('/coordinators/all', ...auth, listAllCoordinators);
 router.get('/coordinators/:loginId', ...auth, getCoordinatorDetail);
 router.get('/risk/:level', ...auth, getRiskLevel);
-router.post('/kpi/sync', ...superAuth, syncHistoricalKpi);
+router.post('/kpi/sync', ...superElevatedAuth, syncHistoricalKpi);
 router.put('/content/:contentId/lock', ...auth, setContentLock);
 router.post('/content/:contentId/unlock/:employeeId', ...auth, unlockContentForTrainee);
 router.get('/branches', ...auth, listBranches);
 router.get('/branches/:branch', ...auth, getBranchDetail);
 
-// Identity, roles and portal access are super-admin-only.
+// Identity and role mutations are super-admin-only and elevation-gated.
 router.get('/portal-users', ...superAuth, listPortalUsers);
-router.post('/portal-users', ...superAuth, createPortalUser);
-router.post('/portal-users/bulk', ...superAuth, bulkCreatePortalUsers);
-router.put('/portal-users/:id', ...superAuth, updatePortalUser);
-router.post('/portal-users/:id/change-role', ...superAuth, changeUserRole);
-router.delete('/portal-users/:id', ...superAuth, deletePortalUser);
-router.post('/portal-users/:id/reset-pin', ...superAuth, resetPortalUserPin);
+router.post('/portal-users', ...superElevatedAuth, createPortalUser);
+router.post('/portal-users/bulk', ...superElevatedAuth, bulkCreatePortalUsers);
+router.put('/portal-users/:id', ...superElevatedAuth, updatePortalUser);
+router.post('/portal-users/:id/change-role', ...superElevatedAuth, changeUserRole);
+router.delete('/portal-users/:id', ...superElevatedAuth, deletePortalUser);
+router.post('/portal-users/:id/reset-pin', ...superElevatedAuth, resetPortalUserPin);
 
-// Organization masters are centrally governed.
+// Organization-master mutations are centrally governed and elevation-gated.
 router.get('/org/branches', ...superAuth, listBranchMaster);
-router.post('/org/branches', ...superAuth, createBranchMaster);
-router.put('/org/branches/:id', ...superAuth, updateBranchMaster);
-router.delete('/org/branches/:id', ...superAuth, deleteBranchMaster);
+router.post('/org/branches', ...superElevatedAuth, createBranchMaster);
+router.put('/org/branches/:id', ...superElevatedAuth, updateBranchMaster);
+router.delete('/org/branches/:id', ...superElevatedAuth, deleteBranchMaster);
 router.get('/org/designations', ...superAuth, listDesignations);
-router.post('/org/designations', ...superAuth, createDesignation);
-router.put('/org/designations/:id', ...superAuth, updateDesignation);
-router.delete('/org/designations/:id', ...superAuth, deleteDesignation);
+router.post('/org/designations', ...superElevatedAuth, createDesignation);
+router.put('/org/designations/:id', ...superElevatedAuth, updateDesignation);
+router.delete('/org/designations/:id', ...superElevatedAuth, deleteDesignation);
 router.get('/org/departments', ...superAuth, listDepartments);
-router.post('/org/departments', ...superAuth, createDepartment);
-router.put('/org/departments/:id', ...superAuth, updateDepartment);
-router.delete('/org/departments/:id', ...superAuth, deleteDepartment);
+router.post('/org/departments', ...superElevatedAuth, createDepartment);
+router.put('/org/departments/:id', ...superElevatedAuth, updateDepartment);
+router.delete('/org/departments/:id', ...superElevatedAuth, deleteDepartment);
 
-// Credentials, delivery channels, diagnostics and audit records are restricted.
+// Credentials and delivery-channel mutations require recent elevation.
 router.get('/notif-config', ...superAuth, getNotifConfig);
-router.post('/notif-config', ...superAuth, saveNotifConfig);
+router.post('/notif-config', ...superElevatedAuth, saveNotifConfig);
 router.get('/comm-config', ...superAuth, getCommConfig);
-router.post('/comm-config', ...superAuth, saveCommConfig);
-router.post('/comm-config/test-email', ...superAuth, testEmailConfig);
-router.post('/comm-config/test-sms', ...superAuth, testSmsConfig);
-router.post('/comm-config/test-whatsapp', ...superAuth, testWhatsAppConfig);
+router.post('/comm-config', ...superElevatedAuth, saveCommConfig);
+router.post('/comm-config/test-email', ...superElevatedAuth, testEmailConfig);
+router.post('/comm-config/test-sms', ...superElevatedAuth, testSmsConfig);
+router.post('/comm-config/test-whatsapp', ...superElevatedAuth, testWhatsAppConfig);
 router.get('/audit-logs', ...superAuth, listAuditLogs);
 router.get('/audit-logs/:id', ...superAuth, getAuditLogDetail);
 
@@ -185,14 +186,15 @@ router.get('/certificates/:employeeId/generate', ...auth, generateCertificate);
 router.post('/trainees/import/preview', ...auth, bulkImportPreview);
 router.post('/trainees/import/execute', ...auth, bulkImportExecute);
 
-// HRMS topology and mapping expose sensitive infrastructure and remain super-admin-only.
+// HRMS topology is readable by super admins; sync and configuration writes
+// require recent password-backed elevation with a recorded justification.
 router.get('/hrms/status', ...superAuth, hrmsStatus);
 router.get('/hrms/detect', ...superAuth, detectHRMSTables);
-router.post('/hrms/sync/branches', ...superAuth, syncBranches);
-router.post('/hrms/sync/departments', ...superAuth, syncDepartments);
-router.post('/hrms/sync/designations', ...superAuth, syncDesignations);
-router.post('/hrms/sync/processlob', ...superAuth, syncProcessLob);
+router.post('/hrms/sync/branches', ...superElevatedAuth, syncBranches);
+router.post('/hrms/sync/departments', ...superElevatedAuth, syncDepartments);
+router.post('/hrms/sync/designations', ...superElevatedAuth, syncDesignations);
+router.post('/hrms/sync/processlob', ...superElevatedAuth, syncProcessLob);
 router.get('/hrms/config', ...superAuth, getHrmsConfig);
-router.put('/hrms/config', ...superAuth, setHrmsConfig);
+router.put('/hrms/config', ...superElevatedAuth, setHrmsConfig);
 
 export default router;

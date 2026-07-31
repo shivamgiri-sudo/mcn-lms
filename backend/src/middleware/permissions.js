@@ -6,7 +6,7 @@ const LEGACY_ROLE_PERMISSIONS = {
   trainee: ['trainee.view'],
 };
 
-const DATABASE_PERMISSION_PREFIXES = ['access.', 'talent.', 'development.'];
+const DATABASE_PERMISSION_PREFIXES = ['access.', 'talent.', 'development.', 'ilt.', 'notify.', 'calendar.', 'practical.', 'calibration.'];
 const CACHE_TTL_MS = 60_000;
 const permissionCache = new Map();
 const VALID_SCOPES = new Set(['self', 'own_batch', 'branch', 'company']);
