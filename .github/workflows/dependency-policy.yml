@@ -1,0 +1,64 @@
+name: Dependency Policy
+
+on:
+  pull_request:
+    paths:
+      - 'backend/package.json'
+      - 'backend/package-lock.json'
+      - 'frontend/package.json'
+      - 'frontend/package-lock.json'
+      - 'Dockerfile'
+      - 'deploy/docker-compose.*.yml'
+      - '.github/workflows/**'
+      - 'deploy/scripts/validate-workflow-dependencies.mjs'
+  push:
+    branches:
+      - agent/lms-master-hardening
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-policy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-policy:
+    name: Audit packages images and workflow actions
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Enforce workflow and image reference policy
+        run: node deploy/scripts/validate-workflow-dependencies.mjs --json | tee /tmp/dependency-policy.json
+
+      - name: Audit backend runtime dependencies
+        working-directory: backend
+        run: |
+          npm ci --ignore-scripts
+          npm audit --omit=dev --audit-level=high
+
+      - name: Audit frontend runtime dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npm audit --omit=dev --audit-level=high
+
+      - name: Upload dependency evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-policy-evidence
+          path: /tmp/dependency-policy.json
+          if-no-files-found: warn
+          retention-days: 30
