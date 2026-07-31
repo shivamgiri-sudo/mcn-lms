@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { buildHttpSecurityPolicy, securityPolicySummary } from '../src/security/httpSecurity.js';
 
 const root = new URL('../../', import.meta.url);
@@ -9,8 +10,8 @@ const read = path => readFileSync(new URL(path, root), 'utf8');
 
 function runNode(path, args = []) {
   const script = new URL(path, root);
-  return spawnSync(process.execPath, [script.pathname, ...args], {
-    cwd: root.pathname,
+  return spawnSync(process.execPath, [fileURLToPath(script), ...args], {
+    cwd: fileURLToPath(root),
     encoding: 'utf8',
   });
 }
@@ -25,8 +26,8 @@ test('production HTTP policy enforces CSP framing HSTS and safe defaults', () =>
   assert.deepEqual(directives.defaultSrc, ["'self'"]);
   assert.deepEqual(directives.objectSrc, ["'none'"]);
   assert.deepEqual(directives.frameAncestors, ["'self'"]);
-  assert.ok(directives.frameSrc.includes('https://www.youtube.com'));
-  assert.ok(directives.frameSrc.includes('https://scorm.example.com'));
+  assert.ok(directives.frameSrc.some(source => source === 'https://www.youtube.com'));
+  assert.ok(directives.frameSrc.some(source => source === 'https://scorm.example.com'));
   assert.ok(Array.isArray(directives.upgradeInsecureRequests));
   assert.deepEqual(policy.frameguard, { action: 'sameorigin' });
   assert.equal(policy.strictTransportSecurity.maxAge, 31536000);
@@ -52,7 +53,7 @@ test('server mounts governed headers and protects production content delivery', 
   assert.doesNotMatch(server, /contentSecurityPolicy:\s*false/);
   assert.doesNotMatch(server, /frameguard:\s*false/);
 
-  assert.match(content, /router\.get\('\/files\/:filename', requireSession/);
+  assert.match(content, /router\.get\('\/files\/:filename', contentFileLimiter, requireSession/);
   assert.match(content, /traineeCanAccess/);
   assert.match(content, /traineeClassroomMap/);
   assert.match(content, /path\.basename/);

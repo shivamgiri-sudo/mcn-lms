@@ -71,7 +71,7 @@ const requiredContracts = [
   [server, /helmet\(buildHttpSecurityPolicy\(process\.env\)\)/, 'server must mount the governed Helmet policy'],
   [server, /if \(!isProduction\)[\s\S]*?\/uploads\/content/, 'direct content static hosting must be development-only'],
   [server, /app\.use\('\/api\/content', contentFilesRoutes\)/, 'protected content router must be mounted'],
-  [contentRoute, /router\.get\('\/files\/:filename', requireSession/, 'content files must require a session'],
+  [contentRoute, /router\.get\('\/files\/:filename', contentFileLimiter, requireSession/, 'content files must require a session'],
   [contentRoute, /traineeCanAccess/, 'trainee content must be classroom scoped'],
   [uploadRoute, /\/api\/content\/files\//, 'new uploads must return protected URLs'],
   [apiUtility, /fetchAuthenticatedBlobUrl/, 'frontend must support bearer-authenticated blob delivery'],

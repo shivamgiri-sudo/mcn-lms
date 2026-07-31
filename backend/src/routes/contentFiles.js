@@ -2,12 +2,20 @@ import { Router } from 'express';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import rateLimit from 'express-rate-limit';
 import { prisma } from '../utils/db.js';
 import { requireSession } from '../middleware/auth.js';
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const contentRoot = path.resolve(__dirname, '..', '..', 'uploads', 'content');
+const contentFileLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 120,
+  message: { ok: false, message: 'Too many content file requests. Try again shortly.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 function safeFilename(value) {
   const decoded = decodeURIComponent(String(value || ''));
@@ -45,7 +53,7 @@ async function traineeCanAccess(employeeId, filename) {
   return Boolean(mapping);
 }
 
-router.get('/files/:filename', requireSession, async (req, res, next) => {
+router.get('/files/:filename', contentFileLimiter, requireSession, async (req, res, next) => {
   try {
     const filename = safeFilename(req.params.filename);
     if (!filename) return res.status(400).json({ ok: false, message: 'Invalid content filename.' });

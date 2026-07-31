@@ -1,12 +1,8 @@
-import { createHash, timingSafeEqual } from 'crypto';
+import { timingSafeEqual } from 'crypto';
 import { Router } from 'express';
 import { mapEmployeeId } from '../utils/empIdMapping.js';
 
 const router = Router();
-
-function digest(value) {
-  return createHash('sha256').update(String(value || ''), 'utf8').digest();
-}
 
 function requireHrApiKey(req, res, next) {
   const configured = String(process.env.HR_API_KEY || '').trim();
@@ -16,7 +12,7 @@ function requireHrApiKey(req, res, next) {
   if (configured.length < 32) {
     return res.status(503).json({ ok: false, message: 'HR employee mapping integration is unavailable.' });
   }
-  if (!provided || !timingSafeEqual(digest(provided), digest(configured))) {
+  if (!provided || provided.length !== configured.length || !timingSafeEqual(Buffer.from(provided), Buffer.from(configured))) {
     return res.status(401).json({ ok: false, message: 'Unauthorized' });
   }
   return next();
