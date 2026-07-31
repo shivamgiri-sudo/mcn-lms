@@ -12,7 +12,7 @@ import mobileLearningRoutes from './mobileLearning.js';
 
 const router = Router();
 
-function jsonSafe(_req, res, next) {
+function assessmentJsonSafe(_req, res, next) {
   const originalJson = res.json.bind(res);
   res.json = body => originalJson(JSON.parse(JSON.stringify(body, (_key, value) => {
     if (typeof value === 'bigint') return Number(value);
@@ -23,9 +23,9 @@ function jsonSafe(_req, res, next) {
 
 // Product domains are mounted through the platform router already registered at /api.
 // Every endpoint keeps its own session, role, permission and data-scope guard.
-router.use('/assessment-intelligence/coordinator', jsonSafe, assessmentIntelligenceCoordinatorRoutes);
-router.use('/assessment-intelligence', jsonSafe, assessmentIntelligenceRoutes);
-router.use('/mobile', jsonSafe, mobileLearningRoutes);
+router.use('/assessment-intelligence/coordinator', assessmentJsonSafe, assessmentIntelligenceCoordinatorRoutes);
+router.use('/assessment-intelligence', assessmentJsonSafe, assessmentIntelligenceRoutes);
+router.use('/mobile', assessmentJsonSafe, mobileLearningRoutes);
 
 // Safe double-submit-token bootstrap for deployments where the frontend and API
 // use separate origins. The token is bound to the HttpOnly session credential,
