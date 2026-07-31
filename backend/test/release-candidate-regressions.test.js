@@ -23,9 +23,9 @@ const migrations = read('deploy/migrations.expected').trim().split(/\r?\n/);
 const manifest = JSON.parse(read('deploy/release-manifest.example.json'));
 
 test('release image is immutable multi-stage and non-root', () => {
-  assert.match(dockerfile, /FROM node:20-bookworm-slim AS frontend-build/);
-  assert.match(dockerfile, /FROM node:20-bookworm-slim AS backend-build/);
-  assert.match(dockerfile, /FROM node:20-bookworm-slim AS runtime/);
+  assert.match(dockerfile, /FROM node:25-bookworm-slim AS frontend-build/);
+  assert.match(dockerfile, /FROM node:25-bookworm-slim AS backend-build/);
+  assert.match(dockerfile, /FROM node:25-bookworm-slim AS runtime/);
   assert.match(dockerfile, /npm ci --omit=dev --ignore-scripts/);
   assert.match(dockerfile, /prisma generate/);
   assert.match(dockerfile, /COPY --chown=lms:lms --from=frontend-build/);
