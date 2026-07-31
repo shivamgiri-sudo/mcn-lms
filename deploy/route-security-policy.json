@@ -1,0 +1,31 @@
+{
+  "alternativeAuthentication": {
+    "auth.js": "Recovery request and completion endpoints establish identity; overlapping browser login paths are shadowed by browserAuth.js.",
+    "bridge.js": "HRMS integration accepts a signed short-lived assertion or explicitly enabled legacy service secret and issues only a replay-safe one-time handoff code.",
+    "empMapping.js": "The HR employee-mapping integration uses a minimum-strength server secret and constant-time X-HR-API-Key validation instead of an LMS user session."
+  },
+  "requiredProtectedRoutes": [
+    "browserAuth.js",
+    "contentFiles.js",
+    "diagnostics.js",
+    "drive.js",
+    "reports.js",
+    "scorm.js",
+    "upload.js",
+    "runtimeGovernance.js",
+    "calibrationAppeals.js",
+    "calibrationOperations.js",
+    "practical.js",
+    "talent.js",
+    "development.js",
+    "ilt.js",
+    "assessmentIntelligence.js",
+    "assessmentIntelligenceCoordinator.js"
+  ],
+  "forbiddenUrlTokenPatterns": [
+    "?token=",
+    "&token=",
+    "searchParams.set('token'",
+    "searchParams.set(\"token\""
+  ]
+}

@@ -1,0 +1,92 @@
+name: Operational incident or degradation
+
+description: Record a non-security outage, degradation, data delay or failed operational control.
+title: "[Incident]: "
+labels:
+  - incident
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this form for operational incidents without active sensitive exposure. Report suspected security or privacy incidents privately through the Security tab.
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Initial severity
+      options:
+        - Severity 1 — critical outage, corruption or broad business impact
+        - Severity 2 — major workflow degradation or material SLO breach
+        - Severity 3 — limited degradation with a workaround
+        - Severity 4 — low operational impact
+    validations:
+      required: true
+
+  - type: input
+    id: detected_at
+    attributes:
+      label: Detection time
+      description: Include timezone.
+      placeholder: "2026-07-26 14:30 IST"
+    validations:
+      required: true
+
+  - type: input
+    id: detector
+    attributes:
+      label: Detection source
+      placeholder: "Readiness alert, user report, notification backlog or release smoke gate"
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Confirmed impact
+      description: State affected users, roles, branches, processes, workflows and time window. Do not include personal data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: symptoms
+    attributes:
+      label: Symptoms and evidence
+      description: Include status codes, health results, request IDs, deployment ID, backlog or latency values with sensitive content removed.
+    validations:
+      required: true
+
+  - type: input
+    id: incident_commander
+    attributes:
+      label: Incident commander
+      placeholder: "GitHub username or internal role"
+    validations:
+      required: true
+
+  - type: textarea
+    id: containment
+    attributes:
+      label: Containment already applied
+      description: State kill switches, rollout holds, credential actions, traffic controls or rollback decisions.
+    validations:
+      required: false
+
+  - type: textarea
+    id: recovery
+    attributes:
+      label: Recovery plan and next checkpoint
+      description: Include owner, next action and next update time.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: controls
+    attributes:
+      label: Incident controls
+      options:
+        - label: Relevant logs, database state and release evidence are being preserved.
+          required: true
+        - label: Unsafe rollout has been held or the reason it remains active is documented.
+          required: true
+        - label: Sensitive details have not been included in this public issue.
+          required: true

@@ -1,0 +1,74 @@
+name: LMS Release Compose Contracts
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-production-runtime
+    paths:
+      - 'deploy/docker-compose.*.yml'
+      - 'deploy/.env.*.example'
+      - '.github/workflows/lms-release-compose.yml'
+  push:
+    branches:
+      - agent/lms-release-candidate
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-release-compose-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compose-contracts:
+    name: Render hardened release topologies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prepare non-secret validation environments
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp deploy/.env.staging.example deploy/.env.staging
+          cp deploy/.env.production.example deploy/.env.production
+      - name: Render staging topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.staging" \
+            docker compose --env-file deploy/.env.staging \
+              -f deploy/docker-compose.staging.yml config > /tmp/staging-compose.yml
+          services=$(LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.staging" docker compose --env-file deploy/.env.staging -f deploy/docker-compose.staging.yml config --services)
+          for service in mysql migrate app worker; do grep -qx "$service" <<<"$services"; done
+          grep -q 'condition: service_completed_successfully' /tmp/staging-compose.yml
+      - name: Render production topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.production" \
+            docker compose --env-file deploy/.env.production \
+              -f deploy/docker-compose.production.yml config > /tmp/production-compose.yml
+          services=$(LMS_SERVICE_ENV_FILE="$(pwd)/deploy/.env.production" docker compose --env-file deploy/.env.production -f deploy/docker-compose.production.yml config --services)
+          for service in migrate app worker; do grep -qx "$service" <<<"$services"; done
+          if grep -qx mysql <<<"$services"; then
+            echo 'Production topology must use the governed external MySQL service.' >&2
+            exit 1
+          fi
+          grep -q 'host_ip: 127.0.0.1' /tmp/production-compose.yml
+          grep -q 'published: "4000"' /tmp/production-compose.yml
+          grep -q 'read_only: true' /tmp/production-compose.yml
+          grep -q 'no-new-privileges:true' /tmp/production-compose.yml
+          if grep -Eq '3306:3306|0\.0\.0\.0:3306|published: "3306"' /tmp/production-compose.yml; then
+            echo 'Production topology must not publish MySQL.' >&2
+            exit 1
+          fi
+      - name: Upload rendered release contracts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-release-compose
+          path: |
+            /tmp/staging-compose.yml
+            /tmp/production-compose.yml
+          retention-days: 14

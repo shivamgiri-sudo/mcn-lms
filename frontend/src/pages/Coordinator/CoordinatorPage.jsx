@@ -4,15 +4,16 @@ import CoordLogin from './CoordLogin.jsx';
 import CoordDashboard from './CoordDashboard.jsx';
 
 export default function CoordinatorPage() {
-  const [session, setSession] = useState(localStorage.getItem('lms_token_coordinator') || '');
+  const [session, setSession] = useState('checking');
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(!!localStorage.getItem('lms_token_coordinator'));
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (session) loadProfile();
-    const handler = () => {
+    loadProfile();
+    const handler = event => {
+      if (event.detail?.type && event.detail.type !== 'coordinator') return;
       clearToken('coordinator');
-      setSession('');
+      setSession('none');
       setUser(null);
       setLoading(false);
     };
@@ -25,28 +26,30 @@ export default function CoordinatorPage() {
     const res = await api.get('/auth/me', 'coordinator');
     setLoading(false);
     if (res.ok && res.user) {
+      setToken('coordinator');
+      setSession('active');
       setUser(res.user);
       return;
     }
     clearToken('coordinator');
-    setSession('');
+    setSession('none');
     setUser(null);
   }
 
   function handleLogin(data) {
-    setToken('coordinator', data.token);
-    setSession(data.token);
+    setToken('coordinator');
+    setSession('active');
     setUser(data.user);
   }
 
-  function handleLogout() {
-    api.post('/auth/coordinator/logout', {}, 'coordinator').catch(() => {});
+  async function handleLogout() {
+    await api.post('/auth/coordinator/logout', {}, 'coordinator').catch(() => {});
     clearToken('coordinator');
-    setSession('');
+    setSession('none');
     setUser(null);
   }
 
-  if (!session) return <CoordLogin onLogin={handleLogin} />;
-  if (loading) return <div className="wrap" style={{ paddingTop: 60, textAlign: 'center' }}><div className="spinner" /></div>;
+  if (session === 'checking' || loading) return <div className="wrap" style={{ paddingTop: 60, textAlign: 'center' }}><div className="spinner" /></div>;
+  if (session === 'none') return <CoordLogin onLogin={handleLogin} />;
   return <CoordDashboard user={user} onLogout={handleLogout} />;
 }
