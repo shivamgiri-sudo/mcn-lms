@@ -88,9 +88,10 @@ function networkMessage(err) {
 
 function resolveRequestUrl(url) {
   const value = String(url || '');
-  if (/^https?:\/\//i.test(value) || value.startsWith('blob:')) return value;
+  if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@/?%-]*$/.test(value)) {
+    throw new Error('API request path must be a same-origin relative path.');
+  }
   if (value.startsWith('/api/')) return `${API_ORIGIN}${value}`;
-  if (value.startsWith('/')) return `${BASE}${value}`;
   return `${BASE}/${value}`;
 }
 

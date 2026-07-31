@@ -170,15 +170,10 @@ export async function bridgeAuth(req, res) {
     let authMethod = 'HRMS_ASSERTION';
     let claims = null;
 
-    const assertion = req.body?.assertion;
-    if (!assertion) {
-      return res.status(401).json({ ok: false, message: 'Signed HRMS assertion required.' });
-    }
-
-    const verified = verifyAssertion(assertion);
+    const verified = verifyAssertion(req.body?.assertion);
     if (!verified) {
       await recordSecurityEvent({ eventType: 'HRMS_ASSERTION_REJECTED', severity: 'CRITICAL', actorUserType: 'hrms', requestId: req.requestId, req });
-      return res.status(401).json({ ok: false, message: 'Invalid or expired HRMS assertion.' });
+      return res.status(401).json({ ok: false, message: 'Signed HRMS assertion required.' });
     }
     claims = verified.payload;
     identity = await resolveIdentity(claims);
