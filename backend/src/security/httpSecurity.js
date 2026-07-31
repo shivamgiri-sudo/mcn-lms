@@ -22,14 +22,28 @@ function validatedSources(name, value) {
   return sources;
 }
 
+function mcnMeetSources(env) {
+  const raw = String(env.MCNMEET_PUBLIC_URL || env.VITE_MCNMEET_URL || '').trim();
+  const fallback = env.NODE_ENV === 'production' ? '' : 'https://meet.jit.si';
+  const source = raw || fallback;
+  if (!source) return [];
+  try {
+    return [new URL(source).origin];
+  } catch {
+    throw new Error(`MCNMEET_PUBLIC_URL must be a valid URL.`);
+  }
+}
+
 export function buildHttpSecurityPolicy(env = process.env) {
   const production = env.NODE_ENV === 'production';
+  const mcnmeet = mcnMeetSources(env);
   const frameAncestors = uniqueSources(["'self'"], validatedSources('CSP_FRAME_ANCESTORS', env.CSP_FRAME_ANCESTORS));
-  const connectSrc = uniqueSources(["'self'"], validatedSources('CSP_CONNECT_SRC', env.CSP_CONNECT_SRC));
+  const connectSrc = uniqueSources(["'self'"], mcnmeet, 'wss:', validatedSources('CSP_CONNECT_SRC', env.CSP_CONNECT_SRC));
   const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:'], validatedSources('CSP_IMG_SRC', env.CSP_IMG_SRC));
   const mediaSrc = uniqueSources(["'self'", 'blob:', 'https:'], validatedSources('CSP_MEDIA_SRC', env.CSP_MEDIA_SRC));
   const frameSrc = uniqueSources(
     ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
+    mcnmeet,
     validatedSources('CSP_FRAME_SRC', env.CSP_FRAME_SRC),
     validatedSources('SCORM_CONTENT_ORIGIN', env.SCORM_CONTENT_ORIGIN),
   );

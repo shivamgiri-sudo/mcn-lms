@@ -1,0 +1,12 @@
+# MCNmeet uses the official docker-jitsi-meet compose bundle.
+# Keep this file small: it pins the expected project name and delegates service
+# definitions to the upstream compose file copied into this directory.
+#
+# Setup:
+#   1. Download a docker-jitsi-meet stable release on the Linux host.
+#   2. Copy the upstream compose.yaml into this folder as docker-jitsi-meet.yml.
+#   3. Run: docker compose -f docker-jitsi-meet.yml --env-file .env up -d
+#
+# This placeholder is intentionally not a service definition, because partial
+# Jitsi compose files are easy to misconfigure. Use the upstream release file.
+name: mcnmeet

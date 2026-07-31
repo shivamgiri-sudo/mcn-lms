@@ -11,6 +11,7 @@ import PracticalAssessmentsPage from './pages/PracticalAssessments/PracticalAsse
 import EvaluatorQualityPage from './pages/EvaluatorQuality/EvaluatorQualityPage.jsx';
 import AssessmentIntelligencePage from './pages/AssessmentIntelligence/AssessmentIntelligencePage.jsx';
 import SessionSecurityPage from './pages/SessionSecurity/SessionSecurityPage.jsx';
+import MCNmeetPage from './pages/MCNmeet/MCNmeetPage.jsx';
 import NotificationDock from './pages/Notifications/NotificationDock.jsx';
 import LearningToolsDock from './components/LearningToolsDock.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
@@ -29,6 +30,7 @@ export default function App() {
         <Route path="/evaluator-quality" element={<EvaluatorQualityPage />} />
         <Route path="/assessment-intelligence" element={<AssessmentIntelligencePage />} />
         <Route path="/session-security" element={<SessionSecurityPage />} />
+        <Route path="/MCNmeet" element={<MCNmeetPage />} />
         <Route path="/lms/*" element={<TraineePage />} />
         <Route path="/coordinator/*" element={<CoordinatorPage />} />
         <Route path="/admin/*" element={<AdminPage />} />
