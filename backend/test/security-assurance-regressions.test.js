@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { buildHttpSecurityPolicy, securityPolicySummary } from '../src/security/httpSecurity.js';
 
 const root = new URL('../../', import.meta.url);
@@ -9,8 +10,8 @@ const read = path => readFileSync(new URL(path, root), 'utf8');
 
 function runNode(path, args = []) {
   const script = new URL(path, root);
-  return spawnSync(process.execPath, [script.pathname, ...args], {
-    cwd: root.pathname,
+  return spawnSync(process.execPath, [fileURLToPath(script), ...args], {
+    cwd: fileURLToPath(root),
     encoding: 'utf8',
   });
 }

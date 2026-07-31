@@ -170,40 +170,27 @@ export async function bridgeAuth(req, res) {
     let authMethod = 'HRMS_ASSERTION';
     let claims = null;
 
-    if (req.body?.assertion) {
-      const verified = verifyAssertion(req.body.assertion);
-      if (!verified) {
-        await recordSecurityEvent({ eventType: 'HRMS_ASSERTION_REJECTED', severity: 'CRITICAL', actorUserType: 'hrms', requestId: req.requestId, req });
-        return res.status(401).json({ ok: false, message: 'Invalid or expired HRMS assertion.' });
-      }
-      claims = verified.payload;
-      identity = await resolveIdentity(claims);
-      if (!identity) return res.status(404).json({ ok: false, message: 'No active LMS account found for the trusted identity.' });
-      jtiHash = await consumeAssertionNonce(req, verified, identity);
-      if (!jtiHash) {
-        await recordSecurityEvent({
-          eventType: 'HRMS_ASSERTION_REPLAYED', severity: 'CRITICAL', actorUserId: identity.userId,
-          actorUserType: 'hrms', subjectUserId: identity.userId, subjectUserType: identity.userType,
-          requestId: req.requestId, req,
-        });
-        return res.status(409).json({ ok: false, message: 'This HRMS assertion has already been used.' });
-      }
-    } else {
-      const legacyEnabled = process.env.BRIDGE_ALLOW_LEGACY_SECRET === 'true';
-      const bridgeSecret = String(process.env.BRIDGE_SECRET || '').trim();
-      const supplied = req.body?.bridge_token || req.body?.supabase_token;
-      if (!legacyEnabled || bridgeSecret.length < 32 || !safeEqual(supplied, bridgeSecret)) {
-        return res.status(401).json({ ok: false, message: 'Signed HRMS assertion required.' });
-      }
-      authMethod = 'LEGACY_BRIDGE';
-      claims = {
-        employee_id: req.body?.employee_id,
-        email: req.body?.email,
-        mobile: req.body?.mobile,
-        user_type: req.body?.user_type || 'trainee',
-      };
-      identity = await resolveIdentity(claims);
-      if (!identity) return res.status(404).json({ ok: false, message: 'No active LMS account found for the trusted identity.' });
+    const assertion = req.body?.assertion;
+    if (!assertion) {
+      return res.status(401).json({ ok: false, message: 'Signed HRMS assertion required.' });
+    }
+
+    const verified = verifyAssertion(assertion);
+    if (!verified) {
+      await recordSecurityEvent({ eventType: 'HRMS_ASSERTION_REJECTED', severity: 'CRITICAL', actorUserType: 'hrms', requestId: req.requestId, req });
+      return res.status(401).json({ ok: false, message: 'Invalid or expired HRMS assertion.' });
+    }
+    claims = verified.payload;
+    identity = await resolveIdentity(claims);
+    if (!identity) return res.status(404).json({ ok: false, message: 'No active LMS account found for the trusted identity.' });
+    jtiHash = await consumeAssertionNonce(req, verified, identity);
+    if (!jtiHash) {
+      await recordSecurityEvent({
+        eventType: 'HRMS_ASSERTION_REPLAYED', severity: 'CRITICAL', actorUserId: identity.userId,
+        actorUserType: 'hrms', subjectUserId: identity.userId, subjectUserType: identity.userType,
+        requestId: req.requestId, req,
+      });
+      return res.status(409).json({ ok: false, message: 'This HRMS assertion has already been used.' });
     }
 
     const handoff = await issueHandoff(req, identity, {

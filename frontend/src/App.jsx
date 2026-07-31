@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from './utils/browserRouter.jsx';
 import TraineePage from './pages/Trainee/TraineePage.jsx';
 import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';

@@ -14,6 +14,7 @@ const ROLE_CSRF_COOKIE = {
   coordinator: 'lms_coordinator_csrf',
   admin: 'lms_admin_csrf',
 };
+const ALLOWED_COOKIE_NAMES = new Set([...Object.values(ROLE_COOKIE), ...Object.values(ROLE_CSRF_COOKIE)]);
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 export function normalizeSessionRole(role) {
@@ -38,13 +39,13 @@ function safeEqual(left, right) {
 }
 
 function parseCookies(req) {
-  const cookies = {};
+  const cookies = Object.create(null);
   for (const item of String(req?.headers?.cookie || '').split(';')) {
     const index = item.indexOf('=');
     if (index < 1) continue;
     const key = item.slice(0, index).trim();
     const value = item.slice(index + 1).trim();
-    if (!key) continue;
+    if (!ALLOWED_COOKIE_NAMES.has(key)) continue;
     try {
       cookies[key] = decodeURIComponent(value);
     } catch {

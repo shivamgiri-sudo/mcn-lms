@@ -46,6 +46,13 @@ const exchangeLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+const sensitiveActionLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  message: { ok: false, message: 'Too many sensitive account actions. Try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 function text(value, max = 500) {
   return String(value || '').trim().slice(0, max);
@@ -253,7 +260,7 @@ router.post('/auth/trainee/logout', requireSession, requireRole('trainee'), logo
 router.post('/auth/coordinator/logout', requireSession, requireRole('coordinator'), logout);
 router.post('/auth/admin/logout', requireSession, requireRole('admin'), logout);
 
-router.post('/auth/trainee/change-password', requireSession, requireRole('trainee'), async (req, res) => {
+router.post('/auth/trainee/change-password', sensitiveActionLimiter, requireSession, requireRole('trainee'), async (req, res) => {
   try {
     const currentPassword = String(req.body?.oldPassword || req.body?.currentPassword || '');
     const newPassword = String(req.body?.newPassword || '');
@@ -283,7 +290,7 @@ router.post('/auth/trainee/change-password', requireSession, requireRole('traine
   }
 });
 
-router.post('/admin/reset-password', requireSession, requireRole('admin'), async (req, res) => {
+router.post('/admin/reset-password', sensitiveActionLimiter, requireSession, requireRole('admin'), async (req, res) => {
   try {
     const currentPassword = String(req.body?.currentPassword || '');
     const newPassword = String(req.body?.password || req.body?.newPassword || '');
@@ -348,6 +355,7 @@ router.post('/auth/sessions/revoke-others', requireSession, async (req, res) => 
 
 router.post(
   '/auth/security/elevate',
+  sensitiveActionLimiter,
   requireSession,
   requireRole('admin'),
   requireSuperAdmin,
