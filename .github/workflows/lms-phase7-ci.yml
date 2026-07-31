@@ -229,7 +229,7 @@ jobs:
           exit 0
       - name: Upload Phase 7 regression diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phase7-regression-diagnostics
           path: backend/phase7-regression.log

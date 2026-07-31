@@ -145,7 +145,7 @@ jobs:
         run: gh attestation verify release-image-evidence.json -R "${{ github.repository }}"
 
       - name: Upload release evidence
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-image-evidence-${{ steps.release.outputs.tag }}
           path: release-image-evidence.json

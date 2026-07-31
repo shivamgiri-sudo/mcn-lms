@@ -220,7 +220,7 @@ jobs:
           exit 0
       - name: Upload Phase 9 regression diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phase9-regression-diagnostics
           path: |
