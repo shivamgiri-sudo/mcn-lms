@@ -19,7 +19,7 @@ const rollback = read('deploy/scripts/rollback.sh');
 const runbook = read('docs/RELEASE_CANDIDATE_RUNBOOK.md');
 const stagingEnv = read('deploy/.env.staging.example');
 const productionEnv = read('deploy/.env.production.example');
-const migrations = read('deploy/migrations.expected').trim().split('\n');
+const migrations = read('deploy/migrations.expected').trim().split(/\r?\n/);
 const manifest = JSON.parse(read('deploy/release-manifest.example.json'));
 
 test('release image is immutable multi-stage and non-root', () => {
@@ -37,9 +37,15 @@ test('release image is immutable multi-stage and non-root', () => {
 });
 
 test('container entrypoint fails fast and migrations are explicit', () => {
-  for (const name of ['DATABASE_URL', 'FRONTEND_URL', 'SESSION_SECRET', 'OAUTH_STATE_SECRET', 'BRIDGE_SECRET', 'HR_API_KEY', 'GOOGLE_TOKEN_ENCRYPTION_KEY']) {
+  for (const name of [
+    'DATABASE_URL', 'FRONTEND_URL', 'SESSION_SECRET', 'CSRF_SECRET',
+    'SESSION_FINGERPRINT_SECRET', 'OAUTH_STATE_SECRET', 'HRMS_ASSERTION_SECRET',
+    'HRMS_ASSERTION_ISSUER', 'HRMS_ASSERTION_AUDIENCE', 'HR_API_KEY',
+    'GOOGLE_TOKEN_ENCRYPTION_KEY',
+  ]) {
     assert.match(entrypoint, new RegExp(name));
   }
+  assert.match(entrypoint, /BRIDGE_ALLOW_LEGACY_SECRET/);
   assert.match(entrypoint, /LMS_RUN_MIGRATIONS/);
   assert.match(entrypoint, /prisma migrate deploy/);
   assert.match(entrypoint, /exec "\$@"/);
@@ -128,16 +134,18 @@ test('release and rollback scripts preserve environment and forward-only databas
 });
 
 test('release manifests and environment contracts are machine readable and complete', () => {
-  assert.equal(manifest.migrationCount, 15);
-  assert.equal(migrations.length, 15);
+  assert.equal(manifest.migrationCount, 17);
+  assert.equal(migrations.length, 17);
   assert.equal(migrations[0], '20260630053213_init');
-  assert.equal(migrations.at(-1), '20260725150000_production_runtime_governance');
+  assert.equal(migrations.at(-1), '20260729100000_secure_browser_sessions');
   assert.equal(manifest.databaseRollbackSupported, false);
   assert.equal(manifest.applicationRollbackSupported, true);
   assert.equal(manifest.healthEndpoints.liveness, '/api/runtime/health/live');
   assert.equal(manifest.healthEndpoints.readiness, '/api/runtime/health/ready');
   assert.deepEqual(manifest.rollout.map(item => item.percentage), [100, 10, 25, 50, 100]);
-  assert.ok(manifest.requiredEnvironment.includes('DEPLOYMENT_ID'));
+  for (const name of ['DEPLOYMENT_ID', 'CSRF_SECRET', 'SESSION_FINGERPRINT_SECRET', 'HRMS_ASSERTION_SECRET', 'HRMS_ASSERTION_ISSUER', 'HRMS_ASSERTION_AUDIENCE']) {
+    assert.ok(manifest.requiredEnvironment.includes(name));
+  }
   assert.match(stagingEnv, /LMS_SERVICE_ENV_FILE=\.env\.staging/);
   assert.match(stagingEnv, /LMS_BACKUP_MODE=compose/);
   assert.match(productionEnv, /LMS_SERVICE_ENV_FILE=\.env\.production/);
@@ -151,7 +159,7 @@ test('release manifests and environment contracts are machine readable and compl
 
 test('runbook fixes stack order and blocks destructive database rollback', () => {
   for (let pr = 4; pr <= 12; pr += 1) assert.match(runbook, new RegExp(`PR #${pr}`));
-  assert.match(runbook, /15 migrations/);
+  assert.match(runbook, /17 migrations/);
   assert.match(runbook, /Do not squash or reorder database migrations/);
   assert.match(runbook, /Database migrations are never automatically reversed/);
   assert.match(runbook, /feature flags and kill switches/);

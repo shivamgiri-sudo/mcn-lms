@@ -19,9 +19,16 @@ backend/prisma/*.db-journal
 backend/uploads/
 backups/
 
+# Live release approval and provenance records — retain in controlled evidence storage
+# Templates remain versioned as *.example.json.
+deploy/release-manifest.json
+deploy/release-image-evidence.json
+deploy/dr-reports/
+
 # OAuth tokens persisted on the server — not in git
 backend/drive-token.json
 backend/drive-token.enc
+backend/runtime/
 
 # Logs
 *.log

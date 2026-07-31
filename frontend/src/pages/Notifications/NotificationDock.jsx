@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from '../../utils/browserRouter.jsx';
 import { api } from '../../utils/api.js';
 import './notificationDock.css';
 

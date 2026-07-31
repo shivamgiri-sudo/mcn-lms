@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { api } from '../../utils/api.js';
+import { api, fetchAuthenticatedBlobUrl } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
 import ScormLauncher from './ScormLauncher.jsx';
@@ -7,8 +7,23 @@ import ScormLauncher from './ScormLauncher.jsx';
 const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
 
 function getDriveProxyUrl(fileId) {
-  const token = localStorage.getItem('lms_token_trainee') || localStorage.getItem('lms_token_admin') || '';
-  return `${API_BASE}/drive/proxy/${fileId}?token=${encodeURIComponent(token)}`;
+  return `${API_BASE}/drive/proxy/${encodeURIComponent(fileId)}`;
+}
+
+function protectedLocalUrl(value) {
+  const url = String(value || '');
+  if (!url) return '';
+  try {
+    const parsed = new URL(url, window.location.origin);
+    if (parsed.pathname.startsWith('/uploads/content/')) {
+      const filename = decodeURIComponent(parsed.pathname.split('/').pop() || '');
+      return filename ? `${API_BASE}/content/files/${encodeURIComponent(filename)}` : '';
+    }
+    if (parsed.pathname.startsWith('/api/content/files/') || parsed.pathname.startsWith('/api/drive/proxy/')) {
+      return /^https?:\/\//i.test(url) ? url : `${parsed.pathname}${parsed.search}`;
+    }
+  } catch {}
+  return '';
 }
 
 export default function LearningTab({ days, onRefresh }) {
@@ -63,43 +78,6 @@ export default function LearningTab({ days, onRefresh }) {
     }, 30000);
   }, [viewingContent]);
 
-  async function openContent(content) {
-    setLockedMsg(null);
-
-    if (content.accessLocked) {
-      setLockedMsg(content.lockReason || 'Complete the previous required content first.');
-      return;
-    }
-
-    if (content.contentType === 'scorm') {
-      const match = (content.directMediaUrl || '').match(/\/scorm\/(SCORM-[A-Z0-9]+)\//);
-      if (match) {
-        setScormPackageId(match[1]);
-        return;
-      }
-    }
-
-    if (viewingContent) await stopHeartbeat(true);
-    setViewingContent(content);
-    lastSentRef.current = Date.now();
-    startHeartbeat(content.contentId);
-
-    const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
-    if (openRes.locked) {
-      stopHeartbeat(false);
-      setViewingContent(null);
-      setLockedMsg(openRes.message || 'Complete the previous content first.');
-    }
-  }
-
-  async function closeContent() {
-    await stopHeartbeat(true);
-    setViewingContent(null);
-    onRefresh && onRefresh();
-  }
-
-  useEffect(() => { return () => { stopHeartbeat(false); }; }, []);
-
   function getYoutubeEmbedUrl(url) {
     try {
       const u = new URL(url);
@@ -112,7 +90,7 @@ export default function LearningTab({ days, onRefresh }) {
   }
 
   function wrapForViewer(proxyUrl, fileId) {
-    return { type: 'proxy', url: proxyUrl, fileId };
+    return { type: 'proxy', url: proxyUrl, fileId, requiresAuth: true };
   }
 
   function renderContentUrl(c) {
@@ -120,6 +98,19 @@ export default function LearningTab({ days, onRefresh }) {
     if (url) {
       const ytEmbed = getYoutubeEmbedUrl(url);
       if (ytEmbed) return { type: 'youtube', url: ytEmbed };
+
+      const protectedUrl = protectedLocalUrl(url);
+      if (protectedUrl) {
+        const ext = url.split('?')[0].split('.').pop().toLowerCase();
+        const isVid = ['mp4', 'webm', 'ogg', 'mov', 'avi'].includes(ext);
+        const isPdf = ext === 'pdf';
+        const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext);
+        if (isVid) return { type: 'html5', url: protectedUrl, requiresAuth: true };
+        if (isPdf) return { type: 'proxy', url: protectedUrl, requiresAuth: true };
+        if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true };
+        return { type: 'proxy', url: protectedUrl, requiresAuth: true };
+      }
+
       if (!url.includes('drive.google.com')) {
         const ext = url.split('?')[0].split('.').pop().toLowerCase();
         const isVid = ['mp4', 'webm', 'ogg', 'mov', 'avi'].includes(ext);
@@ -157,6 +148,59 @@ export default function LearningTab({ days, onRefresh }) {
     if (url) return { type: 'drive', url };
     return null;
   }
+
+  async function openContent(content) {
+    setLockedMsg(null);
+
+    if (content.accessLocked) {
+      setLockedMsg(content.lockReason || 'Complete the previous required content first.');
+      return;
+    }
+
+    if (content.contentType === 'scorm') {
+      const match = (content.directMediaUrl || '').match(/\/scorm\/(SCORM-[A-Z0-9]+)\//);
+      if (match) {
+        setScormPackageId(match[1]);
+        return;
+      }
+    }
+
+    if (viewingContent) await stopHeartbeat(true);
+
+    const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
+    if (openRes.locked || openRes.ok === false) {
+      setLockedMsg(openRes.message || 'Complete the previous content first.');
+      return;
+    }
+
+    let resolvedMedia = renderContentUrl(content);
+    if (resolvedMedia?.requiresAuth) {
+      const protectedResult = await fetchAuthenticatedBlobUrl(resolvedMedia.url, 'trainee');
+      if (!protectedResult.ok) {
+        setLockedMsg(protectedResult.message || 'Unable to open protected learning content.');
+        return;
+      }
+      resolvedMedia = { ...resolvedMedia, url: protectedResult.url, requiresAuth: false, objectUrl: true };
+    }
+
+    setViewingContent({ ...content, resolvedMedia });
+    lastSentRef.current = Date.now();
+    startHeartbeat(content.contentId);
+  }
+
+  async function closeContent() {
+    const objectUrl = viewingContent?.resolvedMedia?.objectUrl ? viewingContent.resolvedMedia.url : '';
+    await stopHeartbeat(true);
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+    setViewingContent(null);
+    onRefresh && onRefresh();
+  }
+
+  useEffect(() => () => {
+    stopHeartbeat(false);
+    const objectUrl = viewingContent?.resolvedMedia?.objectUrl ? viewingContent.resolvedMedia.url : '';
+    if (objectUrl) URL.revokeObjectURL(objectUrl);
+  }, [viewingContent, stopHeartbeat]);
 
   const totalContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0), 0);
   const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.progress?.completionStatus === 'Completed').length, 0), 0);
@@ -341,7 +385,7 @@ function AssessmentCard({ assessment, result, onStart }) {
 }
 
 function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderContentUrl }) {
-  const media = renderContentUrl(content);
+  const media = content.resolvedMedia || renderContentUrl(content);
   const isVideo = content.contentType === 'video';
   const progress = content.progress;
   const [iframeLoading, setIframeLoading] = useState(true);
@@ -359,7 +403,8 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
       const t = setTimeout(() => setLoadTimeout(true), 15000);
       return () => clearTimeout(t);
     }
-  }, [content.contentId]);
+    return undefined;
+  }, [content.contentId, media?.type, progress?.completionPct, progress?.completionStatus]);
 
   const canMarkComplete = !!media && !isVideo && media.type !== 'youtube' && !completionState.done;
 

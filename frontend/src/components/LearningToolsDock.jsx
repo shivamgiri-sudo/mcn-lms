@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from '../utils/browserRouter.jsx';
 import './learningToolsDock.css';
 
+// These keys contain non-sensitive cookie-session presence markers only.
 const ROLE_TOKENS = {
   trainee: 'lms_token_trainee',
   coordinator: 'lms_token_coordinator',
@@ -47,6 +48,22 @@ const TOOLS = [
     roles: ['coordinator', 'admin'],
     href: role => `/evaluator-quality?role=${role}`,
   },
+  {
+    key: 'assessment-intelligence',
+    title: 'Assessment Intelligence',
+    description: 'Blueprints, item quality and remediation evidence',
+    icon: '◇',
+    roles: ['coordinator', 'admin'],
+    href: role => `/assessment-intelligence?role=${role}`,
+  },
+  {
+    key: 'session-security',
+    title: 'Sessions & Security',
+    description: 'Devices, sign-outs and account protection',
+    icon: '⌾',
+    roles: ['trainee', 'coordinator', 'admin'],
+    href: role => `/session-security?role=${role}`,
+  },
 ];
 
 function portalRoleFromPath(pathname, available) {
@@ -63,7 +80,7 @@ export default function LearningToolsDock() {
   const [sessionVersion, setSessionVersion] = useState(0);
   const available = useMemo(
     () => Object.entries(ROLE_TOKENS)
-      .filter(([, token]) => Boolean(localStorage.getItem(token)))
+      .filter(([, marker]) => Boolean(localStorage.getItem(marker)))
       .map(([role]) => role),
     [location.pathname, sessionVersion],
   );
@@ -127,7 +144,7 @@ export default function LearningToolsDock() {
             <strong>›</strong>
           </a>)}
         </nav>
-        <footer>{ROLE_LABELS[activeRole]} session · No separate sign-in</footer>
+        <footer>{ROLE_LABELS[activeRole]} session · HttpOnly cookie protected</footer>
       </section>}
       <button
         type="button"

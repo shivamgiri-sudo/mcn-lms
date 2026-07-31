@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security vulnerability report
+    url: https://github.com/shivamgiri-sudo/mcn-lms/security/advisories/new
+    about: Report authorization bypasses, exposed credentials, privacy issues and security vulnerabilities privately.

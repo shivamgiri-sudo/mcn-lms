@@ -9,12 +9,14 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
-import { cleanExpiredSessions } from './utils/session.js';
+import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
+import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 
+import browserAuthRoutes from './routes/browserAuth.js';
 import passwordStabilityRoutes from './routes/passwordStability.js';
 import certificationHooks from './routes/certificationHooks.js';
 import authRoutes from './routes/auth.js';
@@ -29,6 +31,7 @@ import diagnosticsRoutes from './routes/diagnostics.js';
 import managementRoutes from './routes/management.js';
 import driveRoutes from './routes/drive.js';
 import uploadRoutes from './routes/upload.js';
+import contentFilesRoutes from './routes/contentFiles.js';
 import reportRoutes from './routes/reports.js';
 import empMappingRoutes from './routes/empMapping.js';
 import complianceRoutes from './routes/compliance.js';
@@ -37,6 +40,8 @@ import talentRoutes from './routes/talent.js';
 import talentEvidenceRoutes from './routes/talentEvidence.js';
 import developmentRoutes from './routes/development.js';
 import iltRoutes from './routes/ilt.js';
+
+validateSessionSecurityConfig(process.env);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -60,13 +65,7 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false,
-  frameguard: false,
-  referrerPolicy: { policy: 'no-referrer' },
-  strictTransportSecurity: isProduction ? { maxAge: 31536000, includeSubDomains: true, preload: true } : false,
-}));
+app.use(helmet(buildHttpSecurityPolicy(process.env)));
 
 const allowedOrigins = String(process.env.FRONTEND_URL || '')
   .split(',')
@@ -84,21 +83,31 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Authorization', 'Content-Type', 'X-Request-Id', 'X-HR-API-Key'],
+  allowedHeaders: [
+    'Authorization',
+    'Content-Type',
+    'X-Request-Id',
+    'X-HR-API-Key',
+    'X-LMS-Role',
+    'X-CSRF-Token',
+  ],
+  exposedHeaders: ['X-Request-Id', 'X-LMS-Session-Role', 'X-LMS-Session-Expires-At', 'X-LMS-Elevated-Until'],
 }));
 
 app.use(morgan(isProduction ? 'combined' : 'dev'));
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: process.env.FORM_BODY_LIMIT || '2mb' }));
 
-app.use('/uploads/content', express.static(contentUploadDir, {
-  index: false,
-  fallthrough: false,
-  setHeaders(res) {
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'private, max-age=3600');
-  },
-}));
+if (!isProduction) {
+  app.use('/uploads/content', express.static(contentUploadDir, {
+    index: false,
+    fallthrough: false,
+    setHeaders(res) {
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('Cache-Control', 'private, max-age=3600');
+    },
+  }));
+}
 
 if (!isProduction && process.env.SCORM_ALLOW_SAME_ORIGIN === 'true') {
   app.use('/uploads/scorm', express.static(scormUploadDir, {
@@ -138,6 +147,10 @@ async function readiness(_req, res) {
 app.get('/api/health/ready', readiness);
 app.get('/api/health', readiness);
 
+// Secure cookie/CSRF routes are mounted first and own every authentication
+// state change. Legacy route modules remain for non-overlapping recovery and
+// profile endpoints plus an explicitly controlled compatibility window.
+app.use('/api', browserAuthRoutes);
 app.use('/api', passwordStabilityRoutes);
 app.use('/api', certificationHooks);
 app.use('/api/auth', authRoutes);
@@ -153,6 +166,7 @@ app.use('/api/admin/compliance', complianceRoutes);
 app.use('/api/management', managementRoutes);
 app.use('/api/drive', driveRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/content', contentFilesRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/emp-mapping', empMappingRoutes);
 app.use('/api/scorm', scormRoutes);
