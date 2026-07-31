@@ -5,6 +5,7 @@ import { generateSalt, hashPassword, verifyPassword } from '../utils/hash.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { validateStrongPassword } from '../utils/passwordPolicy.js';
 import { audit } from '../utils/audit.js';
+import { deriveCsrfToken } from '../security/csrf.js';
 import assessmentIntelligenceRoutes from './assessmentIntelligence.js';
 import assessmentIntelligenceCoordinatorRoutes from './assessmentIntelligenceCoordinator.js';
 
@@ -24,6 +25,70 @@ function assessmentJsonSafe(_req, res, next) {
 router.use('/assessment-intelligence/coordinator', assessmentJsonSafe, assessmentIntelligenceCoordinatorRoutes);
 router.use('/assessment-intelligence', assessmentJsonSafe, assessmentIntelligenceRoutes);
 
+// Safe double-submit-token bootstrap for deployments where the frontend and API
+// use separate origins. The token is bound to the HttpOnly session credential,
+// role and CSRF version, but does not reveal the session credential itself.
+router.get('/auth/csrf', requireSession, (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  return res.json({
+    ok: true,
+    role: req.userType,
+    csrfToken: deriveCsrfToken(req.sessionToken, req.userType, req.session.csrfVersion),
+    expiresAt: req.session.expiresAt,
+  });
+});
+
+// Complete role-safe profile response for cookie-session bootstrap. This route
+// is mounted before the legacy auth router and therefore owns /api/auth/me.
+router.get('/auth/me', requireSession, async (req, res) => {
+  try {
+    res.setHeader('Cache-Control', 'private, no-store');
+    if (req.userType === 'coordinator') {
+      const user = await prisma.roleAccessMatrix.findFirst({
+        where: { loginId: req.userId, active: true, locked: false },
+        select: {
+          loginId: true,
+          name: true,
+          role: true,
+          branch: true,
+          process: true,
+          lob: true,
+          email: true,
+          mobile: true,
+          lastLogin: true,
+          canCreateBatch: true,
+          canOnboardTrainee: true,
+          canUploadLmsReport: true,
+          canOverrideAttendance: true,
+          canCloseBatch: true,
+          canViewManagementDashboard: true,
+        },
+      });
+      return user ? res.json({ ok: true, user, session: { id: req.session.id, role: req.userType, expiresAt: req.session.expiresAt } }) : res.status(404).json({ ok: false, message: 'Account not found.' });
+    }
+    if (req.userType === 'admin') {
+      const user = await prisma.adminUserMaster.findFirst({
+        where: { adminId: req.userId, active: true, locked: false },
+        select: { adminId: true, adminName: true, role: true, branch: true, lastLogin: true },
+      });
+      return user ? res.json({ ok: true, user, session: { id: req.session.id, role: req.userType, expiresAt: req.session.expiresAt } }) : res.status(404).json({ ok: false, message: 'Account not found.' });
+    }
+    if (req.userType === 'trainee') {
+      const user = await prisma.userMaster.findUnique({
+        where: { employeeId: req.userId },
+        select: { employeeId: true, traineeName: true, branch: true, process: true, lob: true, batchNo: true, classroomId: true, lastLogin: true, forcePasswordReset: true },
+      });
+      return user ? res.json({ ok: true, user, session: { id: req.session.id, role: req.userType, expiresAt: req.session.expiresAt } }) : res.status(404).json({ ok: false, message: 'Account not found.' });
+    }
+    return res.status(403).json({ ok: false, message: 'Unsupported session role.' });
+  } catch (error) {
+    console.error('[SESSION_PROFILE] load failed:', error.message);
+    return res.status(500).json({ ok: false, message: 'Could not load session profile.' });
+  }
+});
+
+// Legacy password handlers remain as compatibility fallbacks only. The secure
+// browser-auth router is mounted first and owns these exact paths in production.
 router.post(
   '/auth/trainee/change-password',
   requireSession,

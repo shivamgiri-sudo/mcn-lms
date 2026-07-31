@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate } from './utils/browserRouter.jsx';
 import TraineePage from './pages/Trainee/TraineePage.jsx';
 import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';
@@ -9,6 +9,7 @@ import TrainingCalendarPage from './pages/TrainingCalendar/TrainingCalendarPage.
 import PracticalAssessmentsPage from './pages/PracticalAssessments/PracticalAssessmentsPage.jsx';
 import EvaluatorQualityPage from './pages/EvaluatorQuality/EvaluatorQualityPage.jsx';
 import AssessmentIntelligencePage from './pages/AssessmentIntelligence/AssessmentIntelligencePage.jsx';
+import SessionSecurityPage from './pages/SessionSecurity/SessionSecurityPage.jsx';
 import NotificationDock from './pages/Notifications/NotificationDock.jsx';
 import LearningToolsDock from './components/LearningToolsDock.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
@@ -25,6 +26,7 @@ export default function App() {
         <Route path="/practical-assessments" element={<PracticalAssessmentsPage />} />
         <Route path="/evaluator-quality" element={<EvaluatorQualityPage />} />
         <Route path="/assessment-intelligence" element={<AssessmentIntelligencePage />} />
+        <Route path="/session-security" element={<SessionSecurityPage />} />
         <Route path="/lms/*" element={<TraineePage />} />
         <Route path="/coordinator/*" element={<CoordinatorPage />} />
         <Route path="/admin/*" element={<AdminPage />} />

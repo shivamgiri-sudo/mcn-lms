@@ -4,30 +4,52 @@ import MgmtLogin from './MgmtLogin.jsx';
 import MgmtDashboard from './MgmtDashboard.jsx';
 
 export default function ManagementPage() {
-  const [session, setSession] = useState(localStorage.getItem('lms_token_management') || '');
+  const [session, setSession] = useState('checking');
 
   useEffect(() => {
-    if (session) checkSession();
-    const handler = () => { clearToken('management'); setSession(''); };
+    checkSession();
+    const handler = event => {
+      if (event.detail?.type && !['management', 'coordinator'].includes(event.detail.type)) return;
+      clearToken('management');
+      clearToken('coordinator');
+      setSession('none');
+    };
     window.addEventListener('lms:session-expired', handler);
     return () => window.removeEventListener('lms:session-expired', handler);
   }, []);
 
   async function checkSession() {
     const res = await api.get('/auth/me', 'management');
-    if (!res.ok) { clearToken('management'); setSession(''); }
-  }
-
-  function handleLogin(data) {
-    setToken('management', data.token);
-    setSession(data.token);
-  }
-
-  function handleLogout() {
+    if (res.ok) {
+      const allowed = res.user?.canViewManagementDashboard
+        || res.user?.role === 'CEO'
+        || res.user?.role === 'Super Admin';
+      if (allowed) {
+        setToken('management');
+        setToken('coordinator');
+        setSession('active');
+        return;
+      }
+    }
     clearToken('management');
-    setSession('');
+    clearToken('coordinator');
+    setSession('none');
   }
 
-  if (!session) return <MgmtLogin onLogin={handleLogin} />;
+  function handleLogin() {
+    setToken('management');
+    setToken('coordinator');
+    setSession('active');
+  }
+
+  async function handleLogout() {
+    await api.post('/auth/coordinator/logout', {}, 'management').catch(() => {});
+    clearToken('management');
+    clearToken('coordinator');
+    setSession('none');
+  }
+
+  if (session === 'checking') return <div className="wrap" style={{ paddingTop: 60, textAlign: 'center' }}><div className="spinner" /></div>;
+  if (session === 'none') return <MgmtLogin onLogin={handleLogin} />;
   return <MgmtDashboard onLogout={handleLogout} />;
 }

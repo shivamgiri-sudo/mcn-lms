@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from '../../utils/browserRouter.jsx';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import EvaluatorSelfView from './EvaluatorSelfView.jsx';
 import EvaluatorQualityAdminView from './EvaluatorQualityAdminView.jsx';

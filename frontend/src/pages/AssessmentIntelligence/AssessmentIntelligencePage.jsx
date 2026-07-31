@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from '../../utils/browserRouter.jsx';
 import { api } from '../../utils/api.js';
 
 const BASE = '/assessment-intelligence';

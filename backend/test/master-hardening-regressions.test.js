@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const root = new URL('../../', import.meta.url);
 const read = path => readFileSync(new URL(path, root), 'utf8');
@@ -14,8 +15,8 @@ const dependencyValidatorPath = new URL('../../deploy/scripts/validate-workflow-
 const exampleManifest = JSON.parse(read('deploy/release-manifest.example.json'));
 
 function runNode(scriptUrl, args = [], env = {}) {
-  return spawnSync(process.execPath, [scriptUrl.pathname, ...args], {
-    cwd: new URL('../../', import.meta.url).pathname,
+  return spawnSync(process.execPath, [fileURLToPath(scriptUrl), ...args], {
+    cwd: fileURLToPath(new URL('../../', import.meta.url)),
     env: { ...process.env, ...env },
     encoding: 'utf8',
   });
