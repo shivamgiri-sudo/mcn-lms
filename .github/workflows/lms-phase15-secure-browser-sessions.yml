@@ -1,0 +1,314 @@
+name: LMS Phase 15 Secure Browser Sessions
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-assessment-intelligence
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - 'deploy/**'
+      - 'docs/**'
+      - '.github/workflows/lms-phase15-secure-browser-sessions.yml'
+  push:
+    branches:
+      - agent/lms-secure-browser-sessions
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase15-secure-browser-sessions-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Migration browser-auth SSO regressions and production build
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_phase15
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=20
+    env:
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_phase15
+      NODE_ENV: test
+      SESSION_SECRET: phase15-session-secret-longer-than-thirty-two-characters
+      CSRF_SECRET: phase15-csrf-secret-different-and-longer-than-thirty-two
+      SESSION_FINGERPRINT_SECRET: phase15-fingerprint-secret-different-and-longer-than-thirty-two
+      OAUTH_STATE_SECRET: phase15-oauth-secret-longer-than-thirty-two-characters
+      HRMS_ASSERTION_SECRET: phase15-hrms-assertion-secret-longer-than-thirty-two
+      HRMS_ASSERTION_ISSUER: mcn-hrms-ci
+      HRMS_ASSERTION_AUDIENCE: mcn-lms-ci
+      HRMS_ASSERTION_MAX_TTL_SECONDS: 120
+      HRMS_ASSERTION_CLOCK_SKEW_SECONDS: 30
+      SSO_HANDOFF_TTL_SECONDS: 90
+      BRIDGE_ALLOW_PRIVILEGED: 'false'
+      BRIDGE_ALLOW_LEGACY_SECRET: 'false'
+      APP_ENCRYPTION_KEY: phase15-encryption-key-longer-than-thirty-two-characters
+      FRONTEND_URL: http://127.0.0.1:4100
+      SERVE_FRONTEND: 'false'
+      LMS_RUN_SCHEDULERS: 'false'
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: npm ci --ignore-scripts
+
+      - name: Generate and validate Prisma
+        working-directory: backend
+        run: |
+          npx prisma generate
+          npm run db:validate
+
+      - name: Apply all seventeen migrations
+        shell: bash
+        run: |
+          set -o pipefail
+          cd backend
+          npx prisma migrate deploy 2>&1 | tee /tmp/phase15-migrate.log
+
+      - name: Verify migration session SSO and permission inventory
+        run: |
+          applied=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_phase15 -e "SELECT COUNT(*) FROM _prisma_migrations WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL;")
+          test "$applied" = "17"
+          tables=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N information_schema -e "SELECT COUNT(*) FROM tables WHERE table_schema='lms_phase15' AND table_name IN ('sso_replay_nonce','sso_handoff_code','security_event');")
+          test "$tables" = "3"
+          columns=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N information_schema -e "SELECT COUNT(*) FROM columns WHERE table_schema='lms_phase15' AND table_name='portal_sessions' AND column_name IN ('session_family_id','auth_method','device_label','user_agent_hash','ip_hash','last_seen_at','absolute_expires_at','revoked_at','revoked_reason','csrf_version','elevation_expires_at');")
+          test "$columns" = "11"
+          permissions=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_phase15 -e "SELECT COUNT(*) FROM permission_master WHERE permission_key IN ('security.sessions.audit','security.elevation.use');")
+          test "$permissions" = "2"
+          manifest_count=$(wc -l < deploy/migrations.expected | tr -d ' ')
+          test "$manifest_count" = "17"
+
+      - name: Prove database constraints fail closed
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysql_cmd=(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_phase15)
+
+          "${mysql_cmd[@]}" -e "INSERT INTO sso_replay_nonce (nonce_id,jti_hash,issuer,audience,subject_id,subject_type,issued_at,expires_at) VALUES ('NONCE-P15-1',REPEAT('a',64),'issuer','audience','EMP-P15','trainee',CURRENT_TIMESTAMP(3),DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 2 MINUTE));"
+          if "${mysql_cmd[@]}" -e "INSERT INTO sso_replay_nonce (nonce_id,jti_hash,issuer,audience,subject_id,subject_type,issued_at,expires_at) VALUES ('NONCE-P15-2',REPEAT('a',64),'issuer','audience','EMP-P15','trainee',CURRENT_TIMESTAMP(3),DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 2 MINUTE));"; then
+            echo 'Duplicate assertion JTI was accepted.' >&2
+            exit 1
+          fi
+
+          "${mysql_cmd[@]}" -e "INSERT INTO sso_handoff_code (handoff_id,code_hash,user_id,user_type,redirect_path,expires_at) VALUES ('HANDOFF-P15-1',REPEAT('b',64),'EMP-P15','trainee','/lms',DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 90 SECOND));"
+          if "${mysql_cmd[@]}" -e "INSERT INTO sso_handoff_code (handoff_id,code_hash,user_id,user_type,redirect_path,expires_at) VALUES ('HANDOFF-P15-2',REPEAT('b',64),'EMP-P15','trainee','/lms',DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 90 SECOND));"; then
+            echo 'Duplicate handoff code was accepted.' >&2
+            exit 1
+          fi
+
+          if "${mysql_cmd[@]}" -e "INSERT INTO portal_sessions (id,session_family_id,token,user_id,user_type,auth_method,last_seen_at,expires_at,absolute_expires_at,created_at,updated_at) VALUES ('BAD-P15','BAD-P15',REPEAT('c',64),'EMP-P15','invalid','PASSWORD',CURRENT_TIMESTAMP(3),DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 1 HOUR),DATE_ADD(CURRENT_TIMESTAMP(3),INTERVAL 2 HOUR),CURRENT_TIMESTAMP(3),CURRENT_TIMESTAMP(3));"; then
+            echo 'Invalid session role was accepted.' >&2
+            exit 1
+          fi
+
+      - name: Seed browser-auth identities
+        working-directory: backend
+        run: |
+          node --input-type=module <<'NODE'
+          import { PrismaClient } from '@prisma/client';
+          import { generateSalt, hashPassword } from './src/utils/hash.js';
+          const prisma = new PrismaClient();
+          try {
+            const adminSalt = generateSalt();
+            await prisma.adminUserMaster.create({
+              data: {
+                adminId: 'ADMIN-P15',
+                passwordHash: await hashPassword('AdminStrong!2026', adminSalt),
+                salt: adminSalt,
+                adminName: 'Phase 15 Administrator',
+                role: 'Super Admin',
+                branch: null,
+                active: true,
+              },
+            });
+            const traineeSalt = generateSalt();
+            await prisma.traineeMaster.create({
+              data: {
+                employeeId: 'EMP-P15',
+                traineeName: 'Phase 15 Learner',
+                status: 'Active',
+                branch: 'Noida',
+              },
+            });
+            await prisma.userMaster.create({
+              data: {
+                employeeId: 'EMP-P15',
+                passwordHash: await hashPassword('LearnerStrong!2026', traineeSalt),
+                salt: traineeSalt,
+                traineeName: 'Phase 15 Learner',
+                branch: 'Noida',
+                active: true,
+                forcePasswordReset: false,
+              },
+            });
+          } finally {
+            await prisma.$disconnect();
+          }
+          NODE
+
+      - name: Validate repository policies and JavaScript
+        run: |
+          node deploy/scripts/validate-migration-safety.mjs --json | tee /tmp/phase15-migration-policy.json
+          node deploy/scripts/validate-route-security.mjs --json | tee /tmp/phase15-route-policy.json
+          find backend/src backend/test deploy/scripts -name '*.js' -o -name '*.mjs' | xargs -n1 node --check
+
+      - name: Run complete backend regression suite
+        working-directory: backend
+        run: npm test
+
+      - name: Exercise live cookie CSRF elevation and SSO contracts
+        shell: bash
+        env:
+          NODE_ENV: production
+          PORT: 4100
+          SESSION_COOKIE_SECURE: 'false'
+          SESSION_COOKIE_SAME_SITE: lax
+          LMS_ALLOW_ORIGINLESS_AUTH: 'false'
+          LMS_ALLOW_BEARER_SESSION_COMPAT: 'false'
+          SECURITY_ELEVATION_MINUTES: 15
+        run: |
+          set -euo pipefail
+          cd backend
+          node src/server.js >/tmp/phase15-server.log 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for _ in $(seq 1 40); do
+            curl -fsS http://127.0.0.1:4100/api/health/live >/dev/null && break
+            sleep 1
+          done
+
+          admin_login=$(curl -fsS -D /tmp/phase15-admin-headers.txt -c /tmp/phase15-admin.cookies \
+            -H 'Origin: http://127.0.0.1:4100' \
+            -H 'Content-Type: application/json' \
+            -H 'X-LMS-Role: admin' \
+            -d '{"adminId":"ADMIN-P15","password":"AdminStrong!2026"}' \
+            http://127.0.0.1:4100/api/auth/admin/login)
+          echo "$admin_login" | tee /tmp/phase15-admin-login.json
+          grep -qiE '^set-cookie: lms_admin_session=.*HttpOnly' /tmp/phase15-admin-headers.txt
+          if echo "$admin_login" | grep -Eq '"token"|"lms_token"'; then
+            echo 'Raw session token leaked in login response.' >&2
+            exit 1
+          fi
+
+          curl -fsS -b /tmp/phase15-admin.cookies -H 'X-LMS-Role: admin' \
+            http://127.0.0.1:4100/api/auth/me | tee /tmp/phase15-auth-me.json
+          csrf_json=$(curl -fsS -b /tmp/phase15-admin.cookies -H 'X-LMS-Role: admin' \
+            http://127.0.0.1:4100/api/auth/csrf)
+          csrf=$(CSRF_JSON="$csrf_json" node -e "const x=JSON.parse(process.env.CSRF_JSON); if(!x.csrfToken) process.exit(1); process.stdout.write(x.csrfToken)")
+
+          no_csrf_status=$(curl -sS -o /tmp/phase15-no-csrf.json -w '%{http_code}' \
+            -b /tmp/phase15-admin.cookies -H 'Origin: http://127.0.0.1:4100' \
+            -H 'Content-Type: application/json' -H 'X-LMS-Role: admin' \
+            -d '{}' http://127.0.0.1:4100/api/auth/sessions/revoke-others)
+          test "$no_csrf_status" = "403"
+          grep -q 'CSRF_REJECTED' /tmp/phase15-no-csrf.json
+
+          curl -fsS -b /tmp/phase15-admin.cookies -H 'Origin: http://127.0.0.1:4100' \
+            -H 'Content-Type: application/json' -H 'X-LMS-Role: admin' \
+            -H "X-CSRF-Token: $csrf" -d '{}' \
+            http://127.0.0.1:4100/api/auth/sessions/revoke-others | tee /tmp/phase15-csrf-accepted.json
+
+          curl -fsS -b /tmp/phase15-admin.cookies -H 'Origin: http://127.0.0.1:4100' \
+            -H 'Content-Type: application/json' -H 'X-LMS-Role: admin' \
+            -H "X-CSRF-Token: $csrf" \
+            -d '{"password":"AdminStrong!2026","reason":"Production identity governance verification for Phase 15 CI."}' \
+            http://127.0.0.1:4100/api/auth/security/elevate | tee /tmp/phase15-elevation.json
+          grep -q 'elevatedUntil' /tmp/phase15-elevation.json
+
+          assertion=$(node --input-type=module <<'NODE'
+          import { createHmac, randomUUID } from 'crypto';
+          const encode = value => Buffer.from(JSON.stringify(value)).toString('base64url');
+          const now = Math.floor(Date.now() / 1000);
+          const header = encode({ alg: 'HS256', typ: 'JWT' });
+          const payload = encode({ iss: process.env.HRMS_ASSERTION_ISSUER, aud: process.env.HRMS_ASSERTION_AUDIENCE, sub: 'EMP-P15', user_type: 'trainee', jti: randomUUID(), iat: now, exp: now + 90, redirect_path: '/lms' });
+          const signature = createHmac('sha256', process.env.HRMS_ASSERTION_SECRET).update(`${header}.${payload}`).digest('base64url');
+          process.stdout.write(`${header}.${payload}.${signature}`);
+          NODE
+          )
+          bridge_json=$(curl -fsS -H 'Content-Type: application/json' \
+            -d "$(ASSERTION="$assertion" node -e "process.stdout.write(JSON.stringify({assertion:process.env.ASSERTION}))")" \
+            http://127.0.0.1:4100/api/auth/bridge)
+          echo "$bridge_json" | tee /tmp/phase15-bridge.json
+          if echo "$bridge_json" | grep -Eq '"token"|"lms_token"'; then
+            echo 'Bridge returned a browser session token.' >&2
+            exit 1
+          fi
+          handoff=$(BRIDGE_JSON="$bridge_json" node -e "const x=JSON.parse(process.env.BRIDGE_JSON); if(!x.handoff_code) process.exit(1); process.stdout.write(x.handoff_code)")
+
+          replay_status=$(curl -sS -o /tmp/phase15-replay.json -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            -d "$(ASSERTION="$assertion" node -e "process.stdout.write(JSON.stringify({assertion:process.env.ASSERTION}))")" \
+            http://127.0.0.1:4100/api/auth/bridge)
+          test "$replay_status" = "409"
+
+          exchange_body=$(HANDOFF="$handoff" node -e "process.stdout.write(JSON.stringify({code:process.env.HANDOFF,userType:'trainee'}))")
+          curl -fsS -D /tmp/phase15-sso-headers.txt -c /tmp/phase15-sso.cookies \
+            -H 'Origin: http://127.0.0.1:4100' -H 'Content-Type: application/json' \
+            -H 'X-LMS-Role: trainee' -d "$exchange_body" \
+            http://127.0.0.1:4100/api/auth/sso/exchange | tee /tmp/phase15-sso-exchange.json
+          grep -qiE '^set-cookie: lms_trainee_session=.*HttpOnly' /tmp/phase15-sso-headers.txt
+
+          reused_status=$(curl -sS -o /tmp/phase15-sso-reused.json -w '%{http_code}' \
+            -H 'Origin: http://127.0.0.1:4100' -H 'Content-Type: application/json' \
+            -H 'X-LMS-Role: trainee' -d "$exchange_body" \
+            http://127.0.0.1:4100/api/auth/sso/exchange)
+          test "$reused_status" = "401"
+
+          hashed=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_phase15 -e "SELECT COUNT(*) FROM portal_sessions WHERE token REGEXP '^[0-9a-f]{64}$' AND revoked_at IS NULL;")
+          test "$hashed" -ge "2"
+
+      - name: Audit backend production dependencies
+        working-directory: backend
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Build and audit frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+          npm audit --omit=dev --audit-level=high
+
+      - name: Upload Phase 15 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase15-secure-browser-session-evidence
+          path: |
+            /tmp/phase15-migrate.log
+            /tmp/phase15-migration-policy.json
+            /tmp/phase15-route-policy.json
+            /tmp/phase15-server.log
+            /tmp/phase15-admin-headers.txt
+            /tmp/phase15-admin-login.json
+            /tmp/phase15-auth-me.json
+            /tmp/phase15-no-csrf.json
+            /tmp/phase15-csrf-accepted.json
+            /tmp/phase15-elevation.json
+            /tmp/phase15-bridge.json
+            /tmp/phase15-replay.json
+            /tmp/phase15-sso-headers.txt
+            /tmp/phase15-sso-exchange.json
+            /tmp/phase15-sso-reused.json
+          if-no-files-found: warn
+          retention-days: 30

@@ -22,8 +22,12 @@ COPY backend/src ./src
 
 FROM node:20-bookworm-slim AS runtime
 RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install -y --no-install-recommends ca-certificates curl dumb-init openssl \
     && rm -rf /var/lib/apt/lists/* \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    && rm -f /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack \
+       /usr/local/bin/yarn /usr/local/bin/yarnpkg /usr/local/bin/pnpm /usr/local/bin/pnpx \
     && groupadd --system --gid 10001 lms \
     && useradd --system --uid 10001 --gid lms --home-dir /app --shell /usr/sbin/nologin lms
 

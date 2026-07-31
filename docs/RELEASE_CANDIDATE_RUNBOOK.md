@@ -19,16 +19,19 @@ Merge the stacked pull requests in dependency order:
 9. PR #12 — runtime leases and rollout governance
 10. PR #13 — release candidate rehearsal and guarded deployment
 11. PR #14 — master release governance, provenance and recovery evidence
+12. PR #15 — continuous security assurance and protected learning content
+13. PR #16 — governed assessment intelligence and adaptive remediation
+14. Phase 15 stacked release — secure browser sessions and identity assurance
 
 Do not squash or reorder database migrations independently of the application commits that consume them.
 
-The canonical release chain contains **15 migrations**, beginning with `20260630053213_init` and ending with `20260725150000_production_runtime_governance`. `deploy/migrations.expected` is the machine-readable order used by CI.
+The canonical release chain contains **17 migrations**, beginning with `20260630053213_init` and ending with `20260729100000_secure_browser_sessions`. `deploy/migrations.expected` is the machine-readable order used by CI.
 
 ## Release prerequisites
 
 - Rotate every previously exposed HRMS or LMS credential.
 - Create protected staging and production environment files from `deploy/.env.staging.example` and `deploy/.env.production.example`.
-- Use unique 32+ character values for session, OAuth, bridge, HR API and token-encryption secrets.
+- Use independent 32+ character values for session, CSRF, session-fingerprint, OAuth, signed-HRMS-assertion, HR API and token-encryption secrets.
 - Configure a separate HTTPS SCORM origin.
 - Assign stable `LMS_INSTANCE_ID`, `LMS_INSTANCE_ROLE`, `APP_VERSION` and `DEPLOYMENT_ID` values.
 - Keep scheduler execution enabled only on designated worker processes. Database leases provide a second safety layer, not a reason to enable schedulers everywhere.
@@ -141,7 +144,7 @@ LMS_IMAGE="${LMS_IMAGE}" \
 
 CI proves two paths:
 
-- all 15 migrations against empty MySQL 8 for a clean installation;
+- all 17 migrations against empty MySQL 8 for a clean installation;
 - the init baseline with preserved sentinel data, followed by the remaining feature migrations, for an in-place upgrade.
 
 Migrations are forward-only. Do not attempt destructive SQL rollback. Application rollback is permitted only when the release manifest declares the migration set backward-compatible.
