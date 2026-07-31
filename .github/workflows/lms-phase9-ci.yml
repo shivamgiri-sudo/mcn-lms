@@ -1,0 +1,254 @@
+name: LMS Phase 9 CI
+
+on:
+  pull_request:
+    branches:
+      - agent/lms-evaluator-quality-operations
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/lms-phase9-ci.yml'
+  push:
+    branches:
+      - agent/lms-evaluator-governance
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lms-phase9-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  appeal-governance-backend:
+    name: Evaluator appeal governance backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_password
+          MYSQL_DATABASE: lms_ci
+          MYSQL_USER: lms_ci
+          MYSQL_PASSWORD: lms_ci_password
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -proot_password"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      NODE_ENV: test
+      DATABASE_URL: mysql://lms_ci:lms_ci_password@127.0.0.1:3306/lms_ci
+      SESSION_SECRET: phase9-session-secret-that-is-longer-than-32-characters
+      APP_ENCRYPTION_KEY: phase9-encryption-key-that-is-longer-than-32-characters
+      FRONTEND_URL: http://localhost:5173
+      LMS_RUN_SCHEDULERS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend dependencies
+        run: npm ci --ignore-scripts
+      - name: Generate and validate Prisma
+        run: |
+          npx prisma generate
+          npm run db:validate
+      - name: Apply all stacked migrations
+        shell: bash
+        run: |
+          set -euo pipefail
+          for migration in \
+            prisma/migrations/20260724090000_secure_password_recovery/migration.sql \
+            prisma/migrations/20260724110000_talent_and_permissions_foundation/migration.sql \
+            prisma/migrations/20260724140000_coaching_and_certification_lifecycle/migration.sql \
+            prisma/migrations/20260724170000_instructor_led_training/migration.sql \
+            prisma/migrations/20260724200000_notification_outbox_calendar_feeds/migration.sql \
+            prisma/migrations/20260724201000_notification_template_supplement/migration.sql \
+            prisma/migrations/20260724230000_practical_assessment_rubrics/migration.sql \
+            prisma/migrations/20260724231000_practical_notification_templates/migration.sql \
+            prisma/migrations/20260724233000_evaluator_calibration_reliability/migration.sql \
+            prisma/migrations/20260724233500_calibration_program_history_guard/migration.sql \
+            prisma/migrations/20260725090000_evaluator_quality_operations/migration.sql \
+            prisma/migrations/20260725120000_evaluator_appeals_governance/migration.sql \
+            prisma/migrations/20260725121000_evaluator_appeal_notification_supplement/migration.sql
+          do
+            echo "Applying $migration"
+            mysql --show-warnings --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci < "$migration"
+          done
+      - name: Verify appeal governance schema permissions and templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          table_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM information_schema.tables
+             WHERE table_schema='lms_ci'
+               AND table_name IN ('evaluator_calibration_appeal','evaluator_calibration_appeal_event','evaluator_governance_evidence_pack');")
+          template_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM notification_template
+             WHERE event_type IN (
+               'CALIBRATION_APPEAL_SUBMITTED','CALIBRATION_APPEAL_ACKNOWLEDGED',
+               'CALIBRATION_APPEAL_INFORMATION_REQUESTED','CALIBRATION_APPEAL_INFORMATION_PROVIDED',
+               'CALIBRATION_APPEAL_RESOLVED','CALIBRATION_APPEAL_SLA_BREACHED',
+               'CALIBRATION_EVIDENCE_PACK_READY'
+             ) AND channel IN ('IN_APP','EMAIL');")
+          permission_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM permission_master
+             WHERE permission_key IN ('calibration.appeal_self','calibration.appeal_manage','calibration.evidence_export');")
+          unique_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(DISTINCT CONCAT(table_name, ':', index_name))
+              FROM information_schema.statistics
+             WHERE table_schema='lms_ci' AND non_unique=0
+               AND index_name IN (
+                 'uq_evaluator_appeal_code','uq_evaluator_appeal_assignment',
+                 'uq_evaluator_appeal_event_sequence','uq_evaluator_appeal_event_hash',
+                 'uq_evaluator_governance_pack_code','uq_evaluator_governance_pack_hash',
+                 'uq_evaluator_governance_pack_version'
+               );")
+          check_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM information_schema.check_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN (
+                 'chk_evaluator_appeal_type','chk_evaluator_appeal_category','chk_evaluator_appeal_outcome',
+                 'chk_evaluator_appeal_status','chk_evaluator_appeal_priority','chk_evaluator_appeal_statement',
+                 'chk_evaluator_appeal_window','chk_evaluator_appeal_sla','chk_evaluator_appeal_resolution',
+                 'chk_evaluator_appeal_resolution_type','chk_evaluator_appeal_action',
+                 'chk_evaluator_appeal_event_sequence','chk_evaluator_appeal_event_type',
+                 'chk_evaluator_appeal_event_actor','chk_evaluator_appeal_event_previous_hash',
+                 'chk_evaluator_appeal_event_hash','chk_evaluator_governance_pack_type',
+                 'chk_evaluator_governance_pack_status','chk_evaluator_governance_pack_scope',
+                 'chk_evaluator_governance_pack_version','chk_evaluator_governance_pack_hash',
+                 'chk_evaluator_governance_pack_revocation'
+               );")
+          fk_count=$(mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password -N lms_ci -e "
+            SELECT COUNT(*) FROM information_schema.referential_constraints
+             WHERE constraint_schema='lms_ci'
+               AND constraint_name IN (
+                 'fk_evaluator_appeal_assignment','fk_evaluator_appeal_reassessment',
+                 'fk_evaluator_appeal_event_appeal','fk_evaluator_governance_pack_assignment',
+                 'fk_evaluator_governance_pack_appeal'
+               );")
+          test "$table_count" = "3"
+          test "$template_count" = "14"
+          test "$permission_count" = "3"
+          test "$unique_count" = "7"
+          test "$check_count" = "22"
+          test "$fk_count" = "5"
+      - name: Verify database rejection guards
+        shell: bash
+        run: |
+          set -euo pipefail
+          mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            SET FOREIGN_KEY_CHECKS=0;
+            INSERT INTO evaluator_calibration_appeal
+              (appeal_id, appeal_code, assignment_id, evaluator_id, evaluator_type,
+               category, desired_outcome, appeal_statement, status, priority,
+               appeal_window_ends_at, sla_due_at)
+            VALUES
+              ('10000000-0000-0000-0000-000000000001','MCN-APL-CI-001','20000000-0000-0000-0000-000000000001',
+               'EVAL-CI','coordinator','SCORE_DISAGREEMENT','SCORE_REVIEW',
+               'This is a valid calibration appeal statement created for database contract verification.',
+               'SUBMITTED','NORMAL',DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 14 DAY),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 5 DAY));
+            SET FOREIGN_KEY_CHECKS=1;"
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            SET FOREIGN_KEY_CHECKS=0;
+            INSERT INTO evaluator_calibration_appeal
+              (appeal_id, appeal_code, assignment_id, evaluator_id, evaluator_type,
+               category, desired_outcome, appeal_statement, status, priority,
+               appeal_window_ends_at, sla_due_at)
+            VALUES
+              ('10000000-0000-0000-0000-000000000002','MCN-APL-CI-002','20000000-0000-0000-0000-000000000001',
+               'EVAL-CI','coordinator','OTHER','OTHER',
+               'This duplicate assignment appeal must be rejected by the unique governance rule.',
+               'SUBMITTED','NORMAL',DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 14 DAY),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 5 DAY));"; then
+            echo 'Duplicate assignment appeal was accepted' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            SET FOREIGN_KEY_CHECKS=0;
+            INSERT INTO evaluator_calibration_appeal
+              (appeal_id, appeal_code, assignment_id, evaluator_id, evaluator_type,
+               category, desired_outcome, appeal_statement, status, priority,
+               appeal_window_ends_at, sla_due_at)
+            VALUES
+              ('10000000-0000-0000-0000-000000000003','MCN-APL-CI-003','20000000-0000-0000-0000-000000000003',
+               'EVAL-CI','coordinator','OTHER','OTHER','Too short',
+               'SUBMITTED','NORMAL',DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 14 DAY),DATE_ADD(UTC_TIMESTAMP(3),INTERVAL 5 DAY));"; then
+            echo 'Short appeal statement was accepted' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            INSERT INTO evaluator_calibration_appeal_event
+              (event_id, appeal_id, sequence_no, event_type, actor_id, actor_type, event_hash)
+            VALUES
+              ('30000000-0000-0000-0000-000000000001','10000000-0000-0000-0000-000000000001',1,
+               'SUBMITTED','EVAL-CI','coordinator','invalid-hash');"; then
+            echo 'Invalid appeal event hash was accepted' >&2
+            exit 1
+          fi
+          if mysql --protocol=TCP -h127.0.0.1 -ulms_ci -plms_ci_password lms_ci -e "
+            SET FOREIGN_KEY_CHECKS=0;
+            INSERT INTO evaluator_governance_evidence_pack
+              (pack_id, pack_code, subject_key, assignment_id, evaluator_id, evaluator_type,
+               pack_type, version_no, status, scope_level, manifest_json, manifest_hash, generated_by)
+            VALUES
+              ('40000000-0000-0000-0000-000000000001','MCN-GOV-CI-001','assignment:ci',
+               '20000000-0000-0000-0000-000000000001','EVAL-CI','coordinator','ASSIGNMENT',1,
+               'ACTIVE','SELF',JSON_OBJECT('ok',true),'invalid-hash','ci');"; then
+            echo 'Invalid evidence-pack hash was accepted' >&2
+            exit 1
+          fi
+      - name: Check backend JavaScript syntax
+        run: find src test -name '*.js' -print0 | xargs -0 -n1 node --check
+      - name: Run backend regressions with diagnostics
+        id: regressions
+        shell: bash
+        run: |
+          set +e
+          npm test 2>&1 | tee /tmp/phase9-regressions.log
+          status=${PIPESTATUS[0]}
+          echo "$status" > /tmp/phase9-regressions.status
+          exit 0
+      - name: Upload Phase 9 regression diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase9-regression-diagnostics
+          path: |
+            /tmp/phase9-regressions.log
+            /tmp/phase9-regressions.status
+          retention-days: 14
+      - name: Enforce backend regressions
+        run: test "$(cat /tmp/phase9-regressions.status)" = "0"
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+  appeal-governance-frontend:
+    name: Phase 9 frontend build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Build production frontend
+        run: npm run build
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high
