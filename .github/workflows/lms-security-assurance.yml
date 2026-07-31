@@ -100,7 +100,7 @@ jobs:
           npm audit --omit=dev --audit-level=high
       - name: Upload policy evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-policy-evidence
           path: |
@@ -236,7 +236,7 @@ jobs:
           test "$worker" = "1"
       - name: Upload runtime security evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: security-runtime-evidence
           path: |

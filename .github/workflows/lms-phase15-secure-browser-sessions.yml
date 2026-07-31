@@ -291,7 +291,7 @@ jobs:
 
       - name: Upload Phase 15 evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: phase15-secure-browser-session-evidence
           path: |

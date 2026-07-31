@@ -145,7 +145,7 @@ jobs:
         run: npm audit --omit=dev --audit-level=high
       - name: Upload migration rehearsal evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-candidate-migration-evidence
           path: |
@@ -260,7 +260,7 @@ jobs:
           docker logs lms-rc-worker > /tmp/lms-rc-worker.log 2>&1 || true
       - name: Upload container logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-candidate-container-logs
           path: |
