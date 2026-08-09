@@ -67,7 +67,7 @@ jobs:
           echo "short_commit=${commit:0:12}" >> "$GITHUB_OUTPUT"
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        uses: docker/login-action@eed250920367120910219051b8653a1d846f7f03
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
