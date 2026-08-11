@@ -154,7 +154,16 @@ async function deliverReset(account, rawToken) {
 
   if (!attempts.length) return { delivered: false, results: [] };
   const settled = await Promise.allSettled(attempts);
-  const results = settled.map(item => item.status === 'fulfilled' ? item.value : { ok: false, message: 'Delivery failed.' });
+  const results = settled.map(item => {
+    if (item.status === 'fulfilled') {
+      // A channel can resolve without delivering (disabled, or missing credentials).
+      if (!item.value?.ok) console.warn('[AUTH] recovery channel did not deliver:', item.value?.message);
+      return item.value;
+    }
+    // Without this the underlying SMTP/SMS error is lost and the failure is invisible.
+    console.error('[AUTH] recovery delivery threw:', item.reason?.response || item.reason?.message || item.reason);
+    return { ok: false, message: 'Delivery failed.' };
+  });
   return { delivered: results.some(result => result?.ok), results };
 }
 
