@@ -50,15 +50,24 @@ export const contentSchema = z.object({
   description: z.string().optional().nullable(),
 });
 
+// Browser forms post empty strings for numeric fields the user never touched,
+// and number inputs arrive as strings. Normalise both to a number or absent so
+// the schema accepts what the controllers already handle.
+const formNumber = value => {
+  if (value === '' || value === null || value === undefined) return undefined;
+  if (typeof value === 'string' && value.trim() !== '' && Number.isFinite(Number(value))) return Number(value);
+  return value;
+};
+
 export const assessmentSchema = z.object({
   assessmentName: z.string().min(1, 'Assessment name required'),
   classroomId: z.string().min(1, 'Classroom required'),
-  dayNo: z.number().int().optional().nullable(),
+  dayNo: z.preprocess(formNumber, z.number().int().optional().nullable()),
   moduleId: z.string().optional().nullable(),
-  sortOrder: z.number().int().optional().default(0),
-  passingPct: z.number().min(0).max(100).optional().default(60),
-  attemptLimit: z.number().int().min(1).optional().default(3),
-  timeLimitMins: z.number().int().min(1).optional().default(30),
+  sortOrder: z.preprocess(formNumber, z.number().int().optional().default(0)),
+  passingPct: z.preprocess(formNumber, z.number().min(0).max(100).optional().default(60)),
+  attemptLimit: z.preprocess(formNumber, z.number().int().min(1).optional().default(3)),
+  timeLimitMins: z.preprocess(formNumber, z.number().int().min(1).optional().default(30)),
   instructions: z.string().optional().nullable(),
 });
 
@@ -95,8 +104,11 @@ export function validate(schema) {
   return (req, res, next) => {
     const result = schema.safeParse(req.body);
     if (!result.success) {
-      const first = result.error.errors[0];
-      return res.status(400).json({ ok: false, message: first?.message || 'Validation error', errors: result.error.errors });
+      // zod v4 exposes .issues; v3 exposed .errors. Read both so a failed
+      // validation returns 400 instead of throwing inside the middleware.
+      const issues = result.error.issues || result.error.errors || [];
+      const first = issues[0];
+      return res.status(400).json({ ok: false, message: first?.message || 'Validation error', errors: issues });
     }
     req.validated = result.data;
     next();
