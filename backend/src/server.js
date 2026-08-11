@@ -58,6 +58,14 @@ if (isProduction && !String(process.env.FRONTEND_URL || '').trim()) {
 }
 
 app.disable('x-powered-by');
+
+// MySQL INT UNSIGNED and BIGINT columns come back from raw queries as JS BigInt,
+// which JSON.stringify cannot serialise - that turned whole responses into 500s.
+// Emit them as numbers, falling back to a string beyond the safe integer range.
+app.set('json replacer', (_key, value) => {
+  if (typeof value !== 'bigint') return value;
+  return value <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(value) : value.toString();
+});
 app.set('trust proxy', process.env.TRUST_PROXY === 'true' ? 1 : false);
 app.use((req, res, next) => {
   const requestId = String(req.headers['x-request-id'] || '').trim().slice(0, 100) || randomUUID();
