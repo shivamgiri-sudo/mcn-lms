@@ -129,6 +129,7 @@ export default function AdminConsole({ user, onLogout }) {
           <span className="nav-user">👤 {user?.adminId || 'Admin'}{user?.branch ? <span style={{marginLeft:8,fontSize:10,opacity:.6,background:'rgba(128,128,128,.15)',padding:'2px 6px',borderRadius:4}}>{user.branch}</span> : null}</span>
           <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid rgba(128,128,128,.3)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'inherit', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
           <button className="btn small secondary" style={{ marginRight: 6 }} onClick={() => setShowPwModal(true)}>Change Password</button>
+          <RoleSwitchButtons />
           <button className="nav-logout" onClick={onLogout}>Logout</button>
         </div>
       </div>
@@ -191,5 +192,37 @@ export default function AdminConsole({ user, onLogout }) {
         </div>
       )}
     </div>
+  );
+}
+
+
+// Opens the coordinator or learner view for the identities linked to this admin.
+// The views open in a new tab so the admin console stays where it is; the role
+// cookies are separate, so both sessions are live at once.
+function RoleSwitchButtons() {
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+
+  async function open(role) {
+    setBusy(role);
+    setError('');
+    const res = await api.post('/auth/role-switch', { role }, 'admin');
+    setBusy('');
+    if (res.ok) window.open(res.redirectPath, '_blank', 'noopener');
+    else setError(res.message || 'Could not open that view.');
+  }
+
+  return (
+    <>
+      <button className="btn small secondary" disabled={busy === 'coordinator'} onClick={() => open('coordinator')}
+        title="Open the coordinator portal as your linked coordinator identity">
+        {busy === 'coordinator' ? 'Opening…' : 'Coordinator view'}
+      </button>
+      <button className="btn small secondary" disabled={busy === 'trainee'} onClick={() => open('trainee')}
+        title="Open the learner portal as your linked learner record">
+        {busy === 'trainee' ? 'Opening…' : 'Learner view'}
+      </button>
+      {error && <span style={{ fontSize: 11.5, color: 'var(--bad)', maxWidth: 220 }}>{error}</span>}
+    </>
   );
 }

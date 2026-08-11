@@ -453,6 +453,58 @@ router.post('/auth/sso/exchange', requireTrustedOrigin, exchangeLimiter, async (
 });
 
 // Explicitly document the route layer version for diagnostics and contract tests.
+// An administrator may also hold a coordinator identity, and through it a
+// learner record. Session cookies are role scoped, so switching opens that view
+// alongside the admin session instead of replacing it. Only identities linked to
+// the signed in admin can be reached.
+router.post('/auth/role-switch', requireTrustedOrigin, requireSession, requireRole('admin'), async (req, res) => {
+  try {
+    const role = normalizeSessionRole(req.body?.role);
+    if (!['coordinator', 'trainee'].includes(role)) {
+      return res.status(400).json({ ok: false, message: 'Choose either the coordinator or the learner view.' });
+    }
+
+    const linked = await prisma.roleAccessMatrix.findFirst({ where: { loginId: req.userId, active: true } });
+    if (!linked || linked.locked) {
+      return res.status(404).json({ ok: false, message: 'No coordinator identity is linked to this admin account.' });
+    }
+
+    let targetId = linked.loginId;
+    if (role === 'trainee') {
+      const employeeCode = String(linked.employeeCode || '').trim();
+      if (!employeeCode) {
+        return res.status(404).json({ ok: false, message: 'No learner record is linked to this admin account.' });
+      }
+      const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId: employeeCode } });
+      if (!trainee || trainee.status !== 'Active') {
+        return res.status(404).json({ ok: false, message: 'The linked learner record is not active.' });
+      }
+      targetId = trainee.employeeId;
+    }
+
+    const session = await establishBrowserSession(req, res, targetId, role, { authMethod: 'ROLE_SWITCH' });
+    await audit({
+      userIdentity: req.userId,
+      userRole: 'Admin',
+      action: 'ROLE_SWITCH',
+      module: 'Auth',
+      referenceId: targetId,
+      newValue: { role },
+      source: 'Admin Console',
+    });
+    return res.json({
+      ok: true,
+      role,
+      userId: targetId,
+      sessionId: session.id,
+      redirectPath: role === 'coordinator' ? '/coordinator' : '/lms',
+    });
+  } catch (error) {
+    console.error('[BROWSER_AUTH] role switch failed:', error.message);
+    return res.status(500).json({ ok: false, message: 'Could not open that view.' });
+  }
+});
+
 router.get('/auth/session-capabilities', (_req, res) => res.json({
   ok: true,
   version: 2,
