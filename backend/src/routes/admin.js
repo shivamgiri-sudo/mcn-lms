@@ -27,6 +27,7 @@ import {
   listBranches, getBranchDetail,
   listPortalUsers, createPortalUser, updatePortalUser, changeUserRole, deletePortalUser, resetPortalUserPin,
   listBroadcastAssignments, withdrawBroadcastAssignment,
+  listBatchClassrooms, addBatchClassrooms, removeBatchClassroom, setPrimaryBatchClassroom,
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
   exportModuleCompletion, exportAssessmentResults, exportAttendanceLog,
@@ -132,6 +133,10 @@ router.delete('/process-lob/:id', ...superElevatedAuth, deleteProcessLob);
 
 router.get('/batches', ...auth, listBatches);
 router.post('/batches', ...auth, validate(batchSchema), adminCreateBatch);
+router.get('/batches/:batchNo/classrooms', ...auth, listBatchClassrooms);
+router.post('/batches/:batchNo/classrooms', ...auth, addBatchClassrooms);
+router.put('/batches/:batchNo/classrooms/:classroomId/primary', ...auth, setPrimaryBatchClassroom);
+router.delete('/batches/:batchNo/classrooms/:classroomId', ...auth, removeBatchClassroom);
 router.post('/batches/:batchNo/trainees/bulk', ...auth, adminBulkAddTrainees);
 router.get('/batches/:batchNo', ...auth, getBatchDetail);
 router.get('/batches/:batchNo/analytics', ...auth, getBatchAnalytics);

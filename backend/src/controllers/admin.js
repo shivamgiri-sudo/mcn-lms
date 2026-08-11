@@ -2015,6 +2015,10 @@ export async function adminCreateBatch(req, res) {
       },
     });
 
+    const extraClassroomIds = [...new Set((Array.isArray(req.body?.classroomIds) ? req.body.classroomIds : [])
+      .map(value => String(value || '').trim())
+      .filter(id => id && id !== classroomId))];
+
     if (classroomId && classroomName) {
       await prisma.batchClassroomMap.create({
         data: {
@@ -3302,6 +3306,192 @@ export async function withdrawBroadcastAssignment(req, res) {
     });
   } catch (err) {
     console.error('[BROADCAST] withdraw failed:', err.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+
+// ── Batch classrooms ──────────────────────────────────────────────────────────
+// batch_master.classroomId stays the primary classroom and still drives the
+// learner dashboard. batch_classroom_map holds every classroom attached to the
+// batch, and each trainee is enrolled into all of them through
+// trainee_classroom_map so they can actually open that content.
+async function attachBatchClassrooms(batchNo, classroomIds, assignedBy) {
+  const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+  if (!batch) return { attached: [], unknown: classroomIds };
+
+  const classrooms = await prisma.classroomMaster.findMany({
+    where: { classroomId: { in: classroomIds }, active: true },
+  });
+  const found = new Set(classrooms.map(c => c.classroomId));
+  const trainees = await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } });
+
+  for (const classroom of classrooms) {
+    const data = {
+      batchName: batch.batchName,
+      branch: batch.branch,
+      process: batch.process,
+      lob: batch.lob,
+      classroomId: classroom.classroomId,
+      classroomName: classroom.classroomName,
+      active: true,
+      assignedBy,
+    };
+    const existing = await prisma.batchClassroomMap.findFirst({
+      where: { batchNo, classroomId: classroom.classroomId },
+    });
+    if (existing) await prisma.batchClassroomMap.update({ where: { id: existing.id }, data });
+    else await prisma.batchClassroomMap.create({ data: { batchNo, ...data } });
+
+    for (const trainee of trainees) {
+      await prisma.traineeClassroomMap.upsert({
+        where: { employeeId_classroomId: { employeeId: trainee.employeeId, classroomId: classroom.classroomId } },
+        create: { employeeId: trainee.employeeId, classroomId: classroom.classroomId, batchNo, assignedBy },
+        update: { active: true, batchNo, assignedBy },
+      });
+    }
+  }
+
+  return {
+    attached: classrooms.map(c => ({ classroomId: c.classroomId, classroomName: c.classroomName })),
+    unknown: classroomIds.filter(id => !found.has(id)),
+  };
+}
+
+export async function listBatchClassrooms(req, res) {
+  try {
+    const batchNo = String(req.params.batchNo || '').trim();
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+
+    const rows = await prisma.batchClassroomMap.findMany({
+      where: { batchNo, active: true },
+      orderBy: { assignedAt: 'asc' },
+    });
+    const data = rows.map(row => ({
+      id: row.id,
+      classroomId: row.classroomId,
+      classroomName: row.classroomName,
+      assignedBy: row.assignedBy,
+      assignedAt: row.assignedAt,
+      primary: row.classroomId === batch.classroomId,
+    }));
+    return res.json({ ok: true, data, primaryClassroomId: batch.classroomId || null });
+  } catch (err) {
+    console.error('[BATCH] list classrooms failed:', err.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function addBatchClassrooms(req, res) {
+  try {
+    const batchNo = String(req.params.batchNo || '').trim();
+    const raw = req.body?.classroomIds ?? req.body?.classroomId;
+    const classroomIds = [...new Set((Array.isArray(raw) ? raw : [raw])
+      .map(value => String(value || '').trim())
+      .filter(Boolean))];
+    if (!classroomIds.length) return res.status(400).json({ ok: false, message: 'Select at least one classroom.' });
+
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+
+    const result = await attachBatchClassrooms(batchNo, classroomIds, req.userId);
+    if (!result.attached.length) {
+      return res.status(400).json({ ok: false, message: 'None of those classrooms exist or are active.' });
+    }
+
+    // The first classroom attached to a batch with none becomes the primary one.
+    if (!batch.classroomId) {
+      const first = result.attached[0];
+      await prisma.batchMaster.update({
+        where: { batchNo },
+        data: { classroomId: first.classroomId, classroomName: first.classroomName },
+      });
+    }
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'ADD_BATCH_CLASSROOMS',
+      module: 'Batches', referenceId: batchNo,
+      newValue: { added: result.attached.map(c => c.classroomId), unknown: result.unknown },
+    });
+    return res.json({
+      ok: true,
+      message: result.attached.length + ' classroom(s) attached to ' + batchNo + '.',
+      data: result,
+    });
+  } catch (err) {
+    console.error('[BATCH] add classrooms failed:', err.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function removeBatchClassroom(req, res) {
+  try {
+    const batchNo = String(req.params.batchNo || '').trim();
+    const classroomId = String(req.params.classroomId || '').trim();
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+
+    if (batch.classroomId === classroomId) {
+      const others = await prisma.batchClassroomMap.count({
+        where: { batchNo, active: true, classroomId: { not: classroomId } },
+      });
+      if (!others) {
+        return res.status(400).json({
+          ok: false,
+          message: 'This is the only classroom on the batch. Attach another one before removing it.',
+        });
+      }
+      return res.status(400).json({
+        ok: false,
+        message: 'This is the primary classroom. Make another classroom primary before removing it.',
+      });
+    }
+
+    const removed = await prisma.batchClassroomMap.updateMany({
+      where: { batchNo, classroomId, active: true },
+      data: { active: false },
+    });
+    if (!removed.count) return res.status(404).json({ ok: false, message: 'That classroom is not attached to this batch.' });
+
+    // Withdraw the learner enrolments this batch created for that classroom.
+    await prisma.traineeClassroomMap.updateMany({
+      where: { batchNo, classroomId },
+      data: { active: false },
+    });
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'REMOVE_BATCH_CLASSROOM',
+      module: 'Batches', referenceId: batchNo, newValue: { classroomId },
+    });
+    return res.json({ ok: true, message: 'Classroom removed from ' + batchNo + '.' });
+  } catch (err) {
+    console.error('[BATCH] remove classroom failed:', err.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function setPrimaryBatchClassroom(req, res) {
+  try {
+    const batchNo = String(req.params.batchNo || '').trim();
+    const classroomId = String(req.params.classroomId || '').trim();
+    const mapped = await prisma.batchClassroomMap.findFirst({ where: { batchNo, classroomId, active: true } });
+    if (!mapped) return res.status(404).json({ ok: false, message: 'Attach that classroom to the batch first.' });
+
+    await prisma.batchMaster.update({
+      where: { batchNo },
+      data: { classroomId, classroomName: mapped.classroomName },
+    });
+    await prisma.traineeMaster.updateMany({ where: { batchNo }, data: { classroomId } });
+    await prisma.userMaster.updateMany({ where: { batchNo }, data: { classroomId } });
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'SET_PRIMARY_BATCH_CLASSROOM',
+      module: 'Batches', referenceId: batchNo, newValue: { classroomId },
+    });
+    return res.json({ ok: true, message: mapped.classroomName + ' is now the primary classroom.' });
+  } catch (err) {
+    console.error('[BATCH] set primary classroom failed:', err.message);
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
