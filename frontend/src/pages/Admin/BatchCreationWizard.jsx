@@ -39,7 +39,6 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
     batchName: '', batchType: 'NHT', branch: '', process: '', lob: '',
     startDate: '', endDate: '', expectedTrainees: '', remarks: '',
     coordinatorLoginId: '',
-    classroomId: '',
     classroomIds: [],
   });
   const [trainees, setTrainees] = useState([]); // [{employeeId, traineeName, email, mobile}]
@@ -81,18 +80,7 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
   }
 
   const selectedCoord = coordinators.find(c => c.loginId === form.coordinatorLoginId);
-  const selectedClassroom = classrooms.find(c => c.classroomId === form.classroomId);
-
-  // The first classroom picked is the primary one; it drives the learner
-  // dashboard exactly as a single classroom batch always has.
-  function toggleClassroom(classroomId) {
-    setForm(prev => {
-      const chosen = prev.classroomIds.includes(classroomId)
-        ? prev.classroomIds.filter(id => id !== classroomId)
-        : [...prev.classroomIds, classroomId];
-      return { ...prev, classroomIds: chosen, classroomId: chosen[0] || '' };
-    });
-  }
+  const selectedClassrooms = classrooms.filter(c => form.classroomIds.includes(c.classroomId));
 
   const canNext = () => {
     if (step === 0) return form.process && form.lob;
@@ -133,10 +121,8 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
             </p>
             <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 28 }}>
               Assigned to <b style={{ color: 'var(--brand)' }}>{selectedCoord?.name || form.coordinatorLoginId}</b>
-              {form.classroomId && (
-                <> · Classroom: <b style={{ color: 'var(--brand)' }}>{selectedClassroom?.classroomName}</b>
-                  {form.classroomIds.length > 1 && <> +{form.classroomIds.length - 1} more</>}
-                </>
+              {selectedClassrooms.length > 0 && (
+                <> · {selectedClassrooms.length === 1 ? 'Classroom' : 'Classrooms'}: <b style={{ color: 'var(--brand)' }}>{selectedClassrooms.map(c => c.classroomName).join(', ')}</b></>
               )}
               {trainees.length > 0 && <> · {trainees.length} trainee(s) added</>}
             </p>
@@ -244,46 +230,79 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
             </div>
           )}
 
-          {/* Step 2: Classroom */}
+          {/* Step 2: Classrooms (multi-select) */}
           {step === 2 && (
             <div>
-              <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 18 }}>Optionally assign a classroom. All modules in the classroom will be auto-assigned to trainees when they join.</p>
-              <div
-                onClick={() => setForm(p => ({ ...p, classroomId: '', classroomIds: [] }))}
-                style={{
-                  padding: '12px 16px', borderRadius: 12, border: '1.5px solid',
-                  borderColor: !form.classroomIds.length ? '#2563eb' : 'var(--line)',
-                  background: !form.classroomIds.length ? 'rgba(37,99,235,.18)' : 'var(--card)',
-                  cursor: 'pointer', marginBottom: 10,
-                }}
-              >
-                <b style={{ fontSize: 13 }}>No Classroom</b>
-                <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Assign classroom later from batch settings</p>
-                {!form.classroomIds.length && <span style={{ color: 'var(--ok)', fontSize: 14 }}>✓ Selected</span>}
-              </div>
+              <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 18 }}>
+                Assign one or more classrooms. Each classroom tracks trainee progress independently —
+                the batch is 100% complete only when all assigned classrooms are finished.
+                You can also assign or change classrooms later from batch settings.
+              </p>
+
+              {/* None option */}
+              <label style={{
+                display: 'flex', gap: 12, alignItems: 'center',
+                padding: '12px 16px', borderRadius: 12, border: '1.5px solid',
+                borderColor: form.classroomIds.length === 0 ? '#2563eb' : 'var(--line)',
+                background: form.classroomIds.length === 0 ? 'rgba(37,99,235,.18)' : 'var(--card)',
+                cursor: 'pointer', marginBottom: 10,
+              }}>
+                <input
+                  type="checkbox"
+                  checked={form.classroomIds.length === 0}
+                  onChange={() => setForm(p => ({ ...p, classroomIds: [] }))}
+                  style={{ accentColor: '#2563eb', width: 15, height: 15, flexShrink: 0 }}
+                />
+                <div style={{ flex: 1 }}>
+                  <b style={{ fontSize: 13, color: 'var(--ink)' }}>No classroom yet</b>
+                  <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, margin: 0 }}>Assign later from batch settings</p>
+                </div>
+                {form.classroomIds.length === 0 && <span style={{ color: 'var(--ok)', fontSize: 16 }}>✓</span>}
+              </label>
+
               <div style={{ display: 'grid', gap: 8 }}>
-                {classrooms.map(c => (
-                  <div
-                    key={c.classroomId}
-                    onClick={() => toggleClassroom(c.classroomId)}
-                    style={{
-                      padding: '12px 16px', borderRadius: 12, border: '1.5px solid',
-                      borderColor: form.classroomIds.includes(c.classroomId) ? '#2563eb' : 'var(--line)',
-                      background: form.classroomIds.includes(c.classroomId) ? 'rgba(37,99,235,.18)' : 'var(--card)',
-                      cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, transition: 'all .12s',
-                    }}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <b style={{ fontSize: 13, color: 'var(--ink)' }}>{c.classroomName}</b>
-                      <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                        {c.process}{c.lob ? ` / ${c.lob}` : ''} · {c._count?.modules || 0} modules
-                        {c.driveFolderId && <span style={{ color: 'var(--brand)' }}> · ☁ Drive</span>}
-                      </p>
-                    </div>
-                    {form.classroomIds.includes(c.classroomId) && <span style={{ color: 'var(--ok)', fontSize: 18 }}>✓</span>}
-                  </div>
-                ))}
+                {classrooms.map(c => {
+                  const checked = form.classroomIds.includes(c.classroomId);
+                  return (
+                    <label
+                      key={c.classroomId}
+                      style={{
+                        display: 'flex', gap: 12, alignItems: 'flex-start',
+                        padding: '12px 16px', borderRadius: 12, border: '1.5px solid',
+                        borderColor: checked ? '#2563eb' : 'var(--line)',
+                        background: checked ? 'rgba(37,99,235,.18)' : 'var(--card)',
+                        cursor: 'pointer', transition: 'all .12s',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={e => {
+                          const ids = e.target.checked
+                            ? [...form.classroomIds, c.classroomId]
+                            : form.classroomIds.filter(id => id !== c.classroomId);
+                          setForm(p => ({ ...p, classroomIds: ids }));
+                        }}
+                        style={{ accentColor: '#2563eb', width: 15, height: 15, flexShrink: 0, marginTop: 2 }}
+                      />
+                      <div style={{ flex: 1 }}>
+                        <b style={{ fontSize: 13, color: 'var(--ink)' }}>{c.classroomName}</b>
+                        <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, margin: 0 }}>
+                          {c.process}{c.lob ? ` / ${c.lob}` : ''} · {c._count?.modules || 0} modules
+                          {c.driveFolderId && <span style={{ color: 'var(--brand)' }}> · ☁ Drive</span>}
+                        </p>
+                      </div>
+                      {checked && <span style={{ color: 'var(--ok)', fontSize: 18 }}>✓</span>}
+                    </label>
+                  );
+                })}
               </div>
+
+              {form.classroomIds.length > 1 && (
+                <div style={{ marginTop: 12, fontSize: 12, color: 'var(--muted)', background: 'var(--card)', borderRadius: 8, padding: '8px 12px', border: '1px solid var(--line)' }}>
+                  {form.classroomIds.length} classrooms selected — trainees must complete all of them to be eligible for certification.
+                </div>
+              )}
             </div>
           )}
 
@@ -432,7 +451,7 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
                   ]],
                   ['Assignments', [
                     ['Coordinator', selectedCoord ? `${selectedCoord.name} (${selectedCoord.loginId})` : '—'],
-                    ['Classroom', selectedClassroom ? selectedClassroom.classroomName : 'None assigned'],
+                    ['Classrooms', selectedClassrooms.length > 0 ? selectedClassrooms.map(c => c.classroomName).join(', ') : 'None assigned'],
                     ['Trainees to Add', `${trainees.length} upfront`],
                   ]],
                 ].map(([title, rows]) => (

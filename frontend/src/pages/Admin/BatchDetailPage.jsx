@@ -27,6 +27,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [analytics, setAnalytics] = useState(null);
   const [contentProgress, setContentProgress] = useState(null);
   const [contentLoading, setContentLoading] = useState(false);
+  const [contentClassroomIdx, setContentClassroomIdx] = useState(0);
   const [tab, setTab] = useState('overview');
   const [loading, setLoading] = useState(true);
   const [addMsg, setAddMsg] = useState({ text: '', ok: true });
@@ -40,15 +41,21 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   const [editSaving, setEditSaving] = useState(false);
   const [editErr, setEditErr] = useState('');
   const [classrooms, setClassrooms] = useState([]);
+  const [editCoordinators, setEditCoordinators] = useState([]);
 
   function openEdit() {
     const b = data?.batch || {};
+    // classroomIds: prefer existing array, fall back to single classroomId
+    const existingIds = b.classroomIds?.length
+      ? b.classroomIds
+      : b.classroomId ? [b.classroomId] : [];
     setEditDraft({
       batchName: b.batchName || '',
       branch: b.branch || '',
       process: b.process || '',
       lob: b.lob || '',
-      classroomId: b.classroomId || '',
+      classroomIds: existingIds,
+      coordinatorLoginId: b.coordinatorLoginId || '',
       startDate: b.startDate ? b.startDate.slice(0, 10) : '',
       endDate: b.endDate ? b.endDate.slice(0, 10) : '',
       expectedTrainees: b.expectedTrainees ?? '',
@@ -58,6 +65,9 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
     setEditOpen(true);
     if (classrooms.length === 0) {
       api.get('/admin/classrooms', 'admin').then(r => { if (r.ok) setClassrooms(r.data); });
+    }
+    if (editCoordinators.length === 0) {
+      api.get('/admin/coordinators/all', 'admin').then(r => { if (r.ok) setEditCoordinators(r.data); });
     }
   }
 
@@ -378,8 +388,6 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
             </div>
           )}
 
-          <BatchClassrooms batchNo={batch.batchNo} classrooms={classrooms} />
-
           {!contentLoading && !contentProgress && (
             <div className="glass-panel">
               <div className="panel-title">Content Progress <span className="panel-sub">No classroom linked</span></div>
@@ -387,124 +395,160 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
             </div>
           )}
 
-          {!contentLoading && contentProgress && (
-            <>
-              {/* ── Section 1: Content completion ── */}
-              <div className="glass-panel">
-                <div className="panel-title">
-                  Content Completion
-                  <span className="panel-sub">{contentProgress.totalTrainees} trainees · {batch.classroomName || batch.classroomId || ''}</span>
-                </div>
+          {!contentLoading && contentProgress && (() => {
+            // Derive per-classroom data — new shape has classrooms[], old shape is flat
+            const classroomList = contentProgress.classrooms || [{ classroomId: batch.classroomId, classroomName: batch.classroomName, modules: contentProgress.modules, assessments: contentProgress.assessments }];
+            const safeIdx = Math.min(contentClassroomIdx, classroomList.length - 1);
+            const active = classroomList[safeIdx] || { modules: [], assessments: [] };
 
-                {contentProgress.modules.length === 0 && (
-                  <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No content found in this classroom.</p>
+            return (
+              <>
+                {/* ── Classroom switcher (only when multiple) ── */}
+                {classroomList.length > 1 && (
+                  <div className="glass-panel" style={{ padding: '12px 16px' }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 10 }}>
+                      Classroom — {contentProgress.totalTrainees} trainees across {classroomList.length} classrooms
+                    </div>
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                      {classroomList.map((cl, i) => (
+                        <button
+                          key={cl.classroomId}
+                          onClick={() => setContentClassroomIdx(i)}
+                          style={{
+                            padding: '7px 14px', borderRadius: 8, border: '1.5px solid',
+                            borderColor: i === safeIdx ? '#2563eb' : 'var(--line)',
+                            background: i === safeIdx ? 'rgba(37,99,235,.18)' : 'var(--card)',
+                            color: i === safeIdx ? '#2563eb' : 'var(--ink)',
+                            fontSize: 12, fontWeight: i === safeIdx ? 700 : 400, cursor: 'pointer',
+                            transition: 'all .12s',
+                          }}
+                        >
+                          {cl.classroomName || cl.classroomId}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
-                {contentProgress.modules.map(mod => (
-                  <div key={mod.moduleId} style={{ marginTop: 18 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-                      Day {mod.dayNo} — {mod.moduleTitle}
+                {/* ── Section 1: Content completion ── */}
+                <div className="glass-panel">
+                  <div className="panel-title">
+                    Content Completion
+                    <span className="panel-sub">
+                      {contentProgress.totalTrainees} trainees · {active.classroomName || active.classroomId || ''}
+                    </span>
+                  </div>
+
+                  {active.modules.length === 0 && (
+                    <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No content found in this classroom.</p>
+                  )}
+
+                  {active.modules.map(mod => (
+                    <div key={mod.moduleId} style={{ marginTop: 18 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
+                        Day {mod.dayNo} — {mod.moduleTitle}
+                      </div>
+                      <div style={{ overflowX: 'auto' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
+                          <thead>
+                            <tr style={{ borderBottom: '1.5px solid var(--line)' }}>
+                              <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Content</th>
+                              <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Type</th>
+                              <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Est. Mins</th>
+                              <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Opened</th>
+                              <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Completed</th>
+                              <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Not Started</th>
+                              <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Completion Rate</th>
+                              <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Avg Progress</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {mod.contents.map((c, ci) => (
+                              <tr key={c.contentId} style={{ borderBottom: '1px solid var(--line)', background: ci % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
+                                <td style={{ padding: '8px 10px', color: 'var(--ink)', fontWeight: 500 }}>{c.contentTitle}</td>
+                                <td style={{ padding: '8px 10px', color: 'var(--muted)' }}>{c.contentType}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)' }}>{c.estimatedMins || '—'}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ink)' }}>{c.openedCount}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ok)', fontWeight: 600 }}>{c.completedCount}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: c.notStartedCount > 0 ? 'var(--bad)' : 'var(--muted)' }}>{c.notStartedCount}</td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                                    <div style={{ width: 64, height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
+                                      <div style={{ height: '100%', width: `${c.completionRate}%`, background: c.completionRate >= 80 ? 'var(--ok)' : c.completionRate >= 50 ? 'var(--warn)' : 'var(--bad)', borderRadius: 99, transition: 'width .3s' }} />
+                                    </div>
+                                    <span style={{ fontSize: 12, fontWeight: 700, color: c.completionRate >= 80 ? 'var(--ok)' : c.completionRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{c.completionRate}%</span>
+                                  </div>
+                                </td>
+                                <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>{c.avgCompletionPct}%</td>
+                              </tr>
+                            ))}
+                            {mod.contents.length === 0 && (
+                              <tr><td colSpan={8} style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>No content in this module.</td></tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                    <div style={{ overflowX: 'auto' }}>
+                  ))}
+                </div>
+
+                {/* ── Section 2: MCQ stats ── */}
+                <div className="glass-panel">
+                  <div className="panel-title">MCQ Performance</div>
+
+                  {active.assessments.length === 0 && (
+                    <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No assessments found in this classroom.</p>
+                  )}
+
+                  {active.assessments.length > 0 && (
+                    <div style={{ overflowX: 'auto', marginTop: 12 }}>
                       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
                         <thead>
                           <tr style={{ borderBottom: '1.5px solid var(--line)' }}>
-                            <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Content</th>
-                            <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Type</th>
-                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Est. Mins</th>
-                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Opened</th>
-                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Completed</th>
-                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Not Started</th>
-                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Completion Rate</th>
-                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Avg Progress</th>
+                            <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Assessment</th>
+                            <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Module</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Pass Mark</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Attempted</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Not Attempted</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Attempt Rate</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Pass Rate</th>
+                            <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Avg Score</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {mod.contents.map((c, ci) => (
-                            <tr key={c.contentId} style={{ borderBottom: '1px solid var(--line)', background: ci % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
-                              <td style={{ padding: '8px 10px', color: 'var(--ink)', fontWeight: 500 }}>{c.contentTitle}</td>
-                              <td style={{ padding: '8px 10px', color: 'var(--muted)' }}>{c.contentType}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)' }}>{c.estimatedMins || '—'}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ink)' }}>{c.openedCount}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ok)', fontWeight: 600 }}>{c.completedCount}</td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: c.notStartedCount > 0 ? 'var(--bad)' : 'var(--muted)' }}>{c.notStartedCount}</td>
+                          {active.assessments.map((a, ai) => (
+                            <tr key={a.assessmentId} style={{ borderBottom: '1px solid var(--line)', background: ai % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
+                              <td style={{ padding: '8px 10px', color: 'var(--ink)', fontWeight: 500 }}>{a.assessmentName}</td>
+                              <td style={{ padding: '8px 10px', color: 'var(--muted)', fontSize: 12 }}>
+                                {a.moduleTitle ? `Day ${a.dayNo ?? ''} — ${a.moduleTitle}` : '—'}
+                              </td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)' }}>{a.passingPct}%</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ink)' }}>{a.attemptedCount}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', color: a.notAttemptedCount > 0 ? 'var(--bad)' : 'var(--muted)' }}>{a.notAttemptedCount}</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center' }}>
+                                <span style={{ fontWeight: 700, color: a.attemptRate >= 80 ? 'var(--ok)' : a.attemptRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{a.attemptRate}%</span>
+                              </td>
                               <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                                   <div style={{ width: 64, height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
-                                    <div style={{ height: '100%', width: `${c.completionRate}%`, background: c.completionRate >= 80 ? 'var(--ok)' : c.completionRate >= 50 ? 'var(--warn)' : 'var(--bad)', borderRadius: 99, transition: 'width .3s' }} />
+                                    <div style={{ height: '100%', width: `${a.passRate}%`, background: a.passRate >= 80 ? 'var(--ok)' : a.passRate >= 50 ? 'var(--warn)' : 'var(--bad)', borderRadius: 99, transition: 'width .3s' }} />
                                   </div>
-                                  <span style={{ fontSize: 12, fontWeight: 700, color: c.completionRate >= 80 ? 'var(--ok)' : c.completionRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{c.completionRate}%</span>
+                                  <span style={{ fontSize: 12, fontWeight: 700, color: a.passRate >= 80 ? 'var(--ok)' : a.passRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{a.passRate}%</span>
                                 </div>
                               </td>
-                              <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>{c.avgCompletionPct}%</td>
+                              <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: a.attemptedCount === 0 ? 'var(--muted)' : a.avgBestScore >= a.passingPct ? 'var(--ok)' : 'var(--bad)' }}>
+                                {a.attemptedCount > 0 ? `${a.avgBestScore}%` : '—'}
+                              </td>
                             </tr>
                           ))}
-                          {mod.contents.length === 0 && (
-                            <tr><td colSpan={8} style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: 12 }}>No content in this module.</td></tr>
-                          )}
                         </tbody>
                       </table>
                     </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* ── Section 2: MCQ stats ── */}
-              <div className="glass-panel">
-                <div className="panel-title">MCQ Performance</div>
-
-                {contentProgress.assessments.length === 0 && (
-                  <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No assessments found in this classroom.</p>
-                )}
-
-                {contentProgress.assessments.length > 0 && (
-                  <div style={{ overflowX: 'auto', marginTop: 12 }}>
-                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
-                      <thead>
-                        <tr style={{ borderBottom: '1.5px solid var(--line)' }}>
-                          <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Assessment</th>
-                          <th style={{ textAlign: 'left', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Module</th>
-                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Pass Mark</th>
-                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Attempted</th>
-                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Not Attempted</th>
-                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Attempt Rate</th>
-                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Pass Rate</th>
-                          <th style={{ textAlign: 'center', padding: '6px 10px', color: 'var(--muted)', fontWeight: 600 }}>Avg Score</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {contentProgress.assessments.map((a, ai) => (
-                          <tr key={a.assessmentId} style={{ borderBottom: '1px solid var(--line)', background: ai % 2 === 0 ? 'transparent' : 'rgba(0,0,0,.02)' }}>
-                            <td style={{ padding: '8px 10px', color: 'var(--ink)', fontWeight: 500 }}>{a.assessmentName}</td>
-                            <td style={{ padding: '8px 10px', color: 'var(--muted)', fontSize: 12 }}>
-                              {a.moduleTitle ? `Day ${a.dayNo ?? ''} — ${a.moduleTitle}` : '—'}
-                            </td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--muted)' }}>{a.passingPct}%</td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center', color: 'var(--ink)' }}>{a.attemptedCount}</td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center', color: a.notAttemptedCount > 0 ? 'var(--bad)' : 'var(--muted)' }}>{a.notAttemptedCount}</td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                              <span style={{ fontWeight: 700, color: a.attemptRate >= 80 ? 'var(--ok)' : a.attemptRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{a.attemptRate}%</span>
-                            </td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                                <div style={{ width: 64, height: 6, borderRadius: 99, background: 'var(--line)', overflow: 'hidden' }}>
-                                  <div style={{ height: '100%', width: `${a.passRate}%`, background: a.passRate >= 80 ? 'var(--ok)' : a.passRate >= 50 ? 'var(--warn)' : 'var(--bad)', borderRadius: 99, transition: 'width .3s' }} />
-                                </div>
-                                <span style={{ fontSize: 12, fontWeight: 700, color: a.passRate >= 80 ? 'var(--ok)' : a.passRate >= 50 ? 'var(--warn)' : 'var(--bad)' }}>{a.passRate}%</span>
-                              </div>
-                            </td>
-                            <td style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 700, color: a.attemptedCount === 0 ? 'var(--muted)' : a.avgBestScore >= a.passingPct ? 'var(--ok)' : 'var(--bad)' }}>
-                              {a.attemptedCount > 0 ? `${a.avgBestScore}%` : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
+                  )}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
       {/* ── Edit Batch Modal ── */}
@@ -532,20 +576,91 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
                 <label>LOB</label>
                 <input className="input" value={editDraft.lob} onChange={e => setEditDraft(d => ({ ...d, lob: e.target.value }))} />
               </div>
+
+              {/* Coordinator */}
               <div className="field" style={{ gridColumn: '1 / -1' }}>
-                <label>Classroom</label>
-                <select className="select" value={editDraft.classroomId} onChange={e => setEditDraft(d => ({ ...d, classroomId: e.target.value }))}>
-                  <option value="">— No classroom —</option>
-                  {classrooms.map(c => (
-                    <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>
+                <label>Coordinator</label>
+                <select
+                  className="select"
+                  value={editDraft.coordinatorLoginId || ''}
+                  onChange={e => setEditDraft(d => ({ ...d, coordinatorLoginId: e.target.value }))}
+                >
+                  <option value="">— Keep current —</option>
+                  {editCoordinators.map(c => (
+                    <option key={c.loginId} value={c.loginId}>
+                      {c.name ? `${c.name} (${c.loginId})` : c.loginId}
+                      {c.branch ? ` · ${c.branch}` : ''}
+                    </option>
                   ))}
                 </select>
-                {editDraft.classroomId && editDraft.classroomId !== (data?.batch?.classroomId || '') && (
+                {editDraft.coordinatorLoginId && editDraft.coordinatorLoginId !== (data?.batch?.coordinatorLoginId || '') && (
                   <div style={{ fontSize: 11, color: 'var(--warn)', marginTop: 4 }}>
-                    ⚠ Changing classroom will update all enrolled trainees in this batch.
+                    ⚠ This will reassign the batch to the selected coordinator.
                   </div>
                 )}
               </div>
+
+              {/* Classrooms — multi-select via checkboxes */}
+              <div className="field" style={{ gridColumn: '1 / -1' }}>
+                <label>
+                  Classrooms
+                  <span style={{ fontSize: 11, fontWeight: 400, color: 'var(--muted)', marginLeft: 6 }}>
+                    — select one or more; each tracks progress independently
+                  </span>
+                </label>
+                <div style={{
+                  border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden',
+                  maxHeight: 220, overflowY: 'auto', marginTop: 4,
+                }}>
+                  <label style={{
+                    display: 'flex', gap: 10, alignItems: 'center',
+                    padding: '10px 14px', cursor: 'pointer',
+                    borderBottom: '1px solid var(--line)',
+                    background: (editDraft.classroomIds || []).length === 0 ? 'rgba(37,99,235,.10)' : 'transparent',
+                  }}>
+                    <input
+                      type="checkbox"
+                      checked={(editDraft.classroomIds || []).length === 0}
+                      onChange={() => setEditDraft(d => ({ ...d, classroomIds: [] }))}
+                      style={{ accentColor: '#2563eb', width: 14, height: 14, flexShrink: 0 }}
+                    />
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>No classroom assigned</span>
+                  </label>
+                  {classrooms.map(c => {
+                    const checked = (editDraft.classroomIds || []).includes(c.classroomId);
+                    return (
+                      <label key={c.classroomId} style={{
+                        display: 'flex', gap: 10, alignItems: 'flex-start',
+                        padding: '10px 14px', cursor: 'pointer',
+                        borderBottom: '1px solid var(--line)',
+                        background: checked ? 'rgba(37,99,235,.10)' : 'transparent',
+                      }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={e => {
+                            const ids = e.target.checked
+                              ? [...(editDraft.classroomIds || []), c.classroomId]
+                              : (editDraft.classroomIds || []).filter(id => id !== c.classroomId);
+                            setEditDraft(d => ({ ...d, classroomIds: ids }));
+                          }}
+                          style={{ accentColor: '#2563eb', width: 14, height: 14, flexShrink: 0, marginTop: 2 }}
+                        />
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: checked ? 700 : 400, color: 'var(--ink)' }}>
+                            {c.classroomName}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                            {c.process}{c.lob ? ` / ${c.lob}` : ''} · {c._count?.modules || 0} modules
+                          </div>
+                        </div>
+                        {checked && <span style={{ marginLeft: 'auto', color: 'var(--ok)', fontSize: 16 }}>✓</span>}
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="field">
                 <label>Expected Trainees</label>
                 <input className="input" type="number" min="0" value={editDraft.expectedTrainees} onChange={e => setEditDraft(d => ({ ...d, expectedTrainees: e.target.value }))} />
@@ -571,128 +686,6 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-
-// A batch can carry several classrooms. The primary one drives the learner
-// dashboard and completion figures; the others simply grant learners access to
-// that content, so they can be added and removed safely at any time.
-function BatchClassrooms({ batchNo, classrooms }) {
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState('');
-  const [msg, setMsg] = useState('');
-  const [picker, setPicker] = useState('');
-
-  async function load() {
-    if (!batchNo) return;
-    setLoading(true);
-    const res = await api.get('/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms', 'admin');
-    setLoading(false);
-    if (res.ok) setRows(res.data || []);
-    else setMsg(res.message || 'Could not load the classrooms for this batch.');
-  }
-
-  useEffect(() => { load(); }, [batchNo]);
-
-  async function addClassroom() {
-    if (!picker) return;
-    setBusy('add');
-    setMsg('');
-    const res = await api.post(
-      '/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms',
-      { classroomIds: [picker] }, 'admin',
-    );
-    setBusy('');
-    setMsg(res.message || (res.ok ? 'Classroom attached.' : 'Could not attach that classroom.'));
-    if (res.ok) { setPicker(''); load(); }
-  }
-
-  async function makePrimary(row) {
-    setBusy(row.classroomId);
-    setMsg('');
-    const res = await api.put(
-      '/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms/' + encodeURIComponent(row.classroomId) + '/primary',
-      {}, 'admin',
-    );
-    setBusy('');
-    setMsg(res.message || '');
-    if (res.ok) load();
-  }
-
-  async function removeClassroom(row) {
-    if (!window.confirm('Remove ' + row.classroomName + ' from this batch? Learners lose access to its content.')) return;
-    setBusy(row.classroomId);
-    setMsg('');
-    const res = await api.delete(
-      '/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms/' + encodeURIComponent(row.classroomId),
-      'admin',
-    );
-    setBusy('');
-    setMsg(res.message || '');
-    if (res.ok) load();
-  }
-
-  const attached = new Set(rows.map(r => r.classroomId));
-  const available = (classrooms || []).filter(c => !attached.has(c.classroomId));
-
-  return (
-    <div className="glass-panel">
-      <div className="panel-title">
-        Classrooms
-        <span className="panel-sub">{rows.length} attached &middot; the primary one drives learner progress</span>
-      </div>
-
-      {msg && <div className="toast" style={{ margin: '10px 0' }}>{msg}</div>}
-      {loading && <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>Loading classrooms…</p>}
-      {!loading && rows.length === 0 && (
-        <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No classroom is attached to this batch yet.</p>
-      )}
-
-      {rows.length > 0 && (
-        <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
-          {rows.map(row => (
-            <div key={row.classroomId} style={{
-              border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
-            }}>
-              <div>
-                <b style={{ fontSize: 13 }}>{row.classroomName}</b>
-                {row.primary && <span className="pill info" style={{ marginLeft: 8 }}>Primary</span>}
-                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{row.classroomId}</div>
-              </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {!row.primary && (
-                  <button className="btn small secondary" disabled={busy === row.classroomId}
-                    onClick={() => makePrimary(row)}>
-                    {busy === row.classroomId ? 'Working…' : 'Make primary'}
-                  </button>
-                )}
-                {!row.primary && (
-                  <button className="btn small" style={{ background: 'rgba(185,28,28,.9)', color: '#fff', border: 'none' }}
-                    disabled={busy === row.classroomId} onClick={() => removeClassroom(row)}>
-                    Remove
-                  </button>
-                )}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
-        <select className="select" value={picker} onChange={e => setPicker(e.target.value)} style={{ flex: 1, minWidth: 220 }}>
-          <option value="">— Add another classroom —</option>
-          {available.map(c => (
-            <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>
-          ))}
-        </select>
-        <button className="btn small" onClick={addClassroom} disabled={!picker || busy === 'add'}>
-          {busy === 'add' ? 'Attaching…' : 'Attach'}
-        </button>
-      </div>
     </div>
   );
 }

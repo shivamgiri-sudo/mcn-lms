@@ -1665,9 +1665,19 @@ export async function getBatchDetail(req, res) {
     const trainees = await prisma.traineeMaster.findMany({
       where: { batchNo, status: 'Active' },
       orderBy: { traineeName: 'asc' },
-      select: { employeeId: true, traineeName: true, riskStatus: true, courseCompletionPct: true, attendancePct: true, assessmentPassPct: true, certificationStatus: true, ojtReady: true },
+      select: { employeeId: true, traineeName: true, riskStatus: true, courseCompletionPct: true, attendancePct: true, assessmentPassPct: true, certificationStatus: true, ojtReady: true, empIdType: true },
     });
     const openQueries = await prisma.traineeQueryLog.count({ where: { batchNo, status: 'Open' } });
+    // Fetch all active classrooms for this batch from the map
+    const classroomMaps = await prisma.batchClassroomMap.findMany({
+      where: { batchNo, active: true },
+      orderBy: { assignedAt: 'asc' },
+      select: { classroomId: true, classroomName: true },
+    });
+    const classroomIds = classroomMaps.map(m => m.classroomId);
+    // If no map entries fall back to the denormalised field (old batches)
+    if (classroomIds.length === 0 && batch.classroomId) classroomIds.push(batch.classroomId);
+
     const total = trainees.length;
     const onTrack = trainees.filter(t => t.riskStatus === 'HEALTHY').length;
     const atRisk = trainees.filter(t => ['CRITICAL','HIGH'].includes(t.riskStatus)).length;
@@ -1677,7 +1687,11 @@ export async function getBatchDetail(req, res) {
     const avgAttendance = total > 0 ? Math.round(trainees.reduce((s,t) => s + (t.attendancePct||0), 0) / total) : 0;
     const avgMcq = total > 0 ? Math.round(trainees.reduce((s,t) => s + (t.assessmentPassPct||0), 0) / total) : 0;
     const certified = trainees.filter(t => t.certificationStatus === 'Certified').length;
-    res.json({ ok: true, data: { batch, trainees, openQueries, summary: { total, onTrack, atRisk, needsAttention, mcqPassed, avgCourse, avgAttendance, avgMcq, certified } } });
+    res.json({ ok: true, data: {
+      batch: { ...batch, classroomIds, classrooms: classroomMaps },
+      trainees, openQueries,
+      summary: { total, onTrack, atRisk, needsAttention, mcqPassed, avgCourse, avgAttendance, avgMcq, certified },
+    } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -1975,9 +1989,20 @@ export async function uploadQuestionsCSV(req, res) {
 
 export async function adminCreateBatch(req, res) {
   try {
-    const { batchName, batchType, branch, process, lob, classroomId, coordinatorLoginId, startDate, endDate, expectedTrainees, remarks } = req.body;
+    const { batchName, batchType, branch, process, lob, coordinatorLoginId, startDate, endDate, expectedTrainees, remarks } = req.body;
 
     if (!coordinatorLoginId) return res.status(400).json({ ok: false, message: 'Coordinator is required.' });
+
+    // Normalise classroom ids — frontend sends classroomIds[] (multi-select);
+    // older callers may still send classroomId (string). Derive a single primary.
+    const rawIds = [...new Set(
+      (Array.isArray(req.body.classroomIds) ? req.body.classroomIds : [])
+        .concat(req.body.classroomId ? [req.body.classroomId] : [])
+        .map(v => String(v || '').trim())
+        .filter(Boolean)
+    )];
+    const classroomId = rawIds[0] || null;
+    const extraClassroomIds = rawIds.slice(1);
 
     // Get coordinator info
     const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: coordinatorLoginId } });
@@ -2020,10 +2045,6 @@ export async function adminCreateBatch(req, res) {
         remarks,
       },
     });
-
-    const extraClassroomIds = [...new Set((Array.isArray(req.body?.classroomIds) ? req.body.classroomIds : [])
-      .map(value => String(value || '').trim())
-      .filter(id => id && id !== classroomId))];
 
     if (classroomId && classroomName) {
       await prisma.batchClassroomMap.create({
@@ -2080,7 +2101,7 @@ export async function adminUpdateBatchCoordinator(req, res) {
 export async function adminUpdateBatch(req, res) {
   try {
     const { batchNo } = req.params;
-    const { batchName, branch, process: proc, lob, classroomId, startDate, endDate, expectedTrainees, remarks } = req.body;
+    const { batchName, branch, process: proc, lob, classroomId, startDate, endDate, expectedTrainees, remarks, coordinatorLoginId } = req.body;
 
     const existingBatch = await prisma.batchMaster.findUnique({ where: { batchNo } });
     if (!existingBatch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
@@ -2095,12 +2116,67 @@ export async function adminUpdateBatch(req, res) {
     if (expectedTrainees !== undefined) data.expectedTrainees = parseOptionalInt(expectedTrainees, 0);
     if (remarks !== undefined) data.remarks = String(remarks).trim() || null;
 
+    // Coordinator change — inline (same as the dedicated endpoint)
+    if (coordinatorLoginId) {
+      const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: coordinatorLoginId } });
+      data.coordinatorLoginId = coordinatorLoginId;
+      data.coordinatorName = coord?.name || coordinatorLoginId;
+    }
+
     let shouldSyncClassroom = false;
     let nextClassroomId = existingBatch.classroomId;
     let nextClassroomName = existingBatch.classroomName;
 
-    // Handle classroom assignment — also backfills existing trainees
-    if (classroomId !== undefined) {
+    // ── Multi-classroom sync ──────────────────────────────────────────────────
+    // Frontend sends classroomIds[] (the desired full set).
+    // We reconcile against the current batchClassroomMap.
+    if (Array.isArray(req.body.classroomIds)) {
+      const desiredIds = [...new Set(
+        req.body.classroomIds.map(v => String(v || '').trim()).filter(Boolean)
+      )];
+
+      const currentMaps = await prisma.batchClassroomMap.findMany({
+        where: { batchNo, active: true },
+        select: { classroomId: true },
+      });
+      const currentIds = new Set(currentMaps.map(m => m.classroomId));
+      const toAdd    = desiredIds.filter(id => !currentIds.has(id));
+      const toRemove = [...currentIds].filter(id => !desiredIds.includes(id));
+
+      if (toAdd.length) {
+        await attachBatchClassrooms(batchNo, toAdd, req.userId);
+      }
+      if (toRemove.length) {
+        await prisma.batchClassroomMap.updateMany({
+          where: { batchNo, classroomId: { in: toRemove } },
+          data: { active: false },
+        });
+        // Deactivate trainee mappings for removed classrooms
+        await prisma.traineeClassroomMap.updateMany({
+          where: { batchNo, classroomId: { in: toRemove } },
+          data: { active: false },
+        });
+      }
+
+      // Keep batchMaster.classroomId pointing at the first desired classroom (or null)
+      const newPrimary = desiredIds[0] || null;
+      if (newPrimary !== existingBatch.classroomId) {
+        let newPrimaryName = null;
+        if (newPrimary) {
+          const cl = await prisma.classroomMaster.findUnique({ where: { classroomId: newPrimary }, select: { classroomName: true } });
+          newPrimaryName = cl?.classroomName || null;
+        }
+        data.classroomId = newPrimary;
+        data.classroomName = newPrimaryName;
+        data.classroomAssignedAt = newPrimary ? new Date() : null;
+        data.classroomAssignedBy = newPrimary ? req.userId : null;
+        nextClassroomId = newPrimary;
+        nextClassroomName = newPrimaryName;
+        shouldSyncClassroom = true;
+      }
+
+    } else if (classroomId !== undefined) {
+      // Legacy single-classroom path
       const newClassroomId = cleanText(classroomId);
       let classroomName = null;
       if (newClassroomId) {
@@ -2110,17 +2186,11 @@ export async function adminUpdateBatch(req, res) {
       }
       data.classroomId = newClassroomId;
       data.classroomName = classroomName;
-      if (newClassroomId) {
-        data.classroomAssignedAt = new Date();
-        data.classroomAssignedBy = req.userId;
-      } else {
-        data.classroomAssignedAt = null;
-        data.classroomAssignedBy = null;
-      }
+      data.classroomAssignedAt = newClassroomId ? new Date() : null;
+      data.classroomAssignedBy = newClassroomId ? req.userId : null;
       shouldSyncClassroom = true;
       nextClassroomId = newClassroomId;
       nextClassroomName = classroomName;
-
     }
 
     if (Object.keys(data).length === 0) return res.status(400).json({ ok: false, message: 'No fields to update.' });
@@ -2992,102 +3062,120 @@ export async function getTempTrainees(req, res) {
 }
 
 // ── Batch Content Progress ────────────────────────────────────────────────────
+// Returns per-classroom breakdown. Shape:
+//   { totalTrainees, classrooms: [{ classroomId, classroomName, modules, assessments }] }
+// For backward compat, top-level modules/assessments mirror the first classroom.
+async function buildClassroomProgress(classroomId, classroomName, employeeIds) {
+  const totalTrainees = employeeIds.length;
+  const [modules, contents, progressRows, assessments, results] = await Promise.all([
+    prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: { dayNo: 'asc' }, select: { moduleId: true, moduleTitle: true, dayNo: true } }),
+    prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { contentOrder: 'asc' }, select: { contentId: true, contentTitle: true, contentType: true, moduleId: true, estimatedMins: true, completionRulePct: true } }),
+    prisma.contentProgress.findMany({ where: { employeeId: { in: employeeIds }, classroomId }, select: { employeeId: true, contentId: true, opened: true, completionPct: true, completionStatus: true } }),
+    prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: { sortOrder: 'asc' }, select: { assessmentId: true, assessmentName: true, moduleId: true, dayNo: true, passingPct: true } }),
+    prisma.assessmentResult.findMany({ where: { employeeId: { in: employeeIds }, classroomId }, select: { employeeId: true, assessmentId: true, bestPercentage: true, result: true } }),
+  ]);
+
+  const progressMap = {};
+  for (const p of progressRows) {
+    if (!progressMap[p.contentId]) progressMap[p.contentId] = {};
+    progressMap[p.contentId][p.employeeId] = p;
+  }
+  const resultMap = {};
+  for (const r of results) {
+    if (!resultMap[r.assessmentId]) resultMap[r.assessmentId] = {};
+    resultMap[r.assessmentId][r.employeeId] = r;
+  }
+  const moduleMap = {};
+  for (const m of modules) moduleMap[m.moduleId] = m;
+
+  const contentsByModule = {};
+  for (const c of contents) {
+    if (!contentsByModule[c.moduleId]) contentsByModule[c.moduleId] = [];
+    const byEmp = progressMap[c.contentId] || {};
+    const progressArr = Object.values(byEmp);
+    const completedCount = progressArr.filter(p => p.completionStatus === 'Completed').length;
+    const openedCount   = progressArr.filter(p => p.opened).length;
+    const avgCompletionPct = progressArr.length > 0
+      ? Math.round(progressArr.reduce((s, p) => s + (p.completionPct || 0), 0) / progressArr.length)
+      : 0;
+    contentsByModule[c.moduleId].push({
+      contentId: c.contentId, contentTitle: c.contentTitle, contentType: c.contentType,
+      estimatedMins: c.estimatedMins, completionRulePct: c.completionRulePct,
+      completedCount, openedCount,
+      notStartedCount: totalTrainees - openedCount,
+      completionRate: totalTrainees > 0 ? Math.round(completedCount / totalTrainees * 100) : 0,
+      avgCompletionPct,
+    });
+  }
+
+  const modulesOut = modules.map(m => ({
+    moduleId: m.moduleId, moduleTitle: m.moduleTitle, dayNo: m.dayNo,
+    contents: contentsByModule[m.moduleId] || [],
+  }));
+
+  const assessmentsOut = assessments.map(a => {
+    const byEmp = resultMap[a.assessmentId] || {};
+    const attempted = Object.values(byEmp);
+    const passedCount = attempted.filter(r => r.result === 'Pass').length;
+    const avgBestScore = attempted.length > 0
+      ? Math.round(attempted.reduce((s, r) => s + (r.bestPercentage || 0), 0) / attempted.length)
+      : 0;
+    const mod = moduleMap[a.moduleId] || {};
+    return {
+      assessmentId: a.assessmentId, assessmentName: a.assessmentName,
+      moduleId: a.moduleId, moduleTitle: mod.moduleTitle || null,
+      dayNo: a.dayNo ?? mod.dayNo ?? null, passingPct: a.passingPct,
+      attemptedCount: attempted.length, passedCount,
+      notAttemptedCount: totalTrainees - attempted.length,
+      attemptRate: totalTrainees > 0 ? Math.round(attempted.length / totalTrainees * 100) : 0,
+      passRate:    totalTrainees > 0 ? Math.round(passedCount     / totalTrainees * 100) : 0,
+      avgBestScore,
+    };
+  });
+
+  return { classroomId, classroomName, modules: modulesOut, assessments: assessmentsOut };
+}
+
 export async function getBatchContentProgress(req, res) {
   try {
     const { batchNo } = req.params;
 
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo }, select: { classroomId: true } });
-    if (!batch?.classroomId) return res.json({ ok: true, data: null });
-    const classroomId = batch.classroomId;
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+
+    // Collect all active classrooms for this batch
+    const maps = await prisma.batchClassroomMap.findMany({
+      where: { batchNo, active: true },
+      orderBy: { assignedAt: 'asc' },
+      select: { classroomId: true, classroomName: true },
+    });
+    // Fall back to denormalized field for old batches
+    let classroomList = maps;
+    if (classroomList.length === 0 && batch.classroomId) {
+      classroomList = [{ classroomId: batch.classroomId, classroomName: null }];
+    }
+    if (classroomList.length === 0) return res.json({ ok: true, data: null });
 
     const trainees = await prisma.traineeMaster.findMany({ where: { batchNo }, select: { employeeId: true } });
     const employeeIds = trainees.map(t => t.employeeId);
     const totalTrainees = employeeIds.length;
 
-    if (totalTrainees === 0) return res.json({ ok: true, data: { totalTrainees: 0, modules: [], assessments: [] } });
-
-    const [modules, contents, progressRows, assessments, results] = await Promise.all([
-      prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: { dayNo: 'asc' }, select: { moduleId: true, moduleTitle: true, dayNo: true } }),
-      prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { contentOrder: 'asc' }, select: { contentId: true, contentTitle: true, contentType: true, moduleId: true, estimatedMins: true, completionRulePct: true } }),
-      prisma.contentProgress.findMany({ where: { employeeId: { in: employeeIds }, classroomId }, select: { employeeId: true, contentId: true, opened: true, completionPct: true, completionStatus: true } }),
-      prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: { sortOrder: 'asc' }, select: { assessmentId: true, assessmentName: true, moduleId: true, dayNo: true, passingPct: true } }),
-      prisma.assessmentResult.findMany({ where: { employeeId: { in: employeeIds }, classroomId }, select: { employeeId: true, assessmentId: true, bestPercentage: true, result: true } }),
-    ]);
-
-    // Build lookup maps
-    const progressMap = {};
-    for (const p of progressRows) {
-      if (!progressMap[p.contentId]) progressMap[p.contentId] = {};
-      progressMap[p.contentId][p.employeeId] = p;
+    if (totalTrainees === 0) {
+      return res.json({ ok: true, data: { totalTrainees: 0, classrooms: classroomList.map(c => ({ ...c, modules: [], assessments: [] })), modules: [], assessments: [] } });
     }
 
-    const resultMap = {};
-    for (const r of results) {
-      if (!resultMap[r.assessmentId]) resultMap[r.assessmentId] = {};
-      resultMap[r.assessmentId][r.employeeId] = r;
-    }
+    const classroomsOut = await Promise.all(
+      classroomList.map(c => buildClassroomProgress(c.classroomId, c.classroomName, employeeIds))
+    );
 
-    const moduleMap = {};
-    for (const m of modules) moduleMap[m.moduleId] = m;
-
-    // Group contents by module
-    const contentsByModule = {};
-    for (const c of contents) {
-      if (!contentsByModule[c.moduleId]) contentsByModule[c.moduleId] = [];
-      const byEmp = progressMap[c.contentId] || {};
-      const progressArr = Object.values(byEmp);
-      const completedCount = progressArr.filter(p => p.completionStatus === 'Completed').length;
-      const openedCount = progressArr.filter(p => p.opened).length;
-      const avgCompletionPct = progressArr.length > 0
-        ? Math.round(progressArr.reduce((s, p) => s + (p.completionPct || 0), 0) / progressArr.length)
-        : 0;
-      contentsByModule[c.moduleId].push({
-        contentId: c.contentId,
-        contentTitle: c.contentTitle,
-        contentType: c.contentType,
-        estimatedMins: c.estimatedMins,
-        completionRulePct: c.completionRulePct,
-        completedCount,
-        openedCount,
-        notStartedCount: totalTrainees - openedCount,
-        completionRate: totalTrainees > 0 ? Math.round(completedCount / totalTrainees * 100) : 0,
-        avgCompletionPct,
-      });
-    }
-
-    const modulesOut = modules.map(m => ({
-      moduleId: m.moduleId,
-      moduleTitle: m.moduleTitle,
-      dayNo: m.dayNo,
-      contents: contentsByModule[m.moduleId] || [],
-    }));
-
-    // Aggregate assessments
-    const assessmentsOut = assessments.map(a => {
-      const byEmp = resultMap[a.assessmentId] || {};
-      const attempted = Object.values(byEmp);
-      const passedCount = attempted.filter(r => r.result === 'Pass').length;
-      const avgBestScore = attempted.length > 0
-        ? Math.round(attempted.reduce((s, r) => s + (r.bestPercentage || 0), 0) / attempted.length)
-        : 0;
-      const mod = moduleMap[a.moduleId] || {};
-      return {
-        assessmentId: a.assessmentId,
-        assessmentName: a.assessmentName,
-        moduleId: a.moduleId,
-        moduleTitle: mod.moduleTitle || null,
-        dayNo: a.dayNo ?? mod.dayNo ?? null,
-        passingPct: a.passingPct,
-        attemptedCount: attempted.length,
-        passedCount,
-        notAttemptedCount: totalTrainees - attempted.length,
-        attemptRate: totalTrainees > 0 ? Math.round(attempted.length / totalTrainees * 100) : 0,
-        passRate: totalTrainees > 0 ? Math.round(passedCount / totalTrainees * 100) : 0,
-        avgBestScore,
-      };
-    });
-
-    res.json({ ok: true, data: { totalTrainees, modules: modulesOut, assessments: assessmentsOut } });
+    // Top-level modules/assessments mirror first classroom for backward compat
+    const first = classroomsOut[0];
+    res.json({ ok: true, data: {
+      totalTrainees,
+      classrooms: classroomsOut,
+      modules: first.modules,
+      assessments: first.assessments,
+    } });
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error' });

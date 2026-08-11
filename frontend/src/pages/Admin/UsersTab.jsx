@@ -290,9 +290,20 @@ export default function UsersTab() {
                   <td><b style={{ fontSize: 12 }}>{u.loginId}</b></td>
                   <td style={{ fontSize: 12 }}>{u.name || '—'}</td>
                   <td>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: `${roleColor(u.role)}22`, color: roleColor(u.role) }}>
-                      {u.role}
-                    </span>
+                    <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' }}>
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: `${roleColor(u.role)}22`, color: roleColor(u.role) }}>
+                        {u.role}
+                      </span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                        background: u.role === 'Admin' ? 'rgba(139,92,246,.18)' : 'rgba(29,78,216,.18)',
+                        color: u.role === 'Admin' ? '#a78bfa' : '#60a5fa',
+                        border: `1px solid ${u.role === 'Admin' ? 'rgba(139,92,246,.3)' : 'rgba(29,78,216,.3)'}`,
+                        letterSpacing: '.04em',
+                      }}>
+                        {u.role === 'Admin' ? 'Admin portal' : 'Coord portal'}
+                      </span>
+                    </div>
                   </td>
                   <td style={{ fontSize: 12 }}>{u.branch || '—'}</td>
                   <td style={{ fontSize: 12 }}>{u.process || '—'}{u.lob ? ` / ${u.lob}` : ''}</td>
