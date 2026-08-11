@@ -26,6 +26,7 @@ import {
   setContentLock, unlockContentForTrainee,
   listBranches, getBranchDetail,
   listPortalUsers, createPortalUser, updatePortalUser, changeUserRole, deletePortalUser, resetPortalUserPin,
+  listBroadcastAssignments, withdrawBroadcastAssignment,
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
   exportModuleCompletion, exportAssessmentResults, exportAttendanceLog,
@@ -121,6 +122,8 @@ router.post('/broadcast-module', ...auth, broadcastModule);
 router.post('/broadcast-module-bulk', ...auth, broadcastModuleBulk);
 router.post('/validate-employee-ids', ...auth, validateEmployeeIds);
 router.get('/broadcast-targets', ...auth, getBroadcastTargets);
+router.get('/broadcast-assignments', ...auth, listBroadcastAssignments);
+router.delete('/broadcast-assignments/:batchKey', ...auth, withdrawBroadcastAssignment);
 
 router.get('/process-lob', ...auth, getProcessLobList);
 router.post('/process-lob', ...superElevatedAuth, saveProcessLob);

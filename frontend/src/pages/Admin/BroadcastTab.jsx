@@ -667,6 +667,109 @@ export default function BroadcastTab() {
           </div>
         </div>
       </div>
+
+      <SentBroadcasts />
+    </div>
+  );
+}
+
+// Sent broadcasts can be withdrawn. Withdrawing deactivates every recipient row
+// for that broadcast, so it leaves the learner Assigned tab on their next load
+// while the record itself is kept for audit.
+function SentBroadcasts() {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busyKey, setBusyKey] = useState('');
+  const [msg, setMsg] = useState('');
+
+  async function load() {
+    setLoading(true);
+    const res = await api.get('/admin/broadcast-assignments', 'admin');
+    setLoading(false);
+    if (res.ok) setRows(res.data || []);
+    else setMsg(res.message || 'Could not load sent broadcasts.');
+  }
+
+  useEffect(() => { load(); }, []);
+
+  async function withdraw(row) {
+    const label = row.broadcastTitle || row.moduleName;
+    const ok = window.confirm('Withdraw "' + label + '" from ' + row.activeRecipients + ' learners?\n\nIt disappears from their Assigned tab on their next page load.');
+    if (!ok) return;
+    setBusyKey(row.batchKey);
+    setMsg('');
+    const res = await api.delete('/admin/broadcast-assignments/' + encodeURIComponent(row.batchKey), 'admin');
+    setBusyKey('');
+    setMsg(res.message || (res.ok ? 'Broadcast withdrawn.' : 'Could not withdraw that broadcast.'));
+    if (res.ok) load();
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 18 }}>
+      <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 10 }}>
+        <div>
+          <b>Sent broadcasts</b>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+            Withdraw an assignment to remove it from every learner it was sent to.
+          </div>
+        </div>
+        <button className="btn small secondary" onClick={load} disabled={loading}>
+          {loading ? 'Loading...' : 'Refresh'}
+        </button>
+      </div>
+
+      {msg && <div className="toast" style={{ marginBottom: 10 }}>{msg}</div>}
+
+      {!loading && rows.length === 0 && (
+        <div className="empty">Nothing has been broadcast yet.</div>
+      )}
+
+      {rows.length > 0 && (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: 'left', padding: '8px 10px', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>Module</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>Scope</th>
+                <th style={{ textAlign: 'left', padding: '8px 10px', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>Sent by</th>
+                <th style={{ textAlign: 'right', padding: '8px 10px', color: 'var(--muted)', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.06em' }}>Active</th>
+                <th style={{ textAlign: 'right', padding: '8px 10px' }} />
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(row => (
+                <tr key={row.batchKey} style={{ borderTop: '1px solid var(--line)', opacity: row.activeRecipients ? 1 : .55 }}>
+                  <td style={{ padding: '10px' }}>
+                    <b>{row.broadcastTitle || row.moduleName}</b>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+                      {new Date(row.createdAt).toLocaleString()} &middot; {row.assignmentType}
+                    </div>
+                  </td>
+                  <td style={{ padding: '10px' }}>{row.assignedToType}</td>
+                  <td style={{ padding: '10px' }}>{row.assignedBy || '-'}</td>
+                  <td style={{ padding: '10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                    {row.activeRecipients} / {row.recipients}
+                  </td>
+                  <td style={{ padding: '10px', textAlign: 'right' }}>
+                    {row.activeRecipients > 0 ? (
+                      <button
+                        className="btn small"
+                        style={{ background: 'rgba(185,28,28,.9)', color: '#fff', border: 'none' }}
+                        disabled={busyKey === row.batchKey}
+                        onClick={() => withdraw(row)}
+                      >
+                        {busyKey === row.batchKey ? 'Withdrawing...' : 'Withdraw'}
+                      </button>
+                    ) : (
+                      <span className="pill">Withdrawn</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

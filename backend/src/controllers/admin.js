@@ -3240,3 +3240,68 @@ export async function bulkImportExecute(req, res) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
+
+
+// ── Broadcast assignment management ───────────────────────────────────────────
+// One broadcast writes a row per recipient, and every row from that broadcast
+// shares the "bk-<timestamp>" prefix of its id. Grouping on that prefix lets a
+// broadcast be reviewed and withdrawn as a single unit.
+export async function listBroadcastAssignments(req, res) {
+  try {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT SUBSTRING_INDEX(id, '-', 2) AS batchKey,
+              module_id AS moduleId, module_name AS moduleName,
+              broadcast_title AS broadcastTitle, assignment_type AS assignmentType,
+              assigned_by AS assignedBy, assigned_to_type AS assignedToType,
+              MIN(created_at) AS createdAt, MAX(due_date) AS dueDate,
+              COUNT(*) AS recipients, SUM(active) AS activeRecipients
+         FROM assigned_modules
+        GROUP BY batchKey, module_id, module_name, broadcast_title,
+                 assignment_type, assigned_by, assigned_to_type
+        ORDER BY MIN(created_at) DESC
+        LIMIT 200`,
+    );
+    const data = (rows || []).map(row => ({
+      ...row,
+      recipients: Number(row.recipients || 0),
+      activeRecipients: Number(row.activeRecipients || 0),
+    }));
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error('[BROADCAST] list failed:', err.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function withdrawBroadcastAssignment(req, res) {
+  try {
+    const batchKey = String(req.params.batchKey || '').trim();
+    // Only ever match a whole broadcast key, never an arbitrary LIKE pattern.
+    if (!/^bk-[0-9]+$/.test(batchKey)) {
+      return res.status(400).json({ ok: false, message: 'That broadcast reference is not valid.' });
+    }
+    const withdrawn = await prisma.$executeRawUnsafe(
+      'UPDATE assigned_modules SET active = 0 WHERE active = 1 AND id LIKE ?',
+      batchKey + '-%',
+    );
+    if (!Number(withdrawn)) {
+      return res.status(404).json({ ok: false, message: 'That broadcast is already withdrawn or no longer exists.' });
+    }
+    await audit({
+      userIdentity: req.userId,
+      userRole: 'Admin',
+      action: 'WITHDRAW_BROADCAST',
+      module: 'Broadcast',
+      referenceId: batchKey,
+      newValue: { recipientsWithdrawn: Number(withdrawn) },
+    });
+    return res.json({
+      ok: true,
+      message: 'Withdrawn from ' + Number(withdrawn) + ' learners.',
+      data: { withdrawn: Number(withdrawn) },
+    });
+  } catch (err) {
+    console.error('[BROADCAST] withdraw failed:', err.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
