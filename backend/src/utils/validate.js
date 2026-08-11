@@ -71,16 +71,18 @@ export const assessmentSchema = z.object({
   instructions: z.string().optional().nullable(),
 });
 
+// Both create-batch controllers generate batchNo themselves and fall back to
+// a process/LOB derived batchName, so neither may be demanded from the client.
 export const batchSchema = z.object({
-  batchNo: z.string().min(1, 'Batch number required'),
-  batchName: z.string().min(1, 'Batch name required'),
+  batchNo: z.string().optional().nullable(),
+  batchName: z.string().optional().nullable(),
   batchType: z.string().optional().default('NHT'),
   branch: z.string().optional().nullable(),
   process: z.string().optional().nullable(),
   lob: z.string().optional().nullable(),
   startDate: z.string().optional().nullable(),
   endDate: z.string().optional().nullable(),
-  expectedTrainees: z.number().int().optional().default(0),
+  expectedTrainees: z.preprocess(formNumber, z.number().int().optional().default(0)),
   remarks: z.string().optional().nullable(),
 });
 
