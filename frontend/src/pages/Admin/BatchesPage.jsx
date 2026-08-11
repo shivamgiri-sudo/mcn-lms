@@ -7,6 +7,7 @@ export default function BatchesPage({ navigate }) {
   const [loading, setLoading] = useState(true);
   const [showWizard, setShowWizard] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [confirmTyped, setConfirmTyped] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [msg, setMsg] = useState({ text: '', ok: true });
 
@@ -22,10 +23,15 @@ export default function BatchesPage({ navigate }) {
 
   async function doDelete() {
     if (!confirmDelete) return;
+    if (confirmTyped !== confirmDelete.batchNo) {
+      toast('Batch number does not match. Please type it exactly.', false);
+      return;
+    }
     setDeleting(true);
     const res = await api.delete(`/admin/batches/${encodeURIComponent(confirmDelete.batchNo)}`, 'admin');
     setDeleting(false);
     setConfirmDelete(null);
+    setConfirmTyped('');
     if (res.ok) { toast(`Batch ${confirmDelete.batchNo} deleted.`); load(); }
     else toast(res.message || 'Delete failed.', false);
   }
@@ -65,7 +71,7 @@ export default function BatchesPage({ navigate }) {
                   <td>
                     <button
                       className="btn xs danger"
-                      onClick={e => { e.stopPropagation(); setConfirmDelete(b); }}
+                      onClick={e => { e.stopPropagation(); setConfirmDelete(b); setConfirmTyped(''); }}
                       title="Delete batch and all its data"
                     >
                       🗑 Delete
@@ -80,7 +86,7 @@ export default function BatchesPage({ navigate }) {
 
       {/* Delete confirmation modal */}
       {confirmDelete && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !deleting && setConfirmDelete(null)}>
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && !deleting && (setConfirmDelete(null), setConfirmTyped(''))}>
           <div className="modal-box" style={{ maxWidth: 440 }}>
             <div className="modal-head">
               <b style={{ color: 'var(--bad)' }}>Delete Batch</b>
@@ -99,12 +105,21 @@ export default function BatchesPage({ navigate }) {
                   <li>All classroom assignments</li>
                 </ul>
               </div>
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16 }}>
-                Type the batch number to confirm: <b>{confirmDelete.batchNo}</b>
+              <p style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8 }}>
+                Type <b>{confirmDelete.batchNo}</b> to confirm:
               </p>
+              <input
+                className="input"
+                style={{ marginBottom: 16, fontFamily: 'monospace' }}
+                placeholder={confirmDelete.batchNo}
+                value={confirmTyped}
+                onChange={e => setConfirmTyped(e.target.value)}
+                disabled={deleting}
+                autoFocus
+              />
               <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-                <button className="btn secondary small" onClick={() => setConfirmDelete(null)} disabled={deleting}>Cancel</button>
-                <button className="btn danger small" onClick={doDelete} disabled={deleting} style={{ background: '#b91c1c', color: '#fff' }}>
+                <button className="btn secondary small" onClick={() => { setConfirmDelete(null); setConfirmTyped(''); }} disabled={deleting}>Cancel</button>
+                <button className="btn danger small" onClick={doDelete} disabled={deleting || confirmTyped !== confirmDelete.batchNo} style={{ background: confirmTyped === confirmDelete.batchNo ? '#b91c1c' : '#6b7280', color: '#fff' }}>
                   {deleting ? 'Deleting...' : 'Yes, Delete Batch'}
                 </button>
               </div>

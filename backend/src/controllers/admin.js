@@ -683,8 +683,12 @@ export async function searchTrainees(req, res) {
         ],
       } : {}),
     };
-    const trainees = await prisma.traineeMaster.findMany({ where, take: 50, orderBy: { createdAt: 'desc' } });
-    res.json({ ok: true, data: trainees });
+    const trainees = await prisma.traineeMaster.findMany({
+      where, take: 50, orderBy: { createdAt: 'desc' },
+      include: { userAccount: { select: { locked: true, failedAttempts: true, active: true, forcePasswordReset: true } } },
+    });
+    const data = trainees.map(t => ({ ...t, locked: t.userAccount?.locked ?? false, hasAccount: !!t.userAccount }));
+    res.json({ ok: true, data });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
@@ -727,6 +731,8 @@ export async function resetTraineePassword(req, res) {
 export async function unlockTrainee(req, res) {
   try {
     const { employeeId } = req.params;
+    const account = await prisma.userMaster.findUnique({ where: { employeeId } });
+    if (!account) return res.status(404).json({ ok: false, message: 'No login account found for this trainee.' });
     await prisma.userMaster.update({ where: { employeeId }, data: { locked: false, failedAttempts: 0 } });
     res.json({ ok: true, message: `${employeeId} unlocked.` });
   } catch (err) {
@@ -1624,7 +1630,7 @@ export async function listBatches(req, res) {
   try {
     const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
     const batches = await prisma.batchMaster.findMany({
-      where: { batchStatus: { not: 'Archived' }, ...branchFilter },
+      where: { batchStatus: { notIn: ['Archived', 'Deleted'] }, ...branchFilter },
       orderBy: { createdAt: 'desc' },
     });
     const batchNos = batches.map(b => b.batchNo);
@@ -2481,7 +2487,7 @@ export async function listPortalUsers(req, res) {
       prisma.adminUserMaster.findMany({
         where: { active: true },
         orderBy: { adminName: 'asc' },
-        select: { id: true, adminId: true, adminName: true, role: true, branch: true, active: true, lastLogin: true, createdAt: true },
+        select: { id: true, adminId: true, adminName: true, role: true, branch: true, active: true, locked: true, failedAttempts: true, lastLogin: true, createdAt: true },
       }),
     ]);
     // Normalise admin_user_master rows to the same shape as role_access_matrix

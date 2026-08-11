@@ -35,21 +35,28 @@ export default function AccountsTab() {
     setSearched(false);
   }
 
+  function toast(text) {
+    setMsg(text);
+    setTimeout(() => setMsg(''), 6000);
+  }
+
   async function resetPassword(employeeId) {
     const res = await api.post(`/admin/trainees/${employeeId}/reset-password`, {}, 'admin');
-    setMsg(res.ok ? `✓ ${res.message}` : res.message || 'Failed.');
+    toast(res.ok ? `✓ ${res.message}` : res.message || 'Failed.');
+    if (res.ok) search();
   }
 
   async function unlockAccount(employeeId) {
     const res = await api.post(`/admin/trainees/${employeeId}/unlock`, {}, 'admin');
-    setMsg(res.ok ? `✓ ${employeeId} unlocked.` : 'Failed.');
+    toast(res.ok ? `✓ ${employeeId} unlocked.` : res.message || 'Failed.');
+    if (res.ok) search();
   }
 
   async function deleteAccount(employeeId) {
     if (!window.confirm(`Delete account for ${employeeId}? This will deactivate their LMS access.`)) return;
     const res = await api.delete(`/admin/trainees/${employeeId}`, 'admin');
-    if (res.ok) { setMsg(`✓ ${employeeId} deleted.`); search(); }
-    else setMsg('Failed.');
+    if (res.ok) { toast(`✓ ${employeeId} deleted.`); search(); }
+    else toast('Failed.');
   }
 
   function setUserField(key, value) {
@@ -119,6 +126,8 @@ export default function AccountsTab() {
                     <span style={{ fontFamily: 'monospace', fontSize: 12 }}><b>{t.employeeId}</b></span>
                     {t.lmsId && <div style={{ fontFamily: 'monospace', fontSize: 11, color: 'var(--muted)' }}>LMS: {t.lmsId}</div>}
                     {t.empIdType === 'TEMP' && <span style={{ marginTop: 3, display: 'inline-block', background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>}
+                    {t.locked && <span style={{ marginTop: 3, display: 'inline-block', background: '#dc2626', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>LOCKED</span>}
+                    {!t.hasAccount && <span style={{ marginTop: 3, display: 'inline-block', background: '#6b7280', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>NO LOGIN</span>}
                   </td>
                   <td>{t.traineeName || '—'}</td>
                   <td style={{ fontSize: 12, color: 'var(--muted)' }}>{t.email || '—'}</td>
@@ -132,7 +141,7 @@ export default function AccountsTab() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn small secondary" onClick={() => resetPassword(t.employeeId)} style={{ fontSize: 11 }}>Reset PW</button>
-                      <button className="btn small secondary" onClick={() => unlockAccount(t.employeeId)} style={{ fontSize: 11 }}>Unlock</button>
+                      <button className={`btn small ${t.locked ? 'danger' : 'secondary'}`} onClick={() => unlockAccount(t.employeeId)} style={{ fontSize: 11 }} title={t.locked ? 'Account is locked — click to unlock' : 'Unlock account'}>{t.locked ? '🔓 Unlock' : 'Unlock'}</button>
                       <button className="btn small danger" onClick={() => deleteAccount(t.employeeId)} style={{ fontSize: 11 }}>Delete</button>
                     </div>
                   </td>
