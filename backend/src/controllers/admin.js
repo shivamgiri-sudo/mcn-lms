@@ -2034,6 +2034,14 @@ export async function adminCreateBatch(req, res) {
       }).catch(() => {});
     }
 
+    // Any further classrooms picked in the wizard are attached the same way the
+    // batch screen attaches them later on.
+    if (extraClassroomIds.length) {
+      await attachBatchClassrooms(batchNo, extraClassroomIds, req.userId).catch(error => {
+        console.error('[BATCH] extra classrooms failed:', error.message);
+      });
+    }
+
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_BATCH', module: 'Batch', referenceId: batchNo, newValue: batch });
     res.json({ ok: true, data: batch, message: `Batch ${batchNo} created.` });
   } catch (err) {

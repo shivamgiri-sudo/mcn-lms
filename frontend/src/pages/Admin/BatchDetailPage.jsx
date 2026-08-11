@@ -378,6 +378,8 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
             </div>
           )}
 
+          <BatchClassrooms batchNo={batch.batchNo} classrooms={classrooms} />
+
           {!contentLoading && !contentProgress && (
             <div className="glass-panel">
               <div className="panel-title">Content Progress <span className="panel-sub">No classroom linked</span></div>
@@ -569,6 +571,128 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// A batch can carry several classrooms. The primary one drives the learner
+// dashboard and completion figures; the others simply grant learners access to
+// that content, so they can be added and removed safely at any time.
+function BatchClassrooms({ batchNo, classrooms }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState('');
+  const [msg, setMsg] = useState('');
+  const [picker, setPicker] = useState('');
+
+  async function load() {
+    if (!batchNo) return;
+    setLoading(true);
+    const res = await api.get('/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms', 'admin');
+    setLoading(false);
+    if (res.ok) setRows(res.data || []);
+    else setMsg(res.message || 'Could not load the classrooms for this batch.');
+  }
+
+  useEffect(() => { load(); }, [batchNo]);
+
+  async function addClassroom() {
+    if (!picker) return;
+    setBusy('add');
+    setMsg('');
+    const res = await api.post(
+      '/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms',
+      { classroomIds: [picker] }, 'admin',
+    );
+    setBusy('');
+    setMsg(res.message || (res.ok ? 'Classroom attached.' : 'Could not attach that classroom.'));
+    if (res.ok) { setPicker(''); load(); }
+  }
+
+  async function makePrimary(row) {
+    setBusy(row.classroomId);
+    setMsg('');
+    const res = await api.put(
+      '/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms/' + encodeURIComponent(row.classroomId) + '/primary',
+      {}, 'admin',
+    );
+    setBusy('');
+    setMsg(res.message || '');
+    if (res.ok) load();
+  }
+
+  async function removeClassroom(row) {
+    if (!window.confirm('Remove ' + row.classroomName + ' from this batch? Learners lose access to its content.')) return;
+    setBusy(row.classroomId);
+    setMsg('');
+    const res = await api.delete(
+      '/admin/batches/' + encodeURIComponent(batchNo) + '/classrooms/' + encodeURIComponent(row.classroomId),
+      'admin',
+    );
+    setBusy('');
+    setMsg(res.message || '');
+    if (res.ok) load();
+  }
+
+  const attached = new Set(rows.map(r => r.classroomId));
+  const available = (classrooms || []).filter(c => !attached.has(c.classroomId));
+
+  return (
+    <div className="glass-panel">
+      <div className="panel-title">
+        Classrooms
+        <span className="panel-sub">{rows.length} attached &middot; the primary one drives learner progress</span>
+      </div>
+
+      {msg && <div className="toast" style={{ margin: '10px 0' }}>{msg}</div>}
+      {loading && <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>Loading classrooms…</p>}
+      {!loading && rows.length === 0 && (
+        <p style={{ color: 'var(--muted)', fontSize: 12, marginTop: 8 }}>No classroom is attached to this batch yet.</p>
+      )}
+
+      {rows.length > 0 && (
+        <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+          {rows.map(row => (
+            <div key={row.classroomId} style={{
+              border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap',
+            }}>
+              <div>
+                <b style={{ fontSize: 13 }}>{row.classroomName}</b>
+                {row.primary && <span className="pill info" style={{ marginLeft: 8 }}>Primary</span>}
+                <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 2 }}>{row.classroomId}</div>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {!row.primary && (
+                  <button className="btn small secondary" disabled={busy === row.classroomId}
+                    onClick={() => makePrimary(row)}>
+                    {busy === row.classroomId ? 'Working…' : 'Make primary'}
+                  </button>
+                )}
+                {!row.primary && (
+                  <button className="btn small" style={{ background: 'rgba(185,28,28,.9)', color: '#fff', border: 'none' }}
+                    disabled={busy === row.classroomId} onClick={() => removeClassroom(row)}>
+                    Remove
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
+        <select className="select" value={picker} onChange={e => setPicker(e.target.value)} style={{ flex: 1, minWidth: 220 }}>
+          <option value="">— Add another classroom —</option>
+          {available.map(c => (
+            <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>
+          ))}
+        </select>
+        <button className="btn small" onClick={addClassroom} disabled={!picker || busy === 'add'}>
+          {busy === 'add' ? 'Attaching…' : 'Attach'}
+        </button>
+      </div>
     </div>
   );
 }
