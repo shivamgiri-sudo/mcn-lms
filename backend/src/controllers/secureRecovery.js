@@ -112,6 +112,10 @@ async function findCoordinator(identifier) {
 async function createResetToken(account, req) {
   const rawToken = randomBytes(32).toString('base64url');
   const tokenHash = sha256(rawToken);
+  // expiresAt is used only for the audit log — SQL uses DATE_ADD(NOW(3), ...) so that
+  // expires_at is stored in MySQL server local time (IST), consistent with every
+  // NOW(3) comparison in UPDATE/SELECT. Passing a JS Date serialises as UTC, which
+  // causes the UPDATE's "AND expires_at > NOW(3)" to fail immediately on IST servers.
   const expiresAt = new Date(Date.now() + RESET_TTL_MINUTES * 60 * 1000);
 
   await prisma.$transaction(async tx => {
@@ -125,7 +129,9 @@ async function createResetToken(account, req) {
       INSERT INTO password_reset_tokens
         (id, token_hash, user_id, user_type, expires_at, used_at, request_ip_hash, created_at)
       VALUES
-        (${randomUUID()}, ${tokenHash}, ${account.userId}, ${account.userType}, ${expiresAt}, NULL, ${requestIpHash(req)}, NOW(3))
+        (${randomUUID()}, ${tokenHash}, ${account.userId}, ${account.userType},
+         DATE_ADD(NOW(3), INTERVAL ${RESET_TTL_MINUTES} MINUTE),
+         NULL, ${requestIpHash(req)}, NOW(3))
     `;
   });
 
@@ -274,15 +280,21 @@ export async function completePasswordRecovery(req, res) {
     if (policyError) return res.status(400).json({ ok: false, message: policyError });
 
     const tokenHash = sha256(rawToken);
+    // Filter expired and used tokens in SQL using NOW(3) (server local time) so the
+    // check is consistent with the UPDATE below. A JS Date comparison is unreliable
+    // when expires_at is stored in server local time but Node.js runs in a different
+    // timezone (e.g. UTC vs IST).
     const rows = await prisma.$queryRaw`
       SELECT id, user_id, user_type, expires_at, used_at
       FROM password_reset_tokens
       WHERE token_hash = ${tokenHash}
         AND user_type = ${userType}
+        AND used_at IS NULL
+        AND expires_at > NOW(3)
       LIMIT 1
     `;
     const token = rows?.[0];
-    if (!token || token.used_at || new Date(token.expires_at) <= new Date()) {
+    if (!token) {
       return res.status(400).json({ ok: false, message: 'The recovery link is invalid, expired, or already used.' });
     }
 
