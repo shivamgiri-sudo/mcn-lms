@@ -44,10 +44,10 @@ function mapClassroomContent(row) {
   const driveFileId = row.drive_file_id || '';
   const localPath = row.local_file_path || '';
   let openUrl = row.direct_media_url || '';
-  if (!openUrl && driveFileId) openUrl = '/api/drive/proxy/' + encodeURIComponent(driveFileId);
+  if (!openUrl && driveFileId) openUrl = '/api/drive/proxy/' + encodeURIComponent(driveFileId) + '?role=trainee';
   if (!openUrl && localPath) {
     const filename = String(localPath).split('/').pop();
-    if (filename) openUrl = '/api/content/files/' + encodeURIComponent(filename);
+    if (filename) openUrl = '/api/content/files/' + encodeURIComponent(filename) + '?role=trainee';
   }
   return {
     contentId: row.content_id,

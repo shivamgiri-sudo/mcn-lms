@@ -320,7 +320,10 @@ export async function establishBrowserSession(req, res, userId, userType, option
 }
 
 export function resolveSessionCredential(req) {
-  const roleHeader = normalizeSessionRole(req.headers['x-lms-role']);
+  // A link opened in a new tab cannot send X-LMS-Role, so a role hint is also
+  // accepted from the query string. The hint only chooses which cookie to read
+  // among those the browser already sent; it never grants access by itself.
+  const roleHeader = normalizeSessionRole(req.headers['x-lms-role'] || req.query?.role || '');
   const cookies = parseCookies(req);
   if (ROLE_COOKIE[roleHeader] && cookies[ROLE_COOKIE[roleHeader]]) {
     return { token: cookies[ROLE_COOKIE[roleHeader]], role: roleHeader, mode: 'cookie', cookies };
