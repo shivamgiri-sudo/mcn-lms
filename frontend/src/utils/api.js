@@ -126,7 +126,15 @@ export async function refreshCsrfToken(type = 'trainee') {
   }
 }
 
-async function request(method, url, body, type = 'trainee') {
+// A UI layer registers a prompt here so a sensitive action can re-authenticate
+// in place instead of failing outright with ELEVATION_REQUIRED.
+let elevationHandler = null;
+
+export function setElevationHandler(handler) {
+  elevationHandler = typeof handler === 'function' ? handler : null;
+}
+
+async function request(method, url, body, type = 'trainee', options = {}) {
   const headers = { 'Content-Type': 'application/json', ...roleHeaders(type, method) };
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
@@ -143,6 +151,23 @@ async function request(method, url, body, type = 'trainee') {
 
     const data = await res.json().catch(() => ({ ok: false, message: 'Invalid server response' }));
     handleSessionFailure(res.status, data, type);
+
+    // Sensitive admin actions need a recently re-authenticated session. Collect
+    // the confirmation once, elevate, then replay the original request.
+    if (res.status === 403 && data?.code === 'ELEVATION_REQUIRED'
+        && options.allowElevation !== false && elevationHandler) {
+      const proof = await elevationHandler({ method, url, type });
+      if (!proof?.password) return data;
+      const elevated = await request(
+        'POST', '/auth/security/elevate',
+        { password: proof.password, reason: proof.reason },
+        type, { allowElevation: false },
+      );
+      if (!elevated?.ok) {
+        return { ok: false, status: 403, message: elevated?.message || 'Could not verify your identity for this action.' };
+      }
+      return request(method, url, body, type, { allowElevation: false });
+    }
 
     if (res.ok && (data.sessionEstablished || (method === 'GET' && String(url).includes('/auth/me')))) {
       setToken(type);
