@@ -162,7 +162,26 @@ async function authorizedContent(req, fileId) {
     if (!trainee || trainee.status !== 'Active') return null;
     if (trainee.classroomId === classroomId) return content;
     const mapping = await prisma.traineeClassroomMap.findFirst({ where: { employeeId: req.userId, classroomId, active: true }, select: { id: true } });
-    return mapping ? content : null;
+    if (mapping) return content;
+
+    // A module can also be broadcast directly to a learner outside their own
+    // classroom. That assignment has to grant access to the module content,
+    // otherwise the Assigned tab shows an item the learner cannot open.
+    const assignment = await prisma.assignedModule.findFirst({
+      where: {
+        moduleId: content.moduleId,
+        active: true,
+        OR: [
+          { assignedTo: req.userId, assignedToType: 'individual' },
+          { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
+          { assignedTo: trainee.process || '', assignedToType: 'process' },
+          { assignedTo: trainee.branch || '', assignedToType: 'branch' },
+          { assignedToType: 'company' },
+        ],
+      },
+      select: { id: true },
+    });
+    return assignment ? content : null;
   }
 
   if (req.userType === 'admin') {
