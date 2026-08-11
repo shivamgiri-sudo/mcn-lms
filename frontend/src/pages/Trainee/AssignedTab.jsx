@@ -10,7 +10,9 @@ function publicUrl(url) {
 }
 
 function getContentUrl(content) {
-  return publicUrl(content.directMediaUrl || content.driveUrl || content.localFilePath || '');
+  // openUrl is the authenticated route built by the API; the raw Drive link is
+  // only a fallback and generally is not reachable by a learner.
+  return publicUrl(content.openUrl || content.directMediaUrl || content.driveUrl || content.localFilePath || '');
 }
 
 export default function AssignedTab({ assignments }) {

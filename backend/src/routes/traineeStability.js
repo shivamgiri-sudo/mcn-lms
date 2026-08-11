@@ -38,6 +38,34 @@ function secureShuffle(items) {
   return copy;
 }
 
+// Content that lives inside a classroom module. openUrl points at the
+// authenticated route so a learner can open it without needing Google access.
+function mapClassroomContent(row) {
+  const driveFileId = row.drive_file_id || '';
+  const localPath = row.local_file_path || '';
+  let openUrl = row.direct_media_url || '';
+  if (!openUrl && driveFileId) openUrl = '/api/drive/proxy/' + encodeURIComponent(driveFileId);
+  if (!openUrl && localPath) {
+    const filename = String(localPath).split('/').pop();
+    if (filename) openUrl = '/api/content/files/' + encodeURIComponent(filename);
+  }
+  return {
+    contentId: row.content_id,
+    repositoryContentId: row.content_id,
+    title: row.content_title,
+    contentTitle: row.content_title,
+    contentType: row.content_type,
+    description: row.description,
+    required: Boolean(row.required),
+    driveFileId,
+    driveUrl: row.drive_url,
+    directMediaUrl: row.direct_media_url,
+    localFilePath: localPath,
+    playerMode: row.player_mode,
+    openUrl,
+  };
+}
+
 function mapRepoContent(row) {
   return {
     repositoryContentId: row.repository_content_id,
@@ -258,20 +286,40 @@ async function enrichIndependentAssignments(assignments) {
       ...moduleIds,
     );
     const knownIndependent = new Set((moduleRows || []).map(module => module.module_id));
-    if (!knownIndependent.size) return assignments;
-
-    const contentRows = await prisma.$queryRawUnsafe(
-      `SELECT m.module_id, m.sort_order, m.required, r.*
-       FROM independent_module_content_map m
-       INNER JOIN content_repository_master r ON r.repository_content_id = m.repository_content_id
-       WHERE m.active = 1 AND r.status = 'Active' AND m.module_id IN (${placeholders})
-       ORDER BY m.module_id, m.sort_order ASC`,
-      ...moduleIds,
-    );
     const byModule = {};
-    for (const row of contentRows || []) {
-      if (!byModule[row.module_id]) byModule[row.module_id] = [];
-      byModule[row.module_id].push(mapRepoContent(row));
+
+    if (knownIndependent.size) {
+      const contentRows = await prisma.$queryRawUnsafe(
+        `SELECT m.module_id, m.sort_order, m.required, r.*
+         FROM independent_module_content_map m
+         INNER JOIN content_repository_master r ON r.repository_content_id = m.repository_content_id
+         WHERE m.active = 1 AND r.status = 'Active' AND m.module_id IN (${placeholders})
+         ORDER BY m.module_id, m.sort_order ASC`,
+        ...moduleIds,
+      );
+      for (const row of contentRows || []) {
+        if (!byModule[row.module_id]) byModule[row.module_id] = [];
+        byModule[row.module_id].push(mapRepoContent(row));
+      }
+    }
+
+    // A directly assigned classroom module keeps its content in content_master,
+    // so without this branch the learner sees the assignment but nothing to open.
+    const classroomModuleIds = moduleIds.filter(id => !knownIndependent.has(id));
+    if (classroomModuleIds.length) {
+      const classroomPlaceholders = classroomModuleIds.map(() => '?').join(',');
+      const classroomRows = await prisma.$queryRawUnsafe(
+        `SELECT content_id, module_id, content_type, content_title, description, required,
+                drive_file_id, drive_url, direct_media_url, local_file_path, player_mode
+           FROM content_master
+          WHERE active = 1 AND module_id IN (${classroomPlaceholders})
+          ORDER BY module_id, content_order ASC`,
+        ...classroomModuleIds,
+      );
+      for (const row of classroomRows || []) {
+        if (!byModule[row.module_id]) byModule[row.module_id] = [];
+        byModule[row.module_id].push(mapClassroomContent(row));
+      }
     }
     return assignments.map(assignment => ({
       ...assignment,
