@@ -303,17 +303,23 @@ export async function logContentClose(req, res) {
   try {
     const empId = req.userId;
     const { contentId } = req.params;
-    const { secondsDelta = 0, positionSeconds = 0 } = req.body;
+    const { secondsDelta = 0, positionSeconds = 0, completed = false, completionStatus } = req.body;
 
     const cappedDelta = Math.min(Math.max(parseInt(secondsDelta, 10) || 0, 0), 30);
+    const forceComplete = completed === true || completionStatus === 'Completed';
+
     const progress = await prisma.contentProgress.findUnique({
       where: { employeeId_contentId: { employeeId: empId, contentId } },
     });
 
-    if (progress && cappedDelta > 0) {
+    if (progress && (cappedDelta > 0 || forceComplete)) {
       const newTotal = (progress.totalSecondsSpent || 0) + cappedDelta;
-      const completionPct = progress.requiredSeconds > 0 ? Math.min(100, Math.round((newTotal / progress.requiredSeconds) * 100)) : progress.completionPct;
-      const isCompleted = completionPct >= 100;
+      let completionPct = progress.requiredSeconds > 0
+        ? Math.min(100, Math.round((newTotal / progress.requiredSeconds) * 100))
+        : progress.completionPct;
+      // Manual mark-complete always sets 100%
+      if (forceComplete) completionPct = 100;
+      const isCompleted = completionPct >= 100 || forceComplete;
 
       await prisma.contentProgress.update({
         where: { id: progress.id },
@@ -325,6 +331,11 @@ export async function logContentClose(req, res) {
           completedAt: isCompleted && !progress.completedAt ? new Date() : progress.completedAt,
         },
       });
+
+      if (isCompleted) {
+        await updateCourseReport(empId, progress.classroomId);
+        await syncTraineeMasterStats(empId, progress.classroomId);
+      }
     }
 
     cache.delPrefix('dashboard:');

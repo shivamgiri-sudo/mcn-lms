@@ -358,7 +358,10 @@ function FaqItem({ faq }) {
 function AssessmentCard({ assessment, result, onStart }) {
   const passed = result?.result === 'Pass';
   const locked = !!assessment.accessLocked;
-  const attemptsLeft = assessment.attemptLimit - (result?.totalAttempts || 0);
+  // null attemptLimit means unlimited — treat as Infinity so attemptsLeft > 0 is always true
+  const attemptsLeft = assessment.attemptLimit != null
+    ? assessment.attemptLimit - (result?.totalAttempts || 0)
+    : Infinity;
 
   return (
     <div style={{ border: locked ? '1.5px solid var(--warn)' : '1.5px solid #c7d2fe', background: locked ? 'var(--warn-soft)' : 'linear-gradient(135deg, var(--accent-soft), rgba(255,255,255,.04))', borderRadius: 13, padding: '12px 14px', opacity: locked ? .78 : 1 }}>
@@ -406,7 +409,9 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
     return undefined;
   }, [content.contentId, media?.type, progress?.completionPct, progress?.completionStatus]);
 
-  const canMarkComplete = !!media && !isVideo && media.type !== 'youtube' && !completionState.done;
+  // Hide manual mark-complete for content that has a completionRulePct set (auto-completes via watch time)
+  // and for video/youtube (tracked automatically)
+  const canMarkComplete = !!media && !isVideo && media.type !== 'youtube' && !completionState.done && !content.completionRulePct;
 
   async function markComplete(closeAfter = false) {
     if (completionState.saving) return;
