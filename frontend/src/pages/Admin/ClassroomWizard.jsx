@@ -325,9 +325,11 @@ export default function ClassroomWizard({ onClose, onCreated }) {
         const asmRes = await api.post('/admin/assessments', {
           classroomId,
           moduleId,
-          title: `${day.title} — Assessment`,
-          passMark: 60,
-          maxAttempts: 3,
+          // The API expects assessmentName/passingPct/attemptLimit. The older
+          // names were rejected, so wizard built days silently got no quiz.
+          assessmentName: `${day.title} — Assessment`,
+          passingPct: 60,
+          attemptLimit: 3,
         }, 'admin');
         if (asmRes.ok) {
           const asmId = asmRes.data?.assessmentId;
