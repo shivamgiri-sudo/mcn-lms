@@ -5,8 +5,8 @@ import { api } from '../../utils/api.js';
 const CSV_TEMPLATE = 'traineeName,employeeId,lmsId,email,mobile,batchNo,branch,process,lob\nJohn Doe,JOHNDOE001,LMS000001,john@example.com,9876543210,BATCH001,Mumbai,Support,LOB1\n';
 
 function parseCsv(text) {
-  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => h.trim().toLowerCase() });
-  return result.data.filter(r => r.traineename || r.name);
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') });
+  return result.data.filter(r => r.traineename || r.name || r.fullname || r.employeeid || r.empid);
 }
 
 export default function BulkImportTab() {

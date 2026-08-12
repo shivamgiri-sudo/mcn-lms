@@ -3,10 +3,10 @@ import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
 
 function parseCsv(text) {
-  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => h.trim().toLowerCase().replace(/[^a-z_]/g, '') });
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') });
   return result.data.map(row => ({
-    mobile: row.mobile || row.mobile_number || '',
-    permanentEmpId: row.permanentempid || row.permanent_emp_id || row.empid || '',
+    mobile: row.mobile || row.mobilenumber || row.phone || row.contact || '',
+    permanentEmpId: row.permanentempid || row.empid || row.employeeid || row.employeecode || row.empcode || '',
   })).filter(r => r.mobile && r.permanentEmpId);
 }
 

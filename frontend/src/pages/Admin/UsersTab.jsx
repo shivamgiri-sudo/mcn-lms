@@ -1,16 +1,12 @@
 import { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
 
 const BULK_CSV_TEMPLATE = 'loginId,name,pin,role,branch,process,lob,designation,department,employeeCode,canCreateBatch,canOnboardTrainee,canUploadLmsReport,canOverrideAttendance,canCloseBatch,canViewManagementDashboard\nCOORD001,John Doe,1234,Coordinator,Bangalore,Collections,LOB1,Training Coordinator,Training,,true,true,false,false,false,false\n';
 
 function parseBulkUsersCsv(text) {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-  return lines.slice(1).map(line => {
-    const cols = line.split(',').map(c => c.trim());
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = cols[i] || ''; });
+  const parsed = Papa.parse(String(text || '').trim(), { header: true, skipEmptyLines: true, transformHeader: h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') });
+  return parsed.data.map(obj => {
     const bool = v => v === 'true' || v === '1' || v === 'yes';
     return {
       loginId: obj.loginid || obj['login id'] || '',
