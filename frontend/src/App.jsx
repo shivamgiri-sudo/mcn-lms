@@ -1,4 +1,5 @@
 import { Routes, Route, Navigate } from './utils/browserRouter.jsx';
+import { useEffect } from 'react';
 import TraineePage from './pages/Trainee/TraineePage.jsx';
 import CoordinatorPage from './pages/Coordinator/CoordinatorPage.jsx';
 import AdminPage from './pages/Admin/AdminPage.jsx';
@@ -16,9 +17,21 @@ import NotificationDock from './pages/Notifications/NotificationDock.jsx';
 import LearningToolsDock from './components/LearningToolsDock.jsx';
 import ElevationGate from './components/ElevationGate.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
+import { hasSessionMarker } from './utils/api.js';
+
+function NotFound() {
+  const role = hasSessionMarker('admin') ? 'admin' : hasSessionMarker('coordinator') ? 'coordinator' : 'lms';
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', fontFamily: 'system-ui, sans-serif', gap: 16, color: '#374151' }}>
+      <div style={{ fontSize: 48, fontWeight: 700, color: '#d1d5db' }}>404</div>
+      <h1 style={{ margin: 0, fontSize: 20 }}>Page not found</h1>
+      <a href={`/${role}`} style={{ color: '#1d4ed8', fontSize: 14 }}>Back to portal</a>
+    </div>
+  );
+}
 
 export default function App() {
-  runSsoBootstrap();
+  useEffect(() => { runSsoBootstrap(); }, []);
   return (
     <>
       <Routes>
@@ -36,6 +49,7 @@ export default function App() {
         <Route path="/coordinator/*" element={<CoordinatorPage />} />
         <Route path="/admin/*" element={<AdminPage />} />
         <Route path="/management/*" element={<ManagementPage />} />
+        <Route path="*" element={<NotFound />} />
       </Routes>
       <ElevationGate />
       <LearningToolsDock />

@@ -1,14 +1,23 @@
 import nodemailer from 'nodemailer';
 import { prisma } from './db.js';
 
-function createTransporter() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
-  if (!SMTP_USER || !SMTP_PASS) throw new Error('SMTP_USER and SMTP_PASS are not configured.');
-  return nodemailer.createTransport({
-    host: SMTP_HOST || 'smtp.gmail.com',
-    port: parseInt(SMTP_PORT || '587', 10),
-    auth: { user: SMTP_USER, pass: SMTP_PASS },
-  });
+async function getSmtpConfig() {
+  try {
+    const cfg = await prisma.communicationConfig.findUnique({ where: { id: 'default' } });
+    if (cfg?.smtpEnabled && cfg?.smtpUser && cfg?.smtpPass) {
+      return { host: cfg.smtpHost || 'smtp.gmail.com', port: cfg.smtpPort || 587, user: cfg.smtpUser, pass: cfg.smtpPass, from: cfg.emailFrom || cfg.smtpUser };
+    }
+  } catch {
+    // DB unavailable — fall through to env vars
+  }
+  const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, EMAIL_FROM } = process.env;
+  if (!SMTP_USER || !SMTP_PASS) throw new Error('SMTP_USER and SMTP_PASS are not configured (neither DB nor env).');
+  return { host: SMTP_HOST || 'smtp.gmail.com', port: parseInt(SMTP_PORT || '587', 10), user: SMTP_USER, pass: SMTP_PASS, from: EMAIL_FROM || SMTP_USER };
+}
+
+async function createTransporter() {
+  const cfg = await getSmtpConfig();
+  return { transporter: nodemailer.createTransport({ host: cfg.host, port: cfg.port, secure: cfg.port === 465, auth: { user: cfg.user, pass: cfg.pass } }), from: cfg.from };
 }
 
 export async function sendDailySummaryEmail(recipients) {
@@ -95,9 +104,9 @@ Critical Risks Open:  ${criticalRisks}
 Certifications Today: ${todayCertified}
 `;
 
-  const transporter = createTransporter();
+  const { transporter, from } = await createTransporter();
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+    from,
     to: Array.isArray(recipients) ? recipients.join(',') : recipients,
     subject: `LMS Daily Progress — ${dateStr}`,
     text,
@@ -160,9 +169,9 @@ Thank you for your dedication throughout the training programme.
 
 — MCN T&Q Training Operations`;
 
-  const transporter = createTransporter();
+  const { transporter, from } = await createTransporter();
   await transporter.sendMail({
-    from: process.env.EMAIL_FROM,
+    from,
     to: email,
     subject: `Congratulations on your Certification — ${traineeName}`,
     text,

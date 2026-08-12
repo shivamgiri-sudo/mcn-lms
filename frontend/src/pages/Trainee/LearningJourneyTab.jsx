@@ -74,12 +74,12 @@ export default function LearningJourneyTab({ onNavigate }) {
           <p>{journey.nextAction}</p>
         </div>
         {onNavigate && nextStage?.id === 'learning' && <button className="btn small accent" onClick={() => onNavigate('learning')}>Open learning</button>}
-        {onNavigate && nextStage?.id === 'assessment' && <button className="btn small accent" onClick={() => onNavigate('learning')}>Open assessments</button>}
+        {onNavigate && nextStage?.id === 'assessment' && <button className="btn small accent" onClick={() => onNavigate('assessment')}>Open assessments</button>}
         {onNavigate && nextStage?.id === 'readiness' && <button className="btn small secondary" onClick={() => onNavigate('qa')}>Ask for support</button>}
       </div>
 
       <div className="journey-grid">
-        {journey.stages.map((stage, index) => {
+        {(journey.stages || []).map((stage, index) => {
           const meta = STATUS_META[stage.status] || STATUS_META.current;
           return (
             <article key={stage.id} className={`journey-card ${meta.tone}`} aria-current={stage.id === journey.nextStageId ? 'step' : undefined}>
@@ -107,7 +107,7 @@ export default function LearningJourneyTab({ onNavigate }) {
               )}
 
               <div className="journey-action"><span aria-hidden="true">◎</span><p>{stage.action}</p></div>
-              {index < journey.stages.length - 1 && <div className="journey-connector" aria-hidden="true" />}
+              {index < (journey.stages || []).length - 1 && <div className="journey-connector" aria-hidden="true" />}
             </article>
           );
         })}
@@ -119,13 +119,13 @@ export default function LearningJourneyTab({ onNavigate }) {
           <h3>Requirements for your assigned programme</h3>
         </div>
         <div className="journey-policy-grid">
-          <div><span>Course</span><strong>{journey.requirements.courseCompletionPct}%</strong></div>
-          <div><span>Assessment</span><strong>{journey.requirements.assessmentPassPct}%</strong></div>
-          <div><span>Attendance</span><strong>{journey.requirements.attendancePct}%</strong></div>
+          <div><span>Course</span><strong>{journey.requirements?.courseCompletionPct ?? '—'}%</strong></div>
+          <div><span>Assessment</span><strong>{journey.requirements?.assessmentPassPct ?? '—'}%</strong></div>
+          <div><span>Attendance</span><strong>{journey.requirements?.attendancePct ?? '—'}%</strong></div>
           <div><span>Evidence</span><strong>{[
-            journey.requirements.mockCallRequired && 'Mock',
-            journey.requirements.internalCertificationRequired && 'Internal',
-            journey.requirements.externalCertificationRequired && 'External',
+            journey.requirements?.mockCallRequired && 'Mock',
+            journey.requirements?.internalCertificationRequired && 'Internal',
+            journey.requirements?.externalCertificationRequired && 'External',
           ].filter(Boolean).join(' + ') || 'Standard'}</strong></div>
         </div>
       </div>

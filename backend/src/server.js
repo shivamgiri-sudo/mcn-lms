@@ -11,6 +11,7 @@ import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
+import { runNotificationCampaignCycle } from './services/notificationCampaigns.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 import { provisionHrmsEmployees } from './controllers/hrmsSeed.js';
@@ -318,6 +319,11 @@ function startBackgroundWork() {
   kpiTimer.unref?.();
   scheduleDailyEmail();
   startScheduler();
+  runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] initial run failed:', e.message));
+  const campaignTimer = setInterval(() => {
+    runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] cycle failed:', e.message));
+  }, 5 * 60 * 1000);
+  campaignTimer.unref?.();
   const sessionTimer = setInterval(() => {
     cleanExpiredSessions().catch(error => console.error('[Sessions] Cleanup failed:', error.message));
   }, 60 * 60 * 1000);

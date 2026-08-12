@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import Papa from 'papaparse';
 import { api, uploadFile } from '../../utils/api.js';
 
 const STEPS = ['Basic Info', 'Content', 'MCQs', 'SOPs & FAQs', 'Review & Submit'];
@@ -156,24 +157,19 @@ export default function ClassroomWizard({ onClose, onCreated }) {
   const [mcqMode, setMcqMode] = useState('single'); // 'single' | 'bulk'
 
   function parseCsvText(text) {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return [];
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => h.trim().toLowerCase() });
     const required = ['question', 'option_a', 'option_b', 'correct'];
-    if (!required.every(r => header.includes(r))) return [];
-    return lines.slice(1).map(line => {
-      const vals = line.split(',');
-      return {
-        question: vals[header.indexOf('question')]?.trim() || '',
-        optionA: vals[header.indexOf('option_a')]?.trim() || '',
-        optionB: vals[header.indexOf('option_b')]?.trim() || '',
-        optionC: vals[header.indexOf('option_c')]?.trim() || '',
-        optionD: vals[header.indexOf('option_d')]?.trim() || '',
-        correct: vals[header.indexOf('correct')]?.trim()?.toUpperCase() || 'A',
-        marks: vals[header.indexOf('marks')]?.trim() || '1',
-        difficulty: vals[header.indexOf('difficulty')]?.trim() || 'Medium',
-      };
-    }).filter(q => q.question);
+    if (!required.every(r => result.meta.fields?.includes(r))) return [];
+    return result.data.map(row => ({
+      question: String(row.question || '').trim(),
+      optionA: String(row.option_a || '').trim(),
+      optionB: String(row.option_b || '').trim(),
+      optionC: String(row.option_c || '').trim(),
+      optionD: String(row.option_d || '').trim(),
+      correct: String(row.correct || 'A').trim().toUpperCase(),
+      marks: String(row.marks || '1').trim(),
+      difficulty: String(row.difficulty || 'Medium').trim(),
+    })).filter(q => q.question);
   }
 
   function guessDayIdxFromFilename(name) {
@@ -213,24 +209,20 @@ export default function ClassroomWizard({ onClose, onCreated }) {
 
   // MCQ CSV parse
   function parseCsv(text) {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return null;
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+    const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => h.trim().toLowerCase() });
     const required = ['question', 'option_a', 'option_b', 'correct'];
-    if (!required.every(r => header.includes(r))) return null;
-    return lines.slice(1).map(line => {
-      const vals = line.split(',');
-      return {
-        question: vals[header.indexOf('question')]?.trim() || '',
-        optionA: vals[header.indexOf('option_a')]?.trim() || '',
-        optionB: vals[header.indexOf('option_b')]?.trim() || '',
-        optionC: vals[header.indexOf('option_c')]?.trim() || '',
-        optionD: vals[header.indexOf('option_d')]?.trim() || '',
-        correct: vals[header.indexOf('correct')]?.trim()?.toUpperCase() || 'A',
-        marks: vals[header.indexOf('marks')]?.trim() || '1',
-        difficulty: vals[header.indexOf('difficulty')]?.trim() || 'Medium',
-      };
-    }).filter(q => q.question);
+    if (!required.every(r => result.meta.fields?.includes(r))) return null;
+    const rows = result.data.map(row => ({
+      question: String(row.question || '').trim(),
+      optionA: String(row.option_a || '').trim(),
+      optionB: String(row.option_b || '').trim(),
+      optionC: String(row.option_c || '').trim(),
+      optionD: String(row.option_d || '').trim(),
+      correct: String(row.correct || 'A').trim().toUpperCase(),
+      marks: String(row.marks || '1').trim(),
+      difficulty: String(row.difficulty || 'Medium').trim(),
+    })).filter(q => q.question);
+    return rows.length ? rows : null;
   }
 
   function handleCsvFile(file) {

@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
+import RiskActionModal, { riskActionType, riskActionLabel } from './RiskActionModal.jsx';
 
 export default function DashboardPage({ navigate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [actionModal, setActionModal] = useState(null);
 
   useEffect(() => {
     api.get('/admin/dashboard', 'admin').then(r => {
@@ -120,6 +122,8 @@ export default function DashboardPage({ navigate }) {
         </div>
       </div>
 
+      <RiskActionModal modal={actionModal} onClose={() => setActionModal(null)} onNavigate={navigate} />
+
       {(data.atRiskTrainees || []).length > 0 && (
         <div className="glass-panel">
           <div className="panel-title">At-Risk Trainees <span className="panel-sub">{data.atRiskTrainees.length} trainees need attention</span></div>
@@ -140,7 +144,7 @@ export default function DashboardPage({ navigate }) {
                   <td>{Math.round(t.courseCompletionPct)}%</td>
                   <td>{Math.round(t.assessmentPassPct)}%</td>
                   <td><span className={`pill ${t.riskStatus==='CRITICAL'?'crit':t.riskStatus==='HIGH'?'bad':'warn'}`}>{t.riskStatus}</span></td>
-                  <td><button className={`btn-dark ${t.riskStatus==='CRITICAL'?'danger':''}`} onClick={e=>{e.stopPropagation();}}>{t.riskStatus==='CRITICAL'?'Notify':t.riskStatus==='HIGH'?'Follow Up':'Monitor'}</button></td>
+                  <td><button className={`btn-dark ${t.riskStatus==='CRITICAL'?'danger':''}`} onClick={e => { e.stopPropagation(); const at = riskActionType(t.riskStatus); if (at === 'view') navigate('trainee-detail', { empId: t.employeeId, from: 'Dashboard', fromId: 'dashboard' }); else setActionModal({ type: at, trainee: t }); }}>{riskActionLabel(t.riskStatus)}</button></td>
                 </tr>
               ))}
             </tbody>

@@ -85,13 +85,7 @@ export default function QuestionsTab() {
   }
 
   async function deleteAssessmentConfirmed(assessmentId) {
-    const token = localStorage.getItem('lms_token_admin') || '';
-    const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
-    const r = await fetch(`${BASE}/admin/assessments/${assessmentId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ confirm: 'DELETE' }),
-    }).then(x => x.json()).catch(() => ({ ok: false, message: 'Network error' }));
+    const r = await api.deleteWithBody(`/admin/assessments/${assessmentId}`, { confirm: 'DELETE' }, 'admin');
     if (r.ok) {
       setDeleteModal(null);
       setSelected(null);

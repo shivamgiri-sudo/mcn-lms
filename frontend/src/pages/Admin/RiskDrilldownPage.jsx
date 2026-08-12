@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
+import RiskActionModal, { riskActionLabel } from './RiskActionModal.jsx';
 
 const riskConfig = {
   CRITICAL: { cls: 'crit', action: 'Immediate escalation required', color: '#dc2626' },
@@ -11,6 +12,7 @@ const riskConfig = {
 export default function RiskDrilldownPage({ level, navigate, onBack }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [actionModal, setActionModal] = useState(null);
 
   useEffect(() => {
     api.get(`/admin/risk/${level}`, 'admin').then(r => { if (r.ok) setData(r.data); setLoading(false); });
@@ -55,8 +57,11 @@ export default function RiskDrilldownPage({ level, navigate, onBack }) {
                   <td>{Math.round(t.assessmentPassPct)}%</td>
                   <td style={{fontSize:'11px',color:'var(--muted)',maxWidth:'200px'}}>{t.riskReason || '—'}</td>
                   <td onClick={e => e.stopPropagation()}>
-                    <button className={`btn-dark ${level==='CRITICAL'?'danger':''}`}>
-                      {level==='CRITICAL'?'Notify':level==='HIGH'?'Follow Up':level==='MEDIUM'?'Monitor':'View'}
+                    <button className={`btn-dark ${level==='CRITICAL'?'danger':''}`} onClick={() => {
+                      if (level === 'HEALTHY') { navigate('trainee-detail', { empId: t.employeeId, from: `${level} Risk`, fromId: 'risk-detail', level }); }
+                      else { setActionModal({ type: level === 'CRITICAL' ? 'notify' : level === 'HIGH' ? 'followup' : 'monitor', trainee: t }); }
+                    }}>
+                      {riskActionLabel(null, level)}
                     </button>
                   </td>
                 </tr>
@@ -65,6 +70,7 @@ export default function RiskDrilldownPage({ level, navigate, onBack }) {
           </table>
         )}
       </div>
+      <RiskActionModal modal={actionModal} onClose={() => setActionModal(null)} onNavigate={navigate} />
     </div>
   );
 }

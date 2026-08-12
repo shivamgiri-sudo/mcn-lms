@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useSearchParams } from '../../utils/browserRouter.jsx';
+import { hasSessionMarker } from '../../utils/api.js';
 import './mcnmeet.css';
 
 const DEFAULT_ROOM = 'MCNmeet';
@@ -17,6 +18,13 @@ function meetingServer() {
 
 export default function MCNmeetPage() {
   const [params] = useSearchParams();
+
+  const hasSession = hasSessionMarker('trainee') || hasSessionMarker('coordinator') || hasSessionMarker('admin');
+  if (!hasSession) {
+    window.location.replace('/lms');
+    return null;
+  }
+
   const room = cleanRoom(params.get('room'));
   const role = params.get('role') || 'learner';
   const title = params.get('title') || 'MCNmeet live training room';
@@ -38,7 +46,7 @@ export default function MCNmeetPage() {
   return (
     <main className="mcnmeet-shell">
       <header className="mcnmeet-topbar">
-        <a className="mcnmeet-brand" href="/training-calendar?role=trainee">
+        <a className="mcnmeet-brand" href={`/training-calendar?role=${hasSessionMarker('admin') ? 'admin' : hasSessionMarker('coordinator') ? 'coordinator' : 'trainee'}`}>
           <img src="/mcn-logo.png" alt="MCN logo" />
           <span />
           <section>
@@ -47,7 +55,7 @@ export default function MCNmeetPage() {
           </section>
         </a>
         <nav>
-          <a href="/training-calendar?role=trainee">Calendar</a>
+          <a href={`/training-calendar?role=${hasSessionMarker('admin') ? 'admin' : hasSessionMarker('coordinator') ? 'coordinator' : 'trainee'}`}>Calendar</a>
           <a className="mcnmeet-open" href={brandedJoinUrl}>MCNmeet URL</a>
         </nav>
       </header>

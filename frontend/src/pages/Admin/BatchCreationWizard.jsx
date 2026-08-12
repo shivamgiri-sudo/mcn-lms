@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
 
 const STEPS = ['Basic Info', 'Assign Coordinator', 'Assign Classroom', 'Add Trainees', 'Review & Submit'];
@@ -6,20 +7,17 @@ const STEPS = ['Basic Info', 'Assign Coordinator', 'Assign Classroom', 'Add Trai
 const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile\nEMP1001,John Doe,john@example.com,9876543210\nEMP1002,Jane Smith,,9876543211\n';
 
 function parseCsvTrainees(text) {
-  const lines = text.trim().split('\n').filter(Boolean);
-  if (lines.length < 2) return [];
-  const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-  const empIdx = header.findIndex(h => h.includes('emp') || h.includes('id'));
-  const nameIdx = header.findIndex(h => h.includes('name'));
-  const emailIdx = header.findIndex(h => h.includes('email') || h.includes('mail'));
-  const mobileIdx = header.findIndex(h => h.includes('mobile') || h.includes('phone'));
-  return lines.slice(1).map(line => {
-    const cols = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true });
+  return result.data.map(row => {
+    const find = (...terms) => {
+      const k = Object.keys(row).find(k => terms.some(t => k.toLowerCase().includes(t)));
+      return k ? String(row[k] || '').trim() : '';
+    };
     return {
-      employeeId: (empIdx >= 0 ? cols[empIdx] : cols[0]) || '',
-      traineeName: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || '',
-      email: (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
-      mobile: (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
+      employeeId: find('emp', 'id') || String(Object.values(row)[0] || '').trim(),
+      traineeName: find('name') || String(Object.values(row)[1] || '').trim(),
+      email: find('email', 'mail') || String(Object.values(row)[2] || '').trim(),
+      mobile: find('mobile', 'phone') || String(Object.values(row)[3] || '').trim(),
     };
   }).filter(t => t.employeeId);
 }
@@ -66,11 +64,13 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
   }
 
   function addBulkTrainees() {
-    const lines = bulkText.trim().split('\n').filter(Boolean);
-    const parsed = lines.map(line => {
-      const [employeeId, traineeName, email, mobile] = line.split(',').map(s => s.trim());
-      return { employeeId, traineeName: traineeName || '', email: email || '', mobile: mobile || '' };
-    }).filter(t => t.employeeId);
+    const result = Papa.parse(bulkText.trim(), { skipEmptyLines: true });
+    const parsed = result.data.map(cols => ({
+      employeeId: String(cols[0] || '').trim(),
+      traineeName: String(cols[1] || '').trim(),
+      email: String(cols[2] || '').trim(),
+      mobile: String(cols[3] || '').trim(),
+    })).filter(t => t.employeeId);
     setTrainees(prev => [...prev, ...parsed]);
     setBulkText('');
   }
@@ -83,7 +83,11 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
   const selectedClassrooms = classrooms.filter(c => form.classroomIds.includes(c.classroomId));
 
   const canNext = () => {
-    if (step === 0) return form.process && form.lob;
+    if (step === 0) {
+      if (!form.process || !form.lob) return false;
+      if (form.startDate && form.endDate && form.endDate <= form.startDate) return false;
+      return true;
+    }
     if (step === 1) return !!form.coordinatorLoginId;
     return true;
   };
@@ -100,7 +104,11 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
 
     // 2. Add trainees if any
     if (trainees.length > 0) {
-      await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees }, 'admin');
+      const traineeRes = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees }, 'admin');
+      if (!traineeRes.ok) {
+        setLoading(false);
+        return setMsg(`Batch created (${batchNo}), but trainees could not be added: ${traineeRes.message || 'Upload failed.'}`);
+      }
     }
 
     setLoading(false);
@@ -171,14 +179,14 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
               <div className="col-2">
                 <div className="field">
                   <label>Process *</label>
-                  <select className="select" value={form.process} onChange={e => setForm(p => ({ ...p, process: e.target.value, lob: '' }))}>
+                  <select className="select" value={form.process} onChange={e => setForm(p => ({ ...p, process: e.target.value, lob: '', classroomIds: [] }))}>
                     <option value="">Select process...</option>
                     {uniqueProcesses.map(p => <option key={p}>{p}</option>)}
                   </select>
                 </div>
                 <div className="field">
                   <label>LOB *</label>
-                  <select className="select" value={form.lob} onChange={e => setForm(p => ({ ...p, lob: e.target.value }))} disabled={!form.process}>
+                  <select className="select" value={form.lob} onChange={e => setForm(p => ({ ...p, lob: e.target.value, classroomIds: [] }))} disabled={!form.process}>
                     <option value="">Select LOB...</option>
                     {lobsForProcess.map(l => <option key={l}>{l}</option>)}
                   </select>
@@ -191,7 +199,13 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
                 </div>
                 <div className="field"><label>Branch</label><input className="input" placeholder="Branch name" value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value }))} /></div>
                 <div className="field"><label>Start Date</label><input className="input" type="date" value={form.startDate} onChange={e => setForm(p => ({ ...p, startDate: e.target.value }))} /></div>
-                <div className="field"><label>End Date (planned)</label><input className="input" type="date" value={form.endDate} onChange={e => setForm(p => ({ ...p, endDate: e.target.value }))} /></div>
+                <div className="field">
+                  <label>End Date (planned)</label>
+                  <input className="input" type="date" value={form.endDate} onChange={e => setForm(p => ({ ...p, endDate: e.target.value }))} />
+                  {form.startDate && form.endDate && form.endDate <= form.startDate && (
+                    <p style={{ color: 'var(--bad)', fontSize: 12, marginTop: 4 }}>End date must be after start date.</p>
+                  )}
+                </div>
                 <div className="field"><label>Expected Trainees</label><input className="input" type="number" min="1" value={form.expectedTrainees} onChange={e => setForm(p => ({ ...p, expectedTrainees: e.target.value }))} /></div>
               </div>
               <div className="field"><label>Batch Name <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional — auto-generated if blank)</span></label><input className="input" placeholder="e.g. Banking May 2026 Batch" value={form.batchName} onChange={e => setForm(p => ({ ...p, batchName: e.target.value }))} /></div>

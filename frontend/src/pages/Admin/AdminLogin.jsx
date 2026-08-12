@@ -18,12 +18,13 @@ export default function AdminLogin({ onLogin }) {
   const [forgotId, setForgotId]       = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotResult, setForgotResult]   = useState('');
+  const [forgotOk, setForgotOk]           = useState(false);
 
   async function login(e) {
     e.preventDefault();
     if (!adminId || !password) return setMsg('Enter your admin ID and password to continue.');
     setLoading(true); setMsg('');
-    const res = await api.post('/auth/admin/login', { adminId, password });
+    const res = await api.post('/auth/admin/login', { adminId: adminId.trim(), password });
     setLoading(false);
     if (res.ok) onLogin(res);
     else setMsg(res.message || 'That admin ID and password did not match.');
@@ -35,11 +36,8 @@ export default function AdminLogin({ onLogin }) {
     setForgotLoading(true); setForgotResult('');
     const res = await api.post('/auth/admin/forgot-password', { adminId: forgotId });
     setForgotLoading(false);
-    if (res.ok && res.tempPassword) {
-      setForgotResult(`Temporary password: ${res.tempPassword}`);
-    } else {
-      setForgotResult(res.message || 'Your request has been recorded for verification.');
-    }
+    setForgotOk(res.ok);
+    setForgotResult(res.message || 'If that account exists, recovery instructions have been sent to your registered contact.');
   }
 
   return (
@@ -70,7 +68,7 @@ export default function AdminLogin({ onLogin }) {
               autoComplete="username"
             />
           </div>
-          {forgotResult && <p role="status" style={t.notice(true)}>{forgotResult}</p>}
+          {forgotResult && <p role="status" style={t.notice(forgotOk)}>{forgotResult}</p>}
           <button type="submit" disabled={forgotLoading} className="lms-primary" style={t.primaryBtn(forgotLoading)}>
             {forgotLoading ? 'Submitting…' : 'Raise recovery request'}
           </button>

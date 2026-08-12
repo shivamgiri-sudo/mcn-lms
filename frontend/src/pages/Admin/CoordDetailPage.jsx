@@ -14,7 +14,7 @@ export default function CoordDetailPage({ loginId, coordinatorName, navigate, on
   if (!data) return <div style={{color:'var(--bad)',padding:'40px'}}>Coordinator not found.</div>;
 
   const tabs = ['overview','pending','batches','activity'];
-  const score = data.effectivenessScore || 75;
+  const score = data.effectivenessScore ?? 75;
 
   return (
     <div>
@@ -34,7 +34,7 @@ export default function CoordDetailPage({ loginId, coordinatorName, navigate, on
       {tab === 'overview' && (
         <div>
           <div className="kpi-strip" style={{gridTemplateColumns:'repeat(4,1fr)',marginBottom:'14px'}}>
-            <div className="kpi b"><div className="kpi-num">{data.batches.length}</div><div className="kpi-label">Batches</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'60%'}}></div></div></div>
+            <div className="kpi b"><div className="kpi-num">{data.batches.length}</div><div className="kpi-label">Batches</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width: data.maxBatches > 0 ? `${Math.min(100, Math.round(data.batches.length / data.maxBatches * 100))}%` : data.batches.length > 0 ? '100%' : '0%'}}></div></div></div>
             <div className="kpi g"><div className="kpi-num">{data.answeredQueries}</div><div className="kpi-label">Q&A Answered</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:`${data.qaResponseRate}%`}}></div></div></div>
             <div className="kpi a"><div className="kpi-num">{data.openQueries}</div><div className="kpi-label">Open Queries</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width: data.totalQueries > 0 ? `${Math.round(data.openQueries/data.totalQueries*100)}%` : '0%'}}></div></div></div>
             <div className="kpi p"><div className="kpi-num">{score}%</div><div className="kpi-label">Effectiveness</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width:`${score}%`}}></div></div></div>

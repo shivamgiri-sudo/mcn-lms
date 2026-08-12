@@ -66,6 +66,7 @@ export default function AssessmentIntelligencePage() {
   const [accommodations, setAccommodations] = useState([]);
   const [accommodationQuery, setAccommodationQuery] = useState('');
   const [saving, setSaving] = useState(false);
+  const [assessmentFilter, setAssessmentFilter] = useState('');
 
   useEffect(() => { load(); }, [role]);
   useEffect(() => {
@@ -265,16 +266,11 @@ export default function AssessmentIntelligencePage() {
         <aside>
           <Card style={{ position: 'sticky', top: 12 }}>
             <div className="row between" style={{ marginBottom: 10 }}><b>Assessment catalogue</b><button className="btn small secondary" onClick={load}>↺</button></div>
-            <Input placeholder="Filter assessments" onChange={event => {
-              const query = event.target.value.toLowerCase();
-              document.querySelectorAll('[data-assessment-item]').forEach(element => { element.style.display = element.dataset.search.includes(query) ? '' : 'none'; });
-            }} />
+            <Input placeholder="Filter assessments" value={assessmentFilter} onChange={event => setAssessmentFilter(event.target.value.toLowerCase())} />
             <div style={{ display: 'grid', gap: 7, marginTop: 10, maxHeight: '68vh', overflowY: 'auto' }}>
-              {assessments.map(item => (
+              {assessments.filter(item => !assessmentFilter || `${item.assessmentName} ${item.classroomName} ${item.branch} ${item.process} ${item.lob}`.toLowerCase().includes(assessmentFilter)).map(item => (
                 <button
                   type="button"
-                  data-assessment-item
-                  data-search={`${item.assessmentName} ${item.classroomName} ${item.branch} ${item.process} ${item.lob}`.toLowerCase()}
                   key={item.assessmentId}
                   onClick={() => setSelectedId(item.assessmentId)}
                   style={{ border: selectedId === item.assessmentId ? '2px solid var(--accent)' : '1.5px solid var(--line)', borderRadius: 10, padding: 10, textAlign: 'left', background: selectedId === item.assessmentId ? 'var(--accent-soft)' : 'var(--card)', color: 'var(--ink)', cursor: 'pointer' }}

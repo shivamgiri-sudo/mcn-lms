@@ -578,6 +578,7 @@ model TrainingRiskLog {
   actionAt       DateTime? @map("action_at")
   followUpDate   DateTime? @map("follow_up_date")
   closureRemarks String?   @db.Text @map("closure_remarks")
+  closedAt       DateTime? @map("closed_at")
   lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
   lastUpdatedAt  DateTime  @updatedAt @map("last_updated_at")
   createdAt      DateTime  @default(now()) @map("created_at")

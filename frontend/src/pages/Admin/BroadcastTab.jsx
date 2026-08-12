@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../../utils/api.js';
+import { api, uploadFile as apiUploadFile } from '../../utils/api.js';
 
 const SCOPE_OPTIONS = [
   { value: 'company',    label: 'Entire Company',       desc: 'All active trainees' },
@@ -149,10 +149,7 @@ export default function BroadcastTab() {
     fd.append('file', uploadFile);
     fd.append('contentTitle', uploadTitle.trim());
     fd.append('contentOrder', String(contents.length + 1));
-    const token = localStorage.getItem('lms_token_admin') || '';
-    const res = await fetch(`/api/admin/modules/${form.moduleId}/contents`, {
-      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-    }).then(r => r.json()).catch(() => ({ ok: false, message: 'Upload failed' }));
+    const res = await apiUploadFile(`/admin/modules/${form.moduleId}/contents`, fd, 'admin');
     setUploading(false);
     if (!res.ok) return setMsg({ type: 'bad', text: res.message || 'Upload failed.' });
     api.get(`/admin/modules/${form.moduleId}/contents`, 'admin').then(r => r.ok && setContents(r.data));
