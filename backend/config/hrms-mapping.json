@@ -1,0 +1,7 @@
+{
+  "branch": { "table": "branch_master", "cols": { "name": "branch_name", "code": "branch_code", "city": "city", "state": "state", "active": "active_status" } },
+  "department": { "table": "department_master", "cols": { "name": "dept_name", "active": "active_status" } },
+  "designation": { "table": "designation_master", "cols": { "title": "designation_name", "active": "active_status" } },
+  "processlob": { "table": "process_lob_master", "cols": { "process": "lob_code", "lob": "lob_name", "active": "active_status" } },
+  "employee": { "table": "employees", "cols": { "employeeId": "employee_code", "name": "full_name", "email": "email", "mobile": "mobile", "doj": "date_of_joining", "active": "active_status" } }
+}
