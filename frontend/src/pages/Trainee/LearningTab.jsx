@@ -230,7 +230,7 @@ export default function LearningTab({ days, onRefresh }) {
           const isOpen = !!openDays[di];
 
           return (
-            <div key={day.dayNo} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div key={(day.classroomId || '') + '-' + day.dayNo} className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 18px', cursor: 'pointer', background: isOpen ? 'var(--brand)' : 'var(--card)', color: 'var(--ink)', transition: 'background .15s' }}
                 onClick={() => setOpenDays(prev => ({ ...prev, [di]: !isOpen }))}
@@ -239,6 +239,9 @@ export default function LearningTab({ days, onRefresh }) {
                   <div style={{ width: 32, height: 32, borderRadius: 10, background: isOpen ? 'rgba(255,255,255,.15)' : 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 13, flexShrink: 0 }}>{day.dayNo}</div>
                   <div>
                     <b style={{ fontSize: 14 }}>Day {day.dayNo}</b>
+                    {day.classroomName && (
+                      <span style={{ marginLeft: 8, fontSize: 11, fontWeight: 600, opacity: .75 }}>{day.classroomName}</span>
+                    )}
                     <div style={{ fontSize: 11, opacity: .75, marginTop: 1 }}>{day.modules.length} module{day.modules.length !== 1 ? 's' : ''} · {dayContents} content{dayContents !== 1 ? 's' : ''}</div>
                   </div>
                 </div>
