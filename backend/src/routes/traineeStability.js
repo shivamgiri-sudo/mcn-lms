@@ -259,6 +259,20 @@ function requiredSecondsFor(content, durationSeconds = 0) {
   return Math.max(60, Number.parseInt(process.env.LMS_DOCUMENT_MIN_ACTIVITY_SECONDS || '60', 10));
 }
 
+// A batch may carry several classrooms, and each learner is enrolled into all of
+// them through trainee_classroom_map. The dashboard covers every one of them,
+// with the batch primary classroom first so a single classroom learner sees
+// exactly what they always have.
+async function resolveLearnerClassrooms(employeeId, trainee, user) {
+  const primary = trainee.classroomId || user?.classroomId || null;
+  const mapped = await prisma.traineeClassroomMap.findMany({
+    where: { employeeId, active: true },
+    select: { classroomId: true },
+  });
+  const ids = [...new Set([primary, ...mapped.map(row => row.classroomId)].filter(Boolean))];
+  return { primary, ids };
+}
+
 async function getDirectAssignments(trainee, employeeId) {
   return prisma.assignedModule.findMany({
     where: {
@@ -370,8 +384,9 @@ router.get('/dashboard', ...auth, async (req, res) => {
     if (!user || !trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
 
     const directAssignments = await enrichIndependentAssignments(await getDirectAssignments(trainee, employeeId));
-    const classroomId = trainee.classroomId || user.classroomId;
-    if (!classroomId) {
+    const { primary: classroomId, ids: classroomIds } = await resolveLearnerClassrooms(employeeId, trainee, user);
+    const multiClassroom = classroomIds.length > 1;
+    if (!classroomIds.length) {
       return res.json({
         ok: true,
         dashboard: {
@@ -384,23 +399,41 @@ router.get('/dashboard', ...auth, async (req, res) => {
       });
     }
 
-    const [classroom, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults] = await Promise.all([
-      prisma.classroomMaster.findUnique({ where: { classroomId } }),
-      prisma.moduleMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ dayNo: 'asc' }, { moduleOrder: 'asc' }] }),
-      prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, include: { module: true }, orderBy: { contentOrder: 'asc' } }),
-      prisma.faqMaster.findMany({ where: { module: { classroomId }, active: true }, orderBy: { sortOrder: 'asc' } }),
-      prisma.assessmentMaster.findMany({ where: { classroomId, active: true }, orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }] }),
-      prisma.contentProgress.findMany({ where: { employeeId, classroomId } }),
-      prisma.assessmentResult.findMany({ where: { employeeId, classroomId } }),
+    const [classroomRows, modules, allContent, allFaqs, allAssessments, progressRows, allAttemptResults] = await Promise.all([
+      prisma.classroomMaster.findMany({ where: { classroomId: { in: classroomIds } } }),
+      prisma.moduleMaster.findMany({ where: { classroomId: { in: classroomIds }, active: true }, orderBy: [{ dayNo: 'asc' }, { moduleOrder: 'asc' }] }),
+      prisma.contentMaster.findMany({ where: { module: { classroomId: { in: classroomIds } }, active: true }, include: { module: true }, orderBy: { contentOrder: 'asc' } }),
+      prisma.faqMaster.findMany({ where: { module: { classroomId: { in: classroomIds } }, active: true }, orderBy: { sortOrder: 'asc' } }),
+      prisma.assessmentMaster.findMany({ where: { classroomId: { in: classroomIds }, active: true }, orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }] }),
+      prisma.contentProgress.findMany({ where: { employeeId, classroomId: { in: classroomIds } } }),
+      prisma.assessmentResult.findMany({ where: { employeeId, classroomId: { in: classroomIds } } }),
     ]);
 
     const progressMap = Object.fromEntries(progressRows.map(progress => [progress.contentId, progress]));
     const resultMap = Object.fromEntries(allAttemptResults.map(result => [result.assessmentId, result]));
-    const contentLockMap = buildContentLockMap(allContent, progressMap);
+    // Sequential unlock applies within a classroom. Chaining it across classrooms
+    // would force a learner to finish one before starting the next.
+    const contentLockMap = new Map();
+    for (const id of classroomIds) {
+      const scoped = allContent.filter(content => content.module?.classroomId === id);
+      for (const [key, value] of buildContentLockMap(scoped, progressMap)) contentLockMap.set(key, value);
+    }
+    const classroomById = new Map(classroomRows.map(room => [room.classroomId, room]));
+    const classroomOrder = new Map(classroomIds.map((id, index) => [id, index]));
     const dayMap = {};
 
     for (const module of modules) {
-      if (!dayMap[module.dayNo]) dayMap[module.dayNo] = { dayNo: module.dayNo, modules: [] };
+      const dayKey = multiClassroom ? module.classroomId + '|' + module.dayNo : String(module.dayNo);
+      if (!dayMap[dayKey]) {
+        dayMap[dayKey] = multiClassroom
+          ? {
+            dayNo: module.dayNo,
+            modules: [],
+            classroomId: module.classroomId,
+            classroomName: classroomById.get(module.classroomId)?.classroomName || null,
+          }
+          : { dayNo: module.dayNo, modules: [] };
+      }
       const contents = allContent
         .filter(content => content.moduleId === module.moduleId)
         .sort((a, b) => (a.contentOrder || 0) - (b.contentOrder || 0))
@@ -415,10 +448,13 @@ router.get('/dashboard', ...auth, async (req, res) => {
         .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
         .map(assessment => ({ ...assessment, ...buildAssessmentLockMeta(assessment, allContent, progressMap) }));
       const assessmentResults = moduleAssessments.map(assessment => ({ assessment, result: resultMap[assessment.assessmentId] || null }));
-      dayMap[module.dayNo].modules.push({ ...module, contents, faqs, assessments: moduleAssessments, assessmentResults });
+      dayMap[dayKey].modules.push({ ...module, contents, faqs, assessments: moduleAssessments, assessmentResults });
     }
 
-    const days = Object.values(dayMap).sort((a, b) => a.dayNo - b.dayNo);
+    const days = Object.values(dayMap).sort((a, b) => {
+      const roomDiff = (classroomOrder.get(a.classroomId) ?? 0) - (classroomOrder.get(b.classroomId) ?? 0);
+      return roomDiff !== 0 ? roomDiff : a.dayNo - b.dayNo;
+    });
     const totalContents = allContent.length;
     const openedContents = progressRows.filter(progress => progress.opened).length;
     const completedContents = progressRows.filter(isComplete).length;
@@ -434,7 +470,18 @@ router.get('/dashboard', ...auth, async (req, res) => {
       ok: true,
       dashboard: {
         trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob, lastLogin: user.lastLogin },
-        classroom: { classroomId, classroomName: classroom?.classroomName, process: classroom?.process, lob: classroom?.lob },
+        classroom: (() => {
+          const room = classroomById.get(classroomId) || classroomRows[0] || null;
+          const base = { classroomId, classroomName: room?.classroomName, process: room?.process, lob: room?.lob };
+          if (!multiClassroom) return base;
+          return {
+            ...base,
+            classrooms: classroomIds.map(id => ({
+              classroomId: id,
+              classroomName: classroomById.get(id)?.classroomName || null,
+            })),
+          };
+        })(),
         days,
         summary: { totalDays: days.length, totalModules: modules.length, totalContents, openedContents, completedContents, completionPercent, totalSecondsSpent, totalAssessments, attemptedAssessments, passedAssessments, mcqCompletionPercent, bestMcqScore, overallTrainingProgress: completionPercent, riskStatus: trainee.riskStatus || null, courseCompletionPct: trainee.courseCompletionPct || 0, attendancePct: trainee.attendancePct || 0 },
         directAssignments,
