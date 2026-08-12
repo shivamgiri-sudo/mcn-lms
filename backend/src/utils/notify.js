@@ -47,6 +47,97 @@ export async function sendEmail({ to, subject, html, text }) {
   return { ok: true };
 }
 
+// ── SMS (SmartPing, DLT templated) ────────────────────────────────────────────
+//
+// Indian SMS is governed by TRAI DLT: the text sent must MATCH a template that
+// was registered with the operator, and the request must carry that template's
+// content id. Sending arbitrary wording is rejected at the gateway, and the
+// HRMS side of this business learned that the expensive way - 901 failures and
+// zero successes over months, all reported only as "status code 400".
+//
+// So this path refuses to send anything that is not built from a registered
+// template. Failing here keeps the recorded error truthful and avoids firing
+// non-compliant content at the operator.
+export const SMARTPING_DLT = {
+  training_assigned: {
+    dltContentId: '1707178393378172639',
+    build: v => 'Dear ' + v[0] + ', training module ' + v[1] + ' has been assigned to you in HRMS. Please complete it by ' + v[2] + '. - Ispark',
+    variableCount: 3,
+    variableNames: ['name', 'module_name', 'deadline'],
+  },
+  training_reminder: {
+    dltContentId: '1707178393384289108',
+    build: v => 'Dear ' + v[0] + ', your training module ' + v[1] + ' is pending. Please complete it by ' + v[2] + '. - Ispark',
+    variableCount: 3,
+    variableNames: ['name', 'module_name', 'deadline'],
+  },
+  pkt_scheduled: {
+    dltContentId: '1707178393391295367',
+    build: v => 'Dear ' + v[0] + ', your PKT for ' + v[1] + ' is scheduled on ' + v[2] + '. Please check HRMS for details. - Ispark',
+    variableCount: 3,
+    variableNames: ['name', 'subject', 'scheduled_date'],
+  },
+  pkt_result: {
+    dltContentId: '1707178393397311672',
+    build: v => 'Dear ' + v[0] + ', your PKT result for ' + v[1] + ' has been updated as ' + v[2] + '. - Ispark',
+    variableCount: 3,
+    variableNames: ['name', 'subject', 'result'],
+  },
+};
+
+function normaliseIndianMobile(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  const last10 = digits.slice(-10);
+  return /^[6-9][0-9]{9}$/.test(last10) ? last10 : '';
+}
+
+export function smartPingConfigured() {
+  return Boolean(process.env.SMARTPING_USERNAME && process.env.SMARTPING_PASSWORD);
+}
+
+// Send one SMS built from a registered DLT template.
+//   template: a key of SMARTPING_DLT
+//   vars:     the template variables, in registered order
+export async function sendTemplatedSms({ mobile, to, template, vars = [] }) {
+  const destination = mobile || to;
+  const entry = SMARTPING_DLT[template];
+  if (!entry) {
+    return { ok: false, message: 'No registered DLT template named ' + template + '. Register it before sending.' };
+  }
+  if (vars.length !== entry.variableCount) {
+    return { ok: false, message: template + ' expects ' + entry.variableCount + ' variables (' + entry.variableNames.join(', ') + '), received ' + vars.length + '.' };
+  }
+  const msisdn = normaliseIndianMobile(destination);
+  if (!msisdn) return { ok: false, message: 'Invalid Indian mobile number: ' + destination };
+  if (!smartPingConfigured()) return { ok: false, message: 'SmartPing credentials are not configured.' };
+
+  const text = entry.build(vars.map(v => String(v ?? '')));
+  const params = new URLSearchParams({
+    username: process.env.SMARTPING_USERNAME,
+    password: process.env.SMARTPING_PASSWORD,
+    unicode: 'false',
+    from: process.env.SMARTPING_SENDER_ID || 'Ispark',
+    to: msisdn,
+    text,
+    dltContentId: entry.dltContentId,
+    dltEntityId: process.env.SMARTPING_ENTITY_ID || '',
+  });
+
+  try {
+    const resp = await fetch('http://enterprise.smartping.ai/v3/api.php?' + params.toString(), { method: 'GET' });
+    const body = await resp.text();
+    if (!resp.ok) {
+      console.error('[NOTIFY] SmartPing SMS failed:', resp.status, body.slice(0, 200));
+      return { ok: false, message: 'SMS gateway returned ' + resp.status + '.' };
+    }
+    console.log('[NOTIFY] SmartPing SMS sent to', msisdn, 'template', template);
+    return { ok: true, gatewayResponse: body.slice(0, 200) };
+  } catch (error) {
+    console.error('[NOTIFY] SmartPing SMS threw:', error.message);
+    return { ok: false, message: 'Could not reach the SMS gateway.' };
+  }
+}
+
 // ── SMS (MSG91) ───────────────────────────────────────────────────────────────
 
 export async function sendSms({ mobile, to, message, templateId }) {
