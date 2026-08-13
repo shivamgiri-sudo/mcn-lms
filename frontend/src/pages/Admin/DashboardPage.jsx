@@ -2,10 +2,19 @@ import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 import RiskActionModal, { riskActionType, riskActionLabel } from './RiskActionModal.jsx';
 
+function usePagination(items, pageSize = 25) {
+  const [page, setPage] = useState(1);
+  const list = items || [];
+  const total = Math.ceil(list.length / pageSize);
+  const slice = list.slice((page - 1) * pageSize, page * pageSize);
+  return { slice, page, total, setPage };
+}
+
 export default function DashboardPage({ navigate }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [actionModal, setActionModal] = useState(null);
+  const atRisk = usePagination(data?.atRiskTrainees, 25);
 
   useEffect(() => {
     api.get('/admin/dashboard', 'admin').then(r => {
@@ -14,7 +23,22 @@ export default function DashboardPage({ navigate }) {
     });
   }, []);
 
-  if (loading) return <div style={{color:'var(--muted)',padding:'40px',textAlign:'center'}}>Loading dashboard...</div>;
+  if (loading) return (
+    <div>
+      <div style={{marginBottom:'20px'}}>
+        <h2 style={{fontSize:'20px',fontWeight:'900',color:'var(--ink)'}}>Dashboard</h2>
+        <p style={{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}>Loading…</p>
+      </div>
+      <div className="kpi-strip">
+        {[1,2,3,4,5].map(i => (
+          <div key={i} className="kpi">
+            <div className="skeleton" style={{height:32,width:'55%',borderRadius:6,marginBottom:8}} />
+            <div className="skeleton" style={{height:13,width:'75%',borderRadius:4}} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
   if (!data) return <div style={{color:'var(--bad)',padding:'40px'}}>Failed to load dashboard.</div>;
 
   const riskConfig = {
@@ -23,6 +47,9 @@ export default function DashboardPage({ navigate }) {
     MEDIUM: { label: 'Medium Risk', cls: 'med', action: 'Monitor closely' },
     HEALTHY: { label: 'On Track', cls: 'low', action: 'Continue monitoring' },
   };
+
+  const openQueriesPct = Math.min(100, Math.round((data.openQueries || 0) / 20 * 100));
+  const atRiskPct = data.trainees > 0 ? Math.round(data.atRiskCount / data.trainees * 100) : 0;
 
   return (
     <div>
@@ -35,27 +62,24 @@ export default function DashboardPage({ navigate }) {
         <div className="kpi r">
           <div className="kpi-num">{data.trainees}</div>
           <div className="kpi-label">Active Trainees</div>
-          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'72%'}}></div></div>
         </div>
         <div className="kpi b">
           <div className="kpi-num">{data.batches}</div>
           <div className="kpi-label">Active Batches</div>
-          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'55%'}}></div></div>
         </div>
         <div className="kpi g">
           <div className="kpi-num">{data.classrooms}</div>
           <div className="kpi-label">Classrooms</div>
-          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'87%'}}></div></div>
         </div>
         <div className="kpi a">
           <div className="kpi-num">{data.openQueries}</div>
           <div className="kpi-label">Open Queries</div>
-          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width:'40%'}}></div></div>
+          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width:`${openQueriesPct}%`}}></div></div>
         </div>
         <div className="kpi p">
           <div className="kpi-num">{data.atRiskCount}</div>
           <div className="kpi-label">At Risk</div>
-          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width: data.trainees > 0 ? `${Math.round(data.atRiskCount/data.trainees*100)}%` : '0%'}}></div></div>
+          <div className="kpi-bar"><div className="kpi-bar-fill" style={{width:`${atRiskPct}%`}}></div></div>
         </div>
       </div>
 
@@ -124,13 +148,19 @@ export default function DashboardPage({ navigate }) {
 
       <RiskActionModal modal={actionModal} onClose={() => setActionModal(null)} onNavigate={navigate} />
 
-      {(data.atRiskTrainees || []).length > 0 && (
+      {(data.atRiskTrainees || []).length === 0 ? (
+        <div className="glass-panel" style={{textAlign:'center',padding:'32px 20px'}}>
+          <div style={{fontSize:'28px',marginBottom:'8px',color:'var(--ok)'}}>✓</div>
+          <div style={{fontWeight:'700',color:'var(--ok)',fontSize:'15px'}}>All active trainees are on track</div>
+          <div style={{fontSize:'12px',color:'var(--muted)',marginTop:'4px'}}>No trainees currently flagged as at-risk.</div>
+        </div>
+      ) : (
         <div className="glass-panel">
           <div className="panel-title">At-Risk Trainees <span className="panel-sub">{data.atRiskTrainees.length} trainees need attention</span></div>
           <table className="glass-table">
             <thead><tr><th>Emp ID</th><th>Name</th><th>Batch</th><th>Attendance</th><th>Course</th><th>MCQ</th><th>Risk</th><th>Action</th></tr></thead>
             <tbody>
-              {data.atRiskTrainees.map(t => (
+              {atRisk.slice.map(t => (
                 <tr key={t.employeeId} className="clickable" onClick={() => navigate('trainee-detail', { empId: t.employeeId, from: 'Dashboard', fromId: 'dashboard' })}>
                   <td>
                     <span style={{ fontFamily: 'monospace', fontSize: 12 }}>{t.employeeId}</span>
@@ -149,6 +179,13 @@ export default function DashboardPage({ navigate }) {
               ))}
             </tbody>
           </table>
+          {atRisk.total > 1 && (
+            <div style={{display:'flex',gap:6,justifyContent:'flex-end',alignItems:'center',marginTop:12,fontSize:12,color:'var(--muted)'}}>
+              <span>Page {atRisk.page} of {atRisk.total}</span>
+              <button className="btn small secondary" disabled={atRisk.page <= 1} onClick={() => atRisk.setPage(p => p - 1)}>← Prev</button>
+              <button className="btn small secondary" disabled={atRisk.page >= atRisk.total} onClick={() => atRisk.setPage(p => p + 1)}>Next →</button>
+            </div>
+          )}
         </div>
       )}
     </div>

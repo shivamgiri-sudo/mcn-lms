@@ -37,6 +37,8 @@ export default function LearningTab({ days, onRefresh }) {
   const isPausedRef = useRef(false);
   const [lockedMsg, setLockedMsg] = useState(null);
   const [scormPackageId, setScormPackageId] = useState(null);
+  // Ref mirror of viewingContent — lets heartbeat callbacks stay stable without stale closures
+  const viewingContentRef = useRef(null);
 
   const stopHeartbeat = useCallback(async (sendClose = true) => {
     if (heartbeatRef.current) {
@@ -44,21 +46,22 @@ export default function LearningTab({ days, onRefresh }) {
       heartbeatRef.current = null;
     }
 
-    if (sendClose && viewingContent) {
+    if (sendClose && viewingContentRef.current) {
+      const content = viewingContentRef.current;
       const delta = Math.min(Math.round((Date.now() - lastSentRef.current) / 1000), 120);
       if (delta > 0) {
-        await api.post(`/trainee/content/${viewingContent.contentId}/close`, {
+        await api.post(`/trainee/content/${content.contentId}/close`, {
           secondsDelta: delta,
           positionSeconds: videoRef.current?.currentTime || 0,
           durationSeconds: videoRef.current?.duration || 0,
-          playerMode: viewingContent?.playerMode || 'Auto',
+          playerMode: content.playerMode || 'Auto',
         }, 'trainee');
       }
     }
 
     sessionSecsRef.current = 0;
     lastSentRef.current = Date.now();
-  }, [viewingContent]);
+  }, []); // stable — reads from ref, no state dep
 
   const startHeartbeat = useCallback((contentId) => {
     lastSentRef.current = Date.now();
@@ -73,10 +76,10 @@ export default function LearningTab({ days, onRefresh }) {
         sessionSeconds: sessionSecsRef.current,
         positionSeconds: videoRef.current?.currentTime || 0,
         durationSeconds: videoRef.current?.duration || 0,
-        playerMode: viewingContent?.playerMode || 'Auto',
+        playerMode: viewingContentRef.current?.playerMode || 'Auto',
       }, 'trainee');
     }, 30000);
-  }, [viewingContent]);
+  }, []); // stable — contentId arg, playerMode from ref
 
   function getYoutubeEmbedUrl(url) {
     try {
@@ -183,27 +186,31 @@ export default function LearningTab({ days, onRefresh }) {
       resolvedMedia = { ...resolvedMedia, url: protectedResult.url, requiresAuth: false, objectUrl: true };
     }
 
-    setViewingContent({ ...content, resolvedMedia });
+    const resolved = { ...content, resolvedMedia };
+    viewingContentRef.current = resolved;
+    setViewingContent(resolved);
     lastSentRef.current = Date.now();
     startHeartbeat(content.contentId);
   }
 
   async function closeContent() {
-    const objectUrl = viewingContent?.resolvedMedia?.objectUrl ? viewingContent.resolvedMedia.url : '';
+    const objectUrl = viewingContentRef.current?.resolvedMedia?.objectUrl ? viewingContentRef.current.resolvedMedia.url : '';
     await stopHeartbeat(true);
+    viewingContentRef.current = null;
     if (objectUrl) URL.revokeObjectURL(objectUrl);
     setViewingContent(null);
     onRefresh && onRefresh();
   }
 
+  // Only runs on unmount — stopHeartbeat is now stable so no re-subscriptions on content change
   useEffect(() => () => {
-    stopHeartbeat(false);
-    const objectUrl = viewingContent?.resolvedMedia?.objectUrl ? viewingContent.resolvedMedia.url : '';
+    if (heartbeatRef.current) { clearInterval(heartbeatRef.current); heartbeatRef.current = null; }
+    const objectUrl = viewingContentRef.current?.resolvedMedia?.objectUrl ? viewingContentRef.current.resolvedMedia.url : '';
     if (objectUrl) URL.revokeObjectURL(objectUrl);
-  }, [viewingContent, stopHeartbeat]);
+  }, []);
 
   const totalContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0), 0);
-  const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.progress?.completionStatus === 'Completed').length, 0), 0);
+  const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active && c.progress?.completionStatus === 'Completed').length, 0), 0);
 
   return (
     <div>
@@ -267,7 +274,7 @@ export default function LearningTab({ days, onRefresh }) {
         </div>
       )}
 
-      {assessmentId && <AssessmentModal assessmentId={assessmentId} onClose={() => { setAssessmentId(null); onRefresh(); }} />}
+      {assessmentId && <AssessmentModal assessmentId={assessmentId} onClose={() => { setAssessmentId(null); onRefresh && onRefresh(); }} />}
     </div>
   );
 }
@@ -290,7 +297,7 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
 
   const unifiedItems = [
     ...activeContents.map(c => ({ kind: 'content', order: c.contentOrder ?? 0, data: c })),
-    ...mod.faqs.map(f => ({ kind: 'faq', order: (f.sortOrder ?? 0) + 0.5, data: f })),
+    ...(mod.faqs || []).map(f => ({ kind: 'faq', order: (f.sortOrder ?? 0) + 0.5, data: f })),
     ...(mod.assessments || []).map(a => {
       const result = mod.assessmentResults?.find(r => r.assessment?.assessmentId === a.assessmentId)?.result || null;
       return { kind: 'assessment', order: (a.sortOrder ?? 0) / 10000 + 0.5, data: a, result };
@@ -331,7 +338,7 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
                 </div>
                 <div style={{ flexShrink: 0, textAlign: 'right', minWidth: 90 }}>
                   <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 700 }}>{prog?.totalSecondsSpent ? formatSeconds(prog.totalSecondsSpent) : c.estimatedMins ? `~${c.estimatedMins}m` : ''}</div>
-                  {prog && <div style={{ fontSize: 11, color: prog.completionPct >= 100 ? 'var(--ok)' : 'var(--muted)', fontWeight: 800, marginTop: 2 }}>{Math.round(prog.completionPct)}%</div>}
+                  {prog && <div style={{ fontSize: 11, color: (prog.completionPct || 0) >= 100 ? 'var(--ok)' : 'var(--muted)', fontWeight: 800, marginTop: 2 }}>{Math.round(prog.completionPct || 0)}%</div>}
                 </div>
               </div>
             );
@@ -377,7 +384,7 @@ function AssessmentCard({ assessment, result, onStart }) {
           </div>
           <p style={{ fontSize: 12, color: 'var(--muted)' }}>Pass: {assessment.passingPct}% &nbsp;·&nbsp;{result?.totalAttempts || 0}/{assessment.attemptLimit} attempts used &nbsp;·&nbsp;{assessment.timeLimitMins}m limit</p>
           {locked && <p style={{ fontSize: 12, color: 'var(--warn)', marginTop: 5 }}>{assessment.lockReason || 'Complete required content first.'}</p>}
-          {result && <p style={{ fontSize: 12.5, marginTop: 5, fontWeight: 800, color: passed ? 'var(--ok)' : 'var(--bad)' }}>Best score: {Math.round(result.bestPercentage)}% — {result.result}</p>}
+          {result && <p style={{ fontSize: 12.5, marginTop: 5, fontWeight: 800, color: passed ? 'var(--ok)' : 'var(--bad)' }}>Best score: {Math.round(result.bestPercentage || 0)}% — {result.result}</p>}
         </div>
         <div className="row" style={{ gap: 8, flexShrink: 0 }}>
           {passed && <span className="pill ok">✓ Passed</span>}
@@ -398,6 +405,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   const [iframeError, setIframeError] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
   const [loadTimeout, setLoadTimeout] = useState(false);
+  const iframeRef = useRef(null);
   const [completionState, setCompletionState] = useState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
 
   useEffect(() => {
@@ -486,7 +494,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
                       <div style={{ color: '#f87171', fontSize: 14, fontWeight: 700 }}>Unable to load content</div>
                       <div style={{ color: '#94a3b8', fontSize: 13 }}>The file may be restricted or unavailable.</div>
                       <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-                        <button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setIframeError(false); setLoadTimeout(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>
+                        <button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setIframeError(false); setLoadTimeout(false); if (iframeRef.current) iframeRef.current.src += ''; }}>Retry</button>
                         {media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}
                       </div>
                     </>
@@ -494,12 +502,12 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
                     <>
                       <div style={{ width: 48, height: 48, border: '4px solid rgba(255,255,255,.1)', borderTop: '4px solid #3b82f6', borderRadius: '50%', animation: 'spin 0.8s linear infinite' }} />
                       <div style={{ color: '#94a3b8', fontSize: 13 }}>{loadTimeout ? 'Server is warming up — this may take 30–60 seconds on first load…' : 'Loading content…'}</div>
-                      {loadTimeout && <div style={{ display: 'flex', gap: 10, marginTop: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); document.getElementById('lms-content-iframe').src += ''; }}>Retry</button>{media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}</div>}
+                      {loadTimeout && <div style={{ display: 'flex', gap: 10, marginTop: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => { setIframeLoading(true); setLoadTimeout(false); setIframeError(false); if (iframeRef.current) iframeRef.current.src += ''; }}>Retry</button>{media?.fileId && <a href={`https://drive.google.com/file/d/${media.fileId}/view`} target="_blank" rel="noopener" className="btn small secondary" style={{ fontSize: 12 }}>Open in Drive ↗</a>}</div>}
                     </>
                   )}
                 </div>
               )}
-              <iframe id="lms-content-iframe" src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
+              <iframe ref={iframeRef} src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
             </div>
           )}
         </div>

@@ -1,5 +1,5 @@
 import { prisma } from '../utils/db.js';
-import { hashPassword, generateSalt, generateId } from '../utils/hash.js';
+import { hashPassword, generateSalt, generateId, hashCredential } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned } from '../utils/notify.js';
@@ -41,38 +41,38 @@ const parseOptionalDate = (value) => {
 };
 const drivePreviewUrl = (driveFileId) => driveFileId ? `https://drive.google.com/file/d/${driveFileId}/preview` : null;
 
-async function syncBatchClassroomAssignment({ batch, classroomId, classroomName, assignedBy }) {
+async function syncBatchClassroomAssignment({ batch, classroomId, classroomName, assignedBy, db = prisma }) {
   const batchNo = batch.batchNo;
 
-  await prisma.traineeMaster.updateMany({
+  await db.traineeMaster.updateMany({
     where: { batchNo },
     data: { classroomId, classroomName },
   });
-  await prisma.userMaster.updateMany({
+  await db.userMaster.updateMany({
     where: { batchNo },
     data: { classroomId },
   });
 
   if (!classroomId) {
     await Promise.all([
-      prisma.traineeClassroomMap.updateMany({ where: { batchNo }, data: { active: false } }),
-      prisma.batchClassroomMap.updateMany({ where: { batchNo }, data: { active: false } }),
+      db.traineeClassroomMap.updateMany({ where: { batchNo }, data: { active: false } }),
+      db.batchClassroomMap.updateMany({ where: { batchNo }, data: { active: false } }),
     ]);
     return;
   }
 
-  const trainees = await prisma.traineeMaster.findMany({
+  const trainees = await db.traineeMaster.findMany({
     where: { batchNo },
     select: { employeeId: true },
   });
 
-  await Promise.all(trainees.map(t => prisma.traineeClassroomMap.upsert({
+  await Promise.all(trainees.map(t => db.traineeClassroomMap.upsert({
     where: { employeeId_classroomId: { employeeId: t.employeeId, classroomId } },
     create: { employeeId: t.employeeId, classroomId, batchNo, assignedBy },
     update: { active: true, batchNo, assignedBy },
   })));
 
-  const existingMap = await prisma.batchClassroomMap.findFirst({ where: { batchNo } });
+  const existingMap = await db.batchClassroomMap.findFirst({ where: { batchNo } });
   const mapData = {
     batchName: batch.batchName,
     branch: batch.branch,
@@ -85,9 +85,9 @@ async function syncBatchClassroomAssignment({ batch, classroomId, classroomName,
   };
 
   if (existingMap) {
-    await prisma.batchClassroomMap.update({ where: { id: existingMap.id }, data: mapData });
+    await db.batchClassroomMap.update({ where: { id: existingMap.id }, data: mapData });
   } else {
-    await prisma.batchClassroomMap.create({ data: { batchNo, ...mapData } });
+    await db.batchClassroomMap.create({ data: { batchNo, ...mapData } });
   }
 }
 
@@ -95,11 +95,21 @@ export async function getAdminDashboard(req, res) {
   try {
     const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
 
+    // Build query log filter scoped to this admin's branch (queryLog has batchNo but no branch col)
+    const queryLogWhere = { status: 'Open' };
+    if (req.userBranch) {
+      const branchBatches = await prisma.batchMaster.findMany({
+        where: { branch: req.userBranch },
+        select: { batchNo: true },
+      });
+      queryLogWhere.batchNo = { in: branchBatches.map(b => b.batchNo) };
+    }
+
     const [classrooms, trainees, batches, openQueries, atRisk] = await Promise.all([
       prisma.classroomMaster.count({ where: { active: true, ...branchFilter } }),
       prisma.traineeMaster.count({ where: { status: 'Active', ...branchFilter } }),
       prisma.batchMaster.count({ where: { batchStatus: 'Active', ...branchFilter } }),
-      prisma.traineeQueryLog.count({ where: { status: 'Open' } }),
+      prisma.traineeQueryLog.count({ where: queryLogWhere }),
       prisma.traineeMaster.count({ where: { status: 'Active', riskStatus: { in: ['CRITICAL', 'HIGH'] }, ...branchFilter } }),
     ]);
 
@@ -194,7 +204,16 @@ export async function createClassroom(req, res) {
 export async function updateClassroom(req, res) {
   try {
     const { classroomId } = req.params;
-    const data = req.body;
+    const { classroomName, process, lob, branch, active, description, driveFolderId, driveFolderUrl } = req.body;
+    const data = {};
+    if (classroomName !== undefined) data.classroomName = classroomName;
+    if (process !== undefined) data.process = process;
+    if (lob !== undefined) data.lob = lob;
+    if (branch !== undefined) data.branch = branch;
+    if (active !== undefined) data.active = active;
+    if (description !== undefined) data.description = description;
+    if (driveFolderId !== undefined) data.driveFolderId = driveFolderId;
+    if (driveFolderUrl !== undefined) data.driveFolderUrl = driveFolderUrl;
     const cl = await prisma.classroomMaster.update({ where: { classroomId }, data });
     res.json({ ok: true, data: cl });
   } catch (err) {
@@ -491,7 +510,13 @@ export async function bulkUploadFaqs(req, res) {
 export async function updateFaq(req, res) {
   try {
     const { faqId } = req.params;
-    const faq = await prisma.faqMaster.update({ where: { faqId }, data: req.body });
+    const { question, answer, active, sortOrder } = req.body;
+    const data = {};
+    if (question !== undefined) data.question = question;
+    if (answer !== undefined) data.answer = answer;
+    if (active !== undefined) data.active = active;
+    if (sortOrder !== undefined) data.sortOrder = sortOrder;
+    const faq = await prisma.faqMaster.update({ where: { faqId }, data });
     res.json({ ok: true, data: faq });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -563,17 +588,20 @@ export async function createAssessment(req, res) {
 export async function updateAssessment(req, res) {
   try {
     const { assessmentId } = req.params;
-    const { moduleId, assessmentName, ...rest } = req.body;
-    const sortOrder = assessmentName ? parseAssessmentOrder(assessmentName) : undefined;
-    const a = await prisma.assessmentMaster.update({
-      where: { assessmentId },
-      data: {
-        ...rest,
-        ...(assessmentName !== undefined ? { assessmentName } : {}),
-        ...(sortOrder !== undefined ? { sortOrder } : {}),
-        ...(moduleId !== undefined ? { moduleId: moduleId || null } : {}),
-      },
-    });
+    const { moduleId, assessmentName, passingPct, attemptLimit, timeLimitMins, active, instructions, dayNo } = req.body;
+    const data = {};
+    if (assessmentName !== undefined) {
+      data.assessmentName = assessmentName;
+      data.sortOrder = parseAssessmentOrder(assessmentName);
+    }
+    if (moduleId !== undefined) data.moduleId = moduleId || null;
+    if (passingPct !== undefined) data.passingPct = passingPct;
+    if (attemptLimit !== undefined) data.attemptLimit = attemptLimit;
+    if (timeLimitMins !== undefined) data.timeLimitMins = timeLimitMins;
+    if (active !== undefined) data.active = active;
+    if (instructions !== undefined) data.instructions = instructions;
+    if (dayNo !== undefined) data.dayNo = dayNo;
+    const a = await prisma.assessmentMaster.update({ where: { assessmentId }, data });
     res.json({ ok: true, data: a });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -602,6 +630,110 @@ export async function deleteAssessment(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
+// ── Attempt Grants ────────────────────────────────────────────────────────────
+export async function listAttemptGrantsForAssessment(req, res) {
+  try {
+    const { assessmentId } = req.params;
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT g.grant_id AS grantId, g.employee_id AS employeeId,
+              t.trainee_name AS traineeName, g.extra_attempts AS extraAttempts,
+              g.reason, g.granted_by AS grantedBy, g.granted_by_name AS grantedByName,
+              g.active, g.revoked_by AS revokedBy, g.revoked_at AS revokedAt,
+              g.revoke_reason AS revokeReason, g.created_at AS createdAt
+         FROM assessment_attempt_grants g
+         LEFT JOIN trainee_master t ON t.employee_id = g.employee_id
+        WHERE g.assessment_id = ?
+        ORDER BY g.created_at DESC`,
+      assessmentId,
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function listAttemptGrantsForTrainee(req, res) {
+  try {
+    const { employeeId } = req.params;
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT g.grant_id AS grantId, g.assessment_id AS assessmentId,
+              a.assessment_name AS assessmentName, c.classroom_name AS classroomName,
+              g.extra_attempts AS extraAttempts, g.reason,
+              g.granted_by AS grantedBy, g.granted_by_name AS grantedByName,
+              g.active, g.revoked_by AS revokedBy, g.revoked_at AS revokedAt,
+              g.revoke_reason AS revokeReason, g.created_at AS createdAt
+         FROM assessment_attempt_grants g
+         INNER JOIN assessment_master a ON a.assessment_id = g.assessment_id
+         INNER JOIN classroom_master c ON c.classroom_id = a.classroom_id
+        WHERE g.employee_id = ?
+        ORDER BY g.created_at DESC`,
+      employeeId,
+    );
+    res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function createAttemptGrant(req, res) {
+  try {
+    const { assessmentId } = req.params;
+    const { employeeId, extraAttempts, reason } = req.body;
+    if (!employeeId) return res.status(400).json({ ok: false, message: 'employeeId is required.' });
+    const extra = parseInt(extraAttempts, 10);
+    if (!extra || extra < 1 || extra > 10) return res.status(400).json({ ok: false, message: 'extraAttempts must be 1–10.' });
+
+    const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
+    if (!assessment) return res.status(404).json({ ok: false, message: 'Assessment not found.' });
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+
+    const grantId = `GRN-${generateId()}`;
+    await prisma.assessmentAttemptGrant.create({
+      data: {
+        grantId,
+        assessmentId,
+        employeeId,
+        extraAttempts: extra,
+        reason: reason || null,
+        grantedBy: req.userId,
+        grantedByName: req.adminInfo?.adminName || req.userId,
+      },
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'GRANT_EXTRA_ATTEMPTS', module: 'Assessment', referenceId: grantId, details: `${employeeId} +${extra} on ${assessmentId}` });
+    res.status(201).json({ ok: true, data: { grantId } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function revokeAttemptGrant(req, res) {
+  try {
+    const { grantId } = req.params;
+    const { revokeReason } = req.body;
+
+    const grant = await prisma.assessmentAttemptGrant.findUnique({ where: { grantId } });
+    if (!grant) return res.status(404).json({ ok: false, message: 'Grant not found.' });
+    if (!grant.active) return res.status(409).json({ ok: false, message: 'Grant is already revoked.' });
+
+    await prisma.assessmentAttemptGrant.update({
+      where: { grantId },
+      data: { active: false, revokedBy: req.userId, revokedAt: new Date(), revokeReason: revokeReason || null },
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'REVOKE_ATTEMPT_GRANT', module: 'Assessment', referenceId: grantId, details: grant.employeeId });
+    res.json({ ok: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
 
@@ -698,12 +830,11 @@ export async function resetTraineePassword(req, res) {
   try {
     const { employeeId } = req.params;
     const { newPassword } = req.body;
-    const pass = newPassword || '1234';
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
     const userAccount = await prisma.userMaster.findUnique({ where: { employeeId } });
     if (!userAccount) return res.status(404).json({ ok: false, message: 'Trainee has no login account.' });
-    const tempPass = trainee.mobile ? trainee.mobile.slice(-4) : pass;
+    const tempPass = newPassword || (trainee.mobile ? trainee.mobile.slice(-4) : '1234');
 
     const salt = generateSalt();
     const passwordHash = await hashPassword(tempPass, salt);
@@ -2198,15 +2329,19 @@ export async function adminUpdateBatch(req, res) {
     if (data.startDate === null && startDate) return res.status(400).json({ ok: false, message: 'Invalid start date.' });
     if (data.endDate === null && endDate) return res.status(400).json({ ok: false, message: 'Invalid end date.' });
 
-    const batch = await prisma.batchMaster.update({ where: { batchNo }, data });
-    if (shouldSyncClassroom) {
-      await syncBatchClassroomAssignment({
-        batch,
-        classroomId: nextClassroomId,
-        classroomName: nextClassroomName,
-        assignedBy: req.userId,
-      });
-    }
+    const batch = await prisma.$transaction(async (tx) => {
+      const updated = await tx.batchMaster.update({ where: { batchNo }, data });
+      if (shouldSyncClassroom) {
+        await syncBatchClassroomAssignment({
+          batch: updated,
+          classroomId: nextClassroomId,
+          classroomName: nextClassroomName,
+          assignedBy: req.userId,
+          db: tx,
+        });
+      }
+      return updated;
+    });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_BATCH', module: 'Batch', referenceId: batchNo, newValue: data });
     res.json({ ok: true, data: batch });
   } catch (err) {
@@ -2240,7 +2375,7 @@ export async function closeBatch(req, res) {
       where: { batchNo },
       data: {
         batchStatus: 'Completed',
-        endDate: new Date(),
+        endDate: batch.endDate || new Date(),
         remarks: remarks || closureReason || batch.remarks,
       },
     });
@@ -2336,6 +2471,12 @@ export async function adminBulkAddTrainees(req, res) {
 
     const success = results.filter(r => r.ok).length;
     const failed = results.filter(r => !r.ok);
+    if (success > 0) {
+      await prisma.batchMaster.update({
+        where: { batchNo },
+        data: { totalTrainees: { increment: success } },
+      });
+    }
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'BULK_ONBOARD', module: 'Trainee', referenceId: batchNo, newValue: { total: trainees.length, success } });
     res.json({ ok: true, data: { success, failed: failed.length, errors: failed.map(r => r.message) } });
   } catch (err) {
@@ -2610,9 +2751,10 @@ export async function createPortalUser(req, res) {
 
     // All other roles → create in role_access_matrix (logs into Coordinator portal with PIN)
 
+    const hashedPin = await hashCredential(pin);
     const user = await prisma.roleAccessMatrix.create({
       data: {
-        loginId, pin, name,
+        loginId, pin: hashedPin, name,
         role: role || 'Coordinator',
         portalAccess: portalAccess || role || 'Coordinator',
         branch: branch || null, process: process || null, lob: lob || null,
@@ -2662,7 +2804,7 @@ export async function updatePortalUser(req, res) {
       where: { id },
       data: {
         ...(name !== undefined && { name }),
-        ...(pin !== undefined && { pin }),
+        ...(pin !== undefined && { pin: await hashCredential(pin) }),
         ...(role !== undefined && { role }),
         ...(portalAccess !== undefined && { portalAccess }),
         ...(branch !== undefined && { branch: branch || null }),
@@ -2823,7 +2965,7 @@ export async function resetPortalUserPin(req, res) {
       return res.json({ ok: true, message: 'Admin password reset.' });
     }
 
-    const user = await prisma.roleAccessMatrix.update({ where: { id }, data: { pin, failedAttempts: 0, locked: false } });
+    const user = await prisma.roleAccessMatrix.update({ where: { id }, data: { pin: await hashCredential(pin), failedAttempts: 0, locked: false } });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_PORTAL_USER_PIN', module: 'Users', referenceId: user.loginId });
     res.json({ ok: true, message: 'PIN reset.' });
   } catch (err) {
@@ -2858,7 +3000,7 @@ export async function bulkCreatePortalUsers(req, res) {
         } else {
           await prisma.roleAccessMatrix.create({
             data: {
-              loginId, pin: String(pin), name,
+              loginId, pin: await hashCredential(String(pin)), name,
               role: role || 'Coordinator', portalAccess: role || 'Coordinator',
               branch: branch || null, process: process || null, lob: lob || null,
               designation: designation || null, department: department || null, employeeCode: employeeCode || null,
@@ -3226,7 +3368,8 @@ export async function generateCertificate(req, res) {
     }
     const batch = trainee.batchNo ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } }) : null;
     const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Certificate - ${trainee.traineeName}</title>
+    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Certificate - ${esc(trainee.traineeName)}</title>
 <style>
   @page { size: A4 landscape; margin: 0; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -3250,13 +3393,13 @@ export async function generateCertificate(req, res) {
   <h1>MCN LMS</h1>
   <div class="subtitle">Learning Management System</div>
   <div class="presented">This is to certify that</div>
-  <div class="name">${trainee.traineeName}</div>
+  <div class="name">${esc(trainee.traineeName)}</div>
   <div class="for-text">has successfully completed the training program<br>
-    ${trainee.process ? `Process: <b>${trainee.process}</b>` : ''}${trainee.lob ? ` &middot; LOB: <b>${trainee.lob}</b>` : ''}<br>
-    ${batch ? `Batch: <b>${batch.batchName || batch.batchNo}</b>` : ''}
+    ${trainee.process ? `Process: <b>${esc(trainee.process)}</b>` : ''}${trainee.lob ? ` &middot; LOB: <b>${esc(trainee.lob)}</b>` : ''}<br>
+    ${batch ? `Batch: <b>${esc(batch.batchName || batch.batchNo)}</b>` : ''}
   </div>
-  <div class="details">Certification Status: <b>${trainee.certificationStatus}</b></div>
-  <div class="footer"><span>Certificate ID: MCN-${employeeId}-${Date.now().toString(36).toUpperCase()}</span><span>Date: ${today}</span></div>
+  <div class="details">Certification Status: <b>${esc(trainee.certificationStatus)}</b></div>
+  <div class="footer"><span>Certificate ID: MCN-${esc(employeeId)}-${Date.now().toString(36).toUpperCase()}</span><span>Date: ${esc(today)}</span></div>
   <div class="stamp">MCN LMS<br>VERIFIED</div>
 </div></body></html>`;
     res.setHeader('Content-Type', 'text/html');
@@ -3330,10 +3473,17 @@ export async function bulkImportExecute(req, res) {
           classroomId: r.classroomId, classroomName: r.classroomName,
           status: 'Active', source: 'BulkImport', empIdType: 'PERMANENT', createdBy: req.userId,
         };
-        await prisma.$transaction([
-          prisma.traineeMaster.create({ data: traineePayload }),
-          prisma.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName: r.traineeName || r.name, email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null, batchNo: r.batchNo, branch: r.branch, process: r.process, lob: r.lob, classroomId: r.classroomId, active: true, forcePasswordReset: true } }),
-        ]);
+        await prisma.$transaction(async tx => {
+          await tx.traineeMaster.create({ data: traineePayload });
+          await tx.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName: r.traineeName || r.name, email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null, batchNo: r.batchNo, branch: r.branch, process: r.process, lob: r.lob, classroomId: r.classroomId, active: true, forcePasswordReset: true } });
+          if (r.classroomId) {
+            await tx.traineeClassroomMap.upsert({
+              where: { employeeId_classroomId: { employeeId, classroomId: r.classroomId } },
+              create: { employeeId, classroomId: r.classroomId, batchNo: r.batchNo, assignedBy: req.userId },
+              update: {},
+            });
+          }
+        });
         created.push(employeeId);
       } catch (e) {
         errors.push({ record: r.employeeId || r.traineeName, error: e.message });

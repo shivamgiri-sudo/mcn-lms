@@ -372,9 +372,10 @@ model AssessmentMaster {
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
-  questions QuestionBank[]
-  attempts  AssessmentAttempt[]
-  results   AssessmentResult[]
+  questions      QuestionBank[]
+  attempts       AssessmentAttempt[]
+  results        AssessmentResult[]
+  attemptGrants  AssessmentAttemptGrant[]
 
   classroomRel ClassroomMaster  @relation(fields: [classroomId], references: [classroomId])
   moduleRel    ModuleMaster?    @relation(fields: [moduleId], references: [moduleId])
@@ -426,6 +427,28 @@ model AssessmentAttempt {
   assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
 
   @@map("assessment_attempts")
+}
+
+model AssessmentAttemptGrant {
+  id             String    @id @default(uuid())
+  grantId        String    @unique @map("grant_id")
+  assessmentId   String    @map("assessment_id")
+  employeeId     String    @map("employee_id")
+  extraAttempts  Int       @map("extra_attempts")
+  reason         String?   @db.Text
+  grantedBy      String    @map("granted_by")
+  grantedByName  String    @default("") @map("granted_by_name")
+  active         Boolean   @default(true)
+  revokedBy      String?   @map("revoked_by")
+  revokedAt      DateTime? @map("revoked_at")
+  revokeReason   String?   @db.Text @map("revoke_reason")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  assessment AssessmentMaster @relation(fields: [assessmentId], references: [assessmentId])
+
+  @@index([employeeId, assessmentId])
+  @@index([assessmentId])
+  @@map("assessment_attempt_grants")
 }
 
 model AssessmentResult {

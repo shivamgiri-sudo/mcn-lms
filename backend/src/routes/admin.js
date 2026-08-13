@@ -8,6 +8,7 @@ import {
   listContents, createContent, updateContent, deleteContent,
   listFaqs, createFaq, bulkUploadFaqs, updateFaq, deleteFaq,
   listAssessments, createAssessment, updateAssessment, deleteAssessment,
+  listAttemptGrantsForAssessment, listAttemptGrantsForTrainee, createAttemptGrant, revokeAttemptGrant,
   listQuestions, uploadQuestions, updateQuestion, deleteQuestion,
   searchTrainees, resetTraineePassword, unlockTrainee, deleteTraineeAccount,
   listCertificationRules, saveCertificationRule, updateCertificationRule, deleteCertificationRule,
@@ -84,6 +85,10 @@ router.get('/assessments', ...auth, listAssessments);
 router.post('/assessments', ...auth, validate(assessmentSchema), createAssessment);
 router.put('/assessments/:assessmentId', ...auth, updateAssessment);
 router.delete('/assessments/:assessmentId', ...auth, deleteAssessment);
+router.get('/assessments/:assessmentId/attempt-grants', ...auth, listAttemptGrantsForAssessment);
+router.post('/assessments/:assessmentId/attempt-grants', ...auth, createAttemptGrant);
+router.post('/attempt-grants/:grantId/revoke', ...auth, revokeAttemptGrant);
+router.get('/trainees/:employeeId/attempt-grants', ...auth, listAttemptGrantsForTrainee);
 router.get('/assessments/:assessmentId/questions', ...auth, listQuestions);
 router.post('/assessments/:assessmentId/questions/upload', ...auth, uploadQuestions);
 router.post('/assessments/:assessmentId/questions/upload-csv', ...auth, uploadQuestionsCSV);

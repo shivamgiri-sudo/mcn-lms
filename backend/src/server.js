@@ -189,9 +189,9 @@ app.use('/api/ilt', normalizeIltAttendanceRequest);
 app.use('/api/ilt', iltRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist, { index: false, dotfiles: 'allow' }));
+  app.use(express.static(frontendDist, { index: false }));
   app.get(/^(?!\/api\/).*/, (_req, res) => {
-    return res.sendFile(path.join(frontendDist, 'index.html'), { dotfiles: 'allow' });
+    return res.sendFile(path.join(frontendDist, 'index.html'));
   });
 } else {
   app.get('/', (_req, res) => res.status(200).send('LMS API is running.'));

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 import { useTheme } from '../../context/ThemeContext.jsx';
 
@@ -61,6 +61,17 @@ export default function LoginView({ onLogin }) {
   const [forgotMsg, setForgotMsg] = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
 
+  useEffect(() => {
+    function handlePop() {
+      if (showForgot) {
+        setShowForgot(false);
+        setForgotMsg('');
+      }
+    }
+    window.addEventListener('popstate', handlePop);
+    return () => window.removeEventListener('popstate', handlePop);
+  }, [showForgot]);
+
   async function login(e) {
     e.preventDefault();
     if (!empId || !password) return setMsg('Enter your ID and password to continue.');
@@ -115,7 +126,7 @@ export default function LoginView({ onLogin }) {
 
   return (
     <div className="lms-login-root" style={{ minHeight: '100vh', display: 'flex', background: panelBg }}>
-      <section className="lms-login-brand" style={{
+      <section className="lms-login-brand" aria-hidden="true" style={{
         flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
         padding: '52px 60px', color: '#eaf0fb', position: 'relative', overflow: 'hidden',
         background: dark
@@ -173,7 +184,7 @@ export default function LoginView({ onLogin }) {
         </p>
       </section>
 
-      <section className="lms-login-panel" style={{
+      <section className="lms-login-panel" aria-label="Sign in to MCN LMS" style={{
         width: 460, display: 'flex', alignItems: 'center', justifyContent: 'center',
         padding: 40, position: 'relative', background: panelBg,
         borderLeft: dark ? '1px solid rgba(255,255,255,.07)' : '1px solid #e6eaf2',
@@ -250,7 +261,7 @@ export default function LoginView({ onLogin }) {
 
               <div style={{ marginTop: 14, textAlign: 'center' }}>
                 <button type="button" className="lms-link"
-                  onClick={() => { setShowForgot(true); setForgotId(empId); setForgotMsg(''); }}
+                  onClick={() => { setShowForgot(true); setForgotId(empId); setForgotMsg(''); window.history.pushState({ forgotPassword: true }, ''); }}
                   style={{ minHeight: 44, padding: '0 8px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: dark ? '#8fb0ff' : '#1d4ed8', fontFamily: 'inherit' }}>
                   Forgot your password
                 </button>

@@ -56,6 +56,11 @@ function integrityKey() {
   return key;
 }
 
+// Validate key at module load time so bad config fails fast instead of at first learner request
+if (!process.env.APP_ENCRYPTION_KEY && !process.env.SESSION_SECRET) {
+  console.warn('[assessmentIntelligence] WARNING: APP_ENCRYPTION_KEY is not set. Assessment integrity will fail at runtime.');
+}
+
 function signAttemptForm({ attemptId, assessmentId, snapshot, accommodation, effectiveTimeLimitSeconds }) {
   return createHmac('sha256', integrityKey())
     .update(canonicalJson({ attemptId, assessmentId, snapshot, accommodation, effectiveTimeLimitSeconds }))
@@ -270,7 +275,7 @@ function buildQuestionSnapshot(candidates, blueprint) {
       chosen.forEach(question => used.add(question.questionId));
       selected.push(...chosen.map(question => normalizedQuestion(question, rule)));
     }
-    if (selected.length !== asNumber(blueprint.totalQuestions, selected.length)) {
+    if (blueprint.totalQuestions != null && selected.length !== asNumber(blueprint.totalQuestions, selected.length)) {
       throw new AssessmentIntelligenceError(
         'BLUEPRINT_TOTAL_MISMATCH',
         `Published blueprint expects ${blueprint.totalQuestions} questions, but its rules generate ${selected.length}.`,
@@ -485,21 +490,26 @@ async function currentOrNewAttempt(employeeId, assessment) {
   }
 
   if (attempt) return attempt;
-  const attemptsUsed = await prisma.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId } });
-  const attemptLimit = Math.max(1, asNumber(assessment.attemptLimit, 3));
-  if (attemptsUsed >= attemptLimit) {
-    throw new AssessmentIntelligenceError('ATTEMPT_LIMIT_REACHED', `Maximum attempts (${attemptLimit}) reached.`, 409);
-  }
-  return prisma.assessmentAttempt.create({
-    data: {
-      attemptId: `ATT-${randomUUID()}`,
-      employeeId,
-      assessmentId: assessment.assessmentId,
-      attemptNo: attemptsUsed + 1,
-      startedAt: new Date(),
-      totalQuestions: 0,
-      result: 'In Progress',
-    },
+  return prisma.$transaction(async (tx) => {
+    const [attemptsUsed, grantsAgg] = await Promise.all([
+      tx.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId, result: { not: 'Expired' } } }),
+      tx.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId: assessment.assessmentId, active: true }, _sum: { extraAttempts: true } }),
+    ]);
+    const attemptLimit = Math.max(1, asNumber(assessment.attemptLimit, 3)) + (grantsAgg._sum.extraAttempts || 0);
+    if (attemptsUsed >= attemptLimit) {
+      throw new AssessmentIntelligenceError('ATTEMPT_LIMIT_REACHED', 'Maximum attempts reached.', 409);
+    }
+    return tx.assessmentAttempt.create({
+      data: {
+        attemptId: `ATT-${randomUUID()}`,
+        employeeId,
+        assessmentId: assessment.assessmentId,
+        attemptNo: attemptsUsed + 1,
+        startedAt: new Date(),
+        totalQuestions: 0,
+        result: 'In Progress',
+      },
+    });
   });
 }
 
@@ -507,10 +517,12 @@ export async function loadLearnerAssessment(employeeId, assessmentId) {
   const { assessment } = await learnerAssessmentAccess(employeeId, assessmentId);
   const attempt = await currentOrNewAttempt(employeeId, assessment);
   const form = await ensureAttemptForm({ employeeId, assessment, attempt });
-  const [bestResult, attemptsUsed] = await Promise.all([
+  const [bestResult, attemptsUsed, grantsAgg] = await Promise.all([
     prisma.assessmentResult.findUnique({ where: { employeeId_assessmentId: { employeeId, assessmentId } } }),
     prisma.assessmentAttempt.count({ where: { employeeId, assessmentId } }),
+    prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId, active: true }, _sum: { extraAttempts: true } }),
   ]);
+  const effectiveAttemptLimit = Math.max(1, asNumber(assessment.attemptLimit, 3)) + (grantsAgg._sum.extraAttempts || 0);
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(attempt.startedAt).getTime()) / 1000));
   const timeLeftSeconds = Math.max(0, form.effectiveTimeLimitSeconds - elapsedSeconds);
 
@@ -519,7 +531,7 @@ export async function loadLearnerAssessment(employeeId, assessmentId) {
       assessmentId: assessment.assessmentId,
       assessmentName: assessment.assessmentName,
       passingPct: assessment.passingPct,
-      attemptLimit: assessment.attemptLimit,
+      attemptLimit: effectiveAttemptLimit,
       attemptsUsed,
       baseTimeLimitMins: assessment.timeLimitMins,
       timeLimitMins: Math.ceil(form.effectiveTimeLimitSeconds / 60),
@@ -868,12 +880,14 @@ export async function submitLearnerAssessment(employeeId, assessmentId, payload 
     );
   }
 
-  const [attemptsUsed, recommendations] = await Promise.all([
+  const [attemptsUsed, grantsAggSubmit, recommendations] = await Promise.all([
     prisma.assessmentAttempt.count({ where: { employeeId, assessmentId } }),
+    prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId, active: true }, _sum: { extraAttempts: true } }),
     createRemedialRecommendations({ employeeId, assessmentId, attemptId, responses: scored.responses }).catch(() => []),
     refreshAssessmentAnalytics(assessmentId).catch(error => console.error('[assessmentIntelligence] analytics refresh failed:', error.message)),
   ]);
-  const attemptsLeft = Math.max(0, asNumber(assessment.attemptLimit, 3) - attemptsUsed);
+  const effectiveLimitSubmit = Math.max(1, asNumber(assessment.attemptLimit, 3)) + (grantsAggSubmit._sum.extraAttempts || 0);
+  const attemptsLeft = Math.max(0, effectiveLimitSubmit - attemptsUsed);
   const revealAnswers = result === 'Pass' || attemptsLeft === 0;
 
   const review = form.snapshot.map(question => {

@@ -117,7 +117,12 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
     setLoading(false);
   }
 
-  useEffect(() => { reload(); }, [batchNo]);
+  useEffect(() => {
+    // Reset content state when navigating between batches
+    setContentProgress(null);
+    setContentClassroomIdx(0);
+    reload();
+  }, [batchNo]);
 
   useEffect(() => {
     if (tab !== 'content' || contentProgress !== null) return;
@@ -134,7 +139,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
     const res = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees: csvPreview }, 'admin');
     setAddLoading(false);
     if (res.ok) {
-      addToast(`Added ${res.data.success} trainee(s).${res.data.failed > 0 ? ` ${res.data.failed} failed.` : ''}`);
+      addToast(`Added ${res.data?.success ?? 0} trainee(s).${(res.data?.failed ?? 0) > 0 ? ` ${res.data.failed} failed.` : ''}`);
       setCsvPreview(null);
       reload();
     } else {
@@ -145,7 +150,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   if (loading) return <div style={{color:'var(--muted)',padding:'40px',textAlign:'center'}}>Loading batch...</div>;
   if (!data) return <div style={{color:'var(--bad)',padding:'40px'}}>Batch not found.</div>;
 
-  const { batch, trainees, summary } = data;
+  const { batch, trainees = [], summary = {} } = data;
   const tabs = ['overview','trainees','analytics','coordinator','content'];
 
   return (
@@ -332,8 +337,8 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
         <div>
           <div className="glass-panel" style={{marginBottom:'14px'}}>
             <div className="panel-title">Attendance Trend</div>
-            {analytics.attendanceTrend.length === 0 && <p style={{color:'var(--muted)',fontSize:'12px'}}>No attendance data.</p>}
-            {analytics.attendanceTrend.slice(-14).map(d => (
+            {(analytics.attendanceTrend || []).length === 0 && <p style={{color:'var(--muted)',fontSize:'12px'}}>No attendance data.</p>}
+            {(analytics.attendanceTrend || []).slice(-14).map(d => (
               <div key={d.date} className="rrow">
                 <span className="rlabel" style={{fontSize:'11px'}}>{new Date(d.date).toLocaleDateString('en-IN',{day:'2-digit',month:'short'})}</span>
                 <div className="rbar"><div className="rbar-fill" style={{width:`${d.pct}%`,background:d.pct>=80?'linear-gradient(90deg,#16a34a,#22c55e)':d.pct>=60?'linear-gradient(90deg,#d97706,#f59e0b)':'linear-gradient(90deg,#dc2626,#f97316)'}}></div></div>
@@ -343,7 +348,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
           </div>
           <div className="glass-panel" style={{marginBottom:'14px'}}>
             <div className="panel-title">MCQ Score Distribution</div>
-            {Object.entries(analytics.mcqDistribution).map(([band, count]) => (
+            {Object.entries(analytics.mcqDistribution || {}).map(([band, count]) => (
               <div key={band} className="rrow">
                 <span className="rlabel">{band}</span>
                 <div className="rbar"><div className="rbar-fill" style={{width: summary.total>0 ? `${Math.round(count/summary.total*100)}%` : '0%',background:'linear-gradient(90deg,#2563eb,#6366f1)'}}></div></div>
@@ -354,7 +359,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
           <div className="glass-panel">
             <div className="panel-title">Certification Forecast</div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:'12px',marginTop:'8px'}}>
-              {[{label:'Will Certify',val:analytics.certForecast.willCert,cls:'g'},{label:'Borderline',val:analytics.certForecast.borderline,cls:'a'},{label:'At Risk',val:analytics.certForecast.atRisk,cls:'r'}].map(({label,val,cls}) => (
+              {[{label:'Will Certify',val:(analytics.certForecast?.willCert??0),cls:'g'},{label:'Borderline',val:(analytics.certForecast?.borderline??0),cls:'a'},{label:'At Risk',val:(analytics.certForecast?.atRisk??0),cls:'r'}].map(({label,val,cls}) => (
                 <div key={label} className={`kpi ${cls}`}><div className="kpi-num">{val}</div><div className="kpi-label">{label}</div><div className="kpi-bar"><div className="kpi-bar-fill" style={{width: summary.total>0?`${Math.round(val/summary.total*100)}%`:'0%'}}></div></div></div>
               ))}
             </div>

@@ -18,12 +18,13 @@ export default function CoordLogin({ onLogin }) {
   const [forgotId, setForgotId]       = useState('');
   const [forgotLoading, setForgotLoading] = useState(false);
   const [forgotResult, setForgotResult]   = useState('');
+  const [forgotOk, setForgotOk]           = useState(false);
 
   async function login(e) {
     e.preventDefault();
     if (!loginId || !pin) return setMsg('Enter your login ID and PIN to continue.');
     setLoading(true); setMsg('');
-    const res = await api.post('/auth/coordinator/login', { loginId, pin }, 'coordinator');
+    const res = await api.post('/auth/coordinator/login', { loginId: loginId.trim(), pin }, 'coordinator');
     setLoading(false);
     if (res.ok) onLogin(res);
     else setMsg(res.message || 'That login ID and PIN did not match.');
@@ -35,6 +36,7 @@ export default function CoordLogin({ onLogin }) {
     setForgotLoading(true); setForgotResult('');
     const res = await api.post('/auth/coordinator/forgot-password', { loginId: forgotId });
     setForgotLoading(false);
+    setForgotOk(res.ok);
     setForgotResult(res.message || 'If that account exists, recovery instructions are on their way.');
   }
 
@@ -66,7 +68,7 @@ export default function CoordLogin({ onLogin }) {
               autoComplete="username"
             />
           </div>
-          {forgotResult && <p role="status" style={t.notice(true)}>{forgotResult}</p>}
+          {forgotResult && <p role="status" style={t.notice(forgotOk)}>{forgotResult}</p>}
           <button type="submit" disabled={forgotLoading} className="lms-primary" style={t.primaryBtn(forgotLoading)}>
             {forgotLoading ? 'Sending…' : 'Send reset link'}
           </button>

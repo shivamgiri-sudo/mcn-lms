@@ -143,12 +143,11 @@ export function requireRole(...roles) {
     if (roles.includes(req.userType)) return next();
 
     // Management routes accept coordinator sessions that have the management permission.
+    // req.coordinator is already populated by requireSession for coordinator sessions,
+    // so we reuse it instead of issuing a redundant DB query.
     if (roles.includes('management') && req.userType === 'coordinator') {
-      const user = await prisma.roleAccessMatrix.findFirst({
-        where: { loginId: req.userId, active: true, locked: false },
-        select: { canViewManagementDashboard: true, role: true },
-      });
-      if (user && (user.canViewManagementDashboard || user.role === 'CEO' || user.role === 'Super Admin')) {
+      const coord = req.coordinator;
+      if (coord && (coord.canViewManagementDashboard || coord.role === 'CEO' || coord.role === 'Super Admin')) {
         return next();
       }
     }
@@ -162,7 +161,8 @@ export function requireSuperAdmin(req, res, next) {
     return res.status(403).json({ ok: false, message: 'Super administrator access required.' });
   }
 
-  if (req.userBranch || (req.adminInfo?.role && !['Super Admin', 'SuperAdmin'].includes(req.adminInfo.role))) {
+  const role = req.adminInfo?.role ?? '';
+  if (req.userBranch || !['Super Admin', 'SuperAdmin'].includes(role)) {
     return res.status(403).json({ ok: false, message: 'Super administrator access required.' });
   }
 

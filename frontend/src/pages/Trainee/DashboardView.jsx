@@ -12,8 +12,19 @@ import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntry
 
 export default function DashboardView({ dashboard, forceReset, onLogout, onRefresh }) {
   const { theme, toggle: toggleTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState('journey');
+  const [activeTab, setActiveTab] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const t = p.get('tab');
+    return ['journey','talent','live-training','learning','qa','assigned','profile'].includes(t) ? t : 'journey';
+  });
   const [showForceReset, setShowForceReset] = useState(forceReset);
+
+  function switchTab(id) {
+    setActiveTab(id);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', id);
+    window.history.replaceState(null, '', url.toString());
+  }
 
   const d = dashboard || {};
   const t = d.trainee || {};
@@ -36,7 +47,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { label: 'Overall Progress', value: `${overall}%`, cls: 'accent', w: overall },
     { label: 'Course Completion', value: pct(s.completionPercent), note: `${s.completedContents || 0}/${s.totalContents || 0} done`, cls: 'ok', w: s.completionPercent || 0 },
     { label: 'MCQ Completion', value: pct(s.mcqCompletionPercent), note: `${s.attemptedAssessments || 0}/${s.totalAssessments || 0} attempted`, cls: 'warn', w: s.mcqCompletionPercent || 0 },
-    { label: 'Best MCQ Score', value: s.bestMcqScore != null ? `${Math.round(s.bestMcqScore)}%` : '—', note: s.bestMcqScore != null ? `${s.passedAssessments || 0} passed` : 'No attempt yet', cls: s.bestMcqScore >= 60 ? 'ok' : 'bad', w: s.bestMcqScore || 0 },
+    { label: 'Best MCQ Score', value: s.bestMcqScore != null ? `${Math.round(s.bestMcqScore)}%` : '—', note: s.bestMcqScore != null ? `${s.passedAssessments || 0} passed` : 'No attempt yet', cls: s.bestMcqScore == null ? 'muted' : s.bestMcqScore >= 60 ? 'ok' : 'bad', w: s.bestMcqScore || 0 },
   ];
 
   return (
@@ -57,7 +68,14 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
         </div>
       </div>
 
-      {showForceReset && <PasswordResetBox onDone={() => setShowForceReset(false)} />}
+      {showForceReset && (
+        <div className="modal-overlay" style={{zIndex:1000}}>
+          <div className="modal-box">
+            <h3 style={{marginTop:0,marginBottom:12,fontSize:17,fontWeight:800}}>Set your new password</h3>
+            <PasswordResetBox onDone={() => setShowForceReset(false)} />
+          </div>
+        </div>
+      )}
 
       <div className="trainee-overview-grid">
         <div className="panel" style={{ padding: '18px 22px' }}>
@@ -74,11 +92,11 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           </div>
           <div className="progress-shell" style={{ height: 10 }}><div className="progress-bar" style={{ width: `${overall}%` }} /></div>
           <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn small accent" onClick={() => setActiveTab('learning')}>Continue Learning →</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('journey')}>View My Journey</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('talent')}>Review Skill Gaps</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('live-training')}>View Live Sessions</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('qa')}>Ask a Question</button>
+            <button className="btn small accent" onClick={() => switchTab('learning')}>Continue Learning →</button>
+            <button className="btn small secondary" onClick={() => switchTab('journey')}>View My Journey</button>
+            <button className="btn small secondary" onClick={() => switchTab('talent')}>Review Skill Gaps</button>
+            <button className="btn small secondary" onClick={() => switchTab('live-training')}>View Live Sessions</button>
+            <button className="btn small secondary" onClick={() => switchTab('qa')}>Ask a Question</button>
           </div>
         </div>
 
@@ -108,7 +126,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           {kpis.map(kpi => (
             <div key={kpi.label} className="kpi-card">
               <div className="kpi-label">{kpi.label}</div>
-              <div className="kpi-value" style={{ color: `var(--${kpi.cls === 'ok' ? 'ok' : kpi.cls === 'warn' ? 'warn' : kpi.cls === 'bad' ? 'bad' : 'accent'})` }}>{kpi.value}</div>
+              <div className="kpi-value" style={{ color: `var(--${kpi.cls === 'ok' ? 'ok' : kpi.cls === 'warn' ? 'warn' : kpi.cls === 'bad' ? 'bad' : kpi.cls === 'muted' ? 'muted' : 'accent'})` }}>{kpi.value}</div>
               {kpi.note && <div className="kpi-note">{kpi.note}</div>}
               <div className="progress-shell" style={{ height: 5, marginTop: 8 }}><div className={`progress-bar ${kpi.cls === 'ok' ? 'ok' : kpi.cls === 'warn' ? 'warn' : kpi.cls === 'bad' ? 'bad' : ''}`} style={{ width: `${kpi.w}%` }} /></div>
             </div>
@@ -130,17 +148,31 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
 
       <div className="tabs" role="tablist" aria-label="Trainee portal sections">
         {tabs.map(tab => (
-          <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={`tab-btn${activeTab === tab.id ? ' active' : ''}`} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>
+          <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={`tab-btn${activeTab === tab.id ? ' active' : ''}`} onClick={() => switchTab(tab.id)}>{tab.label}</button>
         ))}
       </div>
 
-      {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
-      {activeTab === 'talent' && <SkillsPathsTab />}
-      {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
-      {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
-      {activeTab === 'qa' && <QATab />}
-      {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} />}
-      {activeTab === 'profile' && <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />}
+      <div role="tabpanel" style={{ display: activeTab === 'journey' ? 'block' : 'none' }}>
+        <LearningJourneyTab onNavigate={switchTab} />
+      </div>
+      <div role="tabpanel" style={{ display: activeTab === 'talent' ? 'block' : 'none' }}>
+        <SkillsPathsTab />
+      </div>
+      <div role="tabpanel" style={{ display: activeTab === 'live-training' ? 'block' : 'none' }}>
+        <TrainingCalendarEntryCard role="trainee" />
+      </div>
+      <div role="tabpanel" style={{ display: activeTab === 'learning' ? 'block' : 'none' }}>
+        <LearningTab days={d.days || []} onRefresh={onRefresh} />
+      </div>
+      <div role="tabpanel" style={{ display: activeTab === 'qa' ? 'block' : 'none' }}>
+        <QATab />
+      </div>
+      <div role="tabpanel" style={{ display: activeTab === 'assigned' ? 'block' : 'none' }}>
+        <AssignedTab assignments={d.directAssignments || []} />
+      </div>
+      <div role="tabpanel" style={{ display: activeTab === 'profile' ? 'block' : 'none' }}>
+        <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />
+      </div>
 
       <style>{`
         .trainee-overview-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,220px);gap:12px;margin-bottom:12px}

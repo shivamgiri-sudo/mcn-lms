@@ -69,6 +69,11 @@ export default function UsersTab() {
   const [newRole, setNewRole] = useState('');
   const [roleChangePin, setRoleChangePin] = useState('');
   const [roleChangeLoading, setRoleChangeLoading] = useState(false);
+  // Inline deactivate confirmation
+  const [deactivateTarget, setDeactivateTarget] = useState(null);
+  // Pagination
+  const [usersPage, setUsersPage] = useState(1);
+  const USERS_PAGE_SIZE = 25;
 
   useEffect(() => {
     loadUsers();
@@ -148,9 +153,8 @@ export default function UsersTab() {
   }
 
   async function deactivateUser(u) {
-    if (!window.confirm(`Deactivate ${u.loginId}? They will lose portal access.`)) return;
     const res = await api.delete(`/admin/portal-users/${u.id}`, 'admin');
-    if (res.ok) { toast('User deactivated.'); loadUsers(); }
+    if (res.ok) { setDeactivateTarget(null); toast('User deactivated.'); loadUsers(); }
     else toast(res.message || 'Failed.', false);
   }
 
@@ -225,6 +229,8 @@ export default function UsersTab() {
     (u.branch || '').toLowerCase().includes(search.toLowerCase()) ||
     (u.process || '').toLowerCase().includes(search.toLowerCase())
   );
+  const totalUserPages = Math.ceil(filtered.length / USERS_PAGE_SIZE);
+  const pageUsers = filtered.slice((usersPage - 1) * USERS_PAGE_SIZE, usersPage * USERS_PAGE_SIZE);
 
   const roleColor = r => r === 'Admin' ? '#f87171' : r === 'Manager' ? '#fbbf24' : r === 'Trainer' ? '#a78bfa' : '#60a5fa';
 
@@ -255,7 +261,7 @@ export default function UsersTab() {
           style={{ maxWidth: 400 }}
           placeholder="Search by login ID, name, branch, process..."
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setUsersPage(1); }}
         />
       </div>
 
@@ -281,7 +287,7 @@ export default function UsersTab() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(u => (
+              {pageUsers.map(u => (
                 <tr key={u.id}>
                   <td><b style={{ fontSize: 12 }}>{u.loginId}</b></td>
                   <td style={{ fontSize: 12 }}>{u.name || '—'}</td>
@@ -321,13 +327,28 @@ export default function UsersTab() {
                       <button className="btn xs secondary" onClick={() => openEdit(u)}>Edit</button>
                       <button className="btn xs secondary" onClick={() => openRoleChange(u)} title="Change role or promote to Admin">⇄ Role</button>
                       <button className="btn xs secondary" onClick={() => { setResetTarget(u); setNewPin(''); }}>{u.role === 'Admin' ? 'Reset Password' : 'Reset PIN'}</button>
-                      <button className="btn xs danger" onClick={() => deactivateUser(u)}>Deactivate</button>
+                      {deactivateTarget === u.id ? (
+                        <span style={{display:'flex',gap:4,alignItems:'center'}}>
+                          <span style={{fontSize:11,color:'var(--bad)',whiteSpace:'nowrap'}}>Deactivate?</span>
+                          <button className="btn xs danger" onClick={() => deactivateUser(u)}>Confirm</button>
+                          <button className="btn xs secondary" onClick={() => setDeactivateTarget(null)}>Cancel</button>
+                        </span>
+                      ) : (
+                        <button className="btn xs danger" onClick={() => setDeactivateTarget(u.id)}>Deactivate</button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        )}
+        {totalUserPages > 1 && (
+          <div style={{display:'flex',gap:6,justifyContent:'flex-end',alignItems:'center',marginTop:12,fontSize:12,color:'var(--muted)'}}>
+            <span>Page {usersPage} of {totalUserPages}</span>
+            <button className="btn small secondary" disabled={usersPage <= 1} onClick={() => setUsersPage(p => p - 1)}>← Prev</button>
+            <button className="btn small secondary" disabled={usersPage >= totalUserPages} onClick={() => setUsersPage(p => p + 1)}>Next →</button>
+          </div>
         )}
       </div>
 
@@ -504,7 +525,7 @@ export default function UsersTab() {
                     <div style={{ fontSize: 28, marginBottom: 8 }}>📤</div>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>Drag & drop CSV or click to browse</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Supports .csv files</div>
-                    <input id="bulk-users-input" type="file" accept=".csv" style={{ display: 'none' }} onChange={e => handleBulkFile(e.target.files[0])} />
+                    <input id="bulk-users-input" type="file" accept=".csv" style={{ display: 'none' }} onChange={e => { handleBulkFile(e.target.files[0]); e.target.value = ''; }} />
                   </div>
                   <a
                     href={`data:text/csv;charset=utf-8,${encodeURIComponent(BULK_CSV_TEMPLATE)}`}

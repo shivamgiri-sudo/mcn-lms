@@ -33,44 +33,50 @@ import RuntimeOperationsTab from './RuntimeOperationsTab.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
+import {
+  Activity, BarChart2, Bell, BookOpen, Building2, Calendar, ChevronRight,
+  ClipboardList, Cloud, Folder, Gauge, GraduationCap, HelpCircle, Key,
+  LayoutDashboard, Link2, Lock, Megaphone, Package, Radio, Settings,
+  Target, Upload, User, UserCheck, Users, FlaskConical,
+} from 'lucide-react';
 
 const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health', 'runtime-operations']);
 
 const NAV = [
-  { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
+  { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard size={15} /> }] },
   { section: 'Training', items: [
-    { id: 'curriculum', label: 'Curriculum', icon: '📋' },
-    { id: 'live-training', label: 'Live Training Calendar', icon: '🗓️' },
-    { id: 'content-repository', label: 'Content Repository', icon: '🗂️' },
-    { id: 'independent-modules', label: 'Independent Modules', icon: '🧩' },
-    { id: 'talent', label: 'Skills & Learning Paths', icon: '🎯' },
-    { id: 'evidence-governance', label: 'Evidence & Verification', icon: '🧪' },
-    { id: 'questions', label: 'Questions & MCQ', icon: '❓' },
-    { id: 'broadcast', label: 'Broadcast / Assign', icon: '📢' },
-    { id: 'drive', label: 'Drive Sync', icon: '☁️' },
+    { id: 'curriculum', label: 'Curriculum', icon: <BookOpen size={15} /> },
+    { id: 'live-training', label: 'Live Training Calendar', icon: <Calendar size={15} /> },
+    { id: 'content-repository', label: 'Content Repository', icon: <Folder size={15} /> },
+    { id: 'independent-modules', label: 'Independent Modules', icon: <Package size={15} /> },
+    { id: 'talent', label: 'Skills & Learning Paths', icon: <Target size={15} /> },
+    { id: 'evidence-governance', label: 'Evidence & Verification', icon: <FlaskConical size={15} /> },
+    { id: 'questions', label: 'Questions & MCQ', icon: <HelpCircle size={15} /> },
+    { id: 'broadcast', label: 'Broadcast / Assign', icon: <Megaphone size={15} /> },
+    { id: 'drive', label: 'Drive Sync', icon: <Cloud size={15} /> },
   ]},
   { section: 'People', items: [
-    { id: 'batches', label: 'Batches', icon: '🏢' },
-    { id: 'branches', label: 'Branches', icon: '🌿' },
-    { id: 'accounts', label: 'Trainee Accounts', icon: '👤' },
-    { id: 'emp-mapping', label: 'Map Perm. Emp IDs', icon: '🔗' },
-    { id: 'coordinators', label: 'Coordinators', icon: '🧑‍💼' },
-    { id: 'users', label: 'Portal Users', icon: '🔑' },
+    { id: 'batches', label: 'Batches', icon: <Users size={15} /> },
+    { id: 'branches', label: 'Branches', icon: <Building2 size={15} /> },
+    { id: 'accounts', label: 'Trainee Accounts', icon: <User size={15} /> },
+    { id: 'emp-mapping', label: 'Map Perm. Emp IDs', icon: <Link2 size={15} /> },
+    { id: 'coordinators', label: 'Coordinators', icon: <UserCheck size={15} /> },
+    { id: 'users', label: 'Portal Users', icon: <Key size={15} /> },
   ]},
-  { section: 'Reports', items: [{ id: 'reports', label: 'Reports & Exports', icon: '📥' }] },
+  { section: 'Reports', items: [{ id: 'reports', label: 'Reports & Exports', icon: <BarChart2 size={15} /> }] },
   { section: 'Compliance', items: [
-    { id: 'compliance-audit', label: 'Compliance Audit', icon: '🔒' },
-    { id: 'audit-logs', label: 'Audit Logs', icon: '📋' },
+    { id: 'compliance-audit', label: 'Compliance Audit', icon: <Lock size={15} /> },
+    { id: 'audit-logs', label: 'Audit Logs', icon: <ClipboardList size={15} /> },
   ]},
-  { section: 'Import', items: [{ id: 'bulk-import', label: 'Bulk Import', icon: '📥' }] },
+  { section: 'Import', items: [{ id: 'bulk-import', label: 'Bulk Import', icon: <Upload size={15} /> }] },
   { section: 'Config', items: [
-    { id: 'processlob', label: 'Process & LOB', icon: '⚙️' },
-    { id: 'certrules', label: 'Cert Rules', icon: '🎓' },
-    { id: 'org', label: 'Organization', icon: '🏢' },
-    { id: 'comm-config', label: 'Communications', icon: '📡' },
-    { id: 'notif-config', label: 'Notifications', icon: '🔔' },
-    { id: 'system-health', label: 'System Health', icon: '🛠️' },
-    { id: 'runtime-operations', label: 'Runtime & Rollout', icon: '🚦' },
+    { id: 'processlob', label: 'Process & LOB', icon: <Settings size={15} /> },
+    { id: 'certrules', label: 'Cert Rules', icon: <GraduationCap size={15} /> },
+    { id: 'org', label: 'Organization', icon: <Building2 size={15} /> },
+    { id: 'comm-config', label: 'Communications', icon: <Radio size={15} /> },
+    { id: 'notif-config', label: 'Notifications', icon: <Bell size={15} /> },
+    { id: 'system-health', label: 'System Health', icon: <Activity size={15} /> },
+    { id: 'runtime-operations', label: 'Runtime & Rollout', icon: <Gauge size={15} /> },
   ]},
 ];
 
@@ -90,6 +96,18 @@ export default function AdminConsole({ user, onLogout }) {
   const [pwForm, setPwForm] = useState({ current: '', password: '', confirm: '' });
   const [pwMsg, setPwMsg] = useState('');
   const isSuper = !user?.branch;
+  const [collapsedSections, setCollapsedSections] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('adminSidebarCollapsed') || '{}'); }
+    catch { return {}; }
+  });
+
+  function toggleSection(name) {
+    setCollapsedSections(prev => {
+      const next = { ...prev, [name]: !prev[name] };
+      localStorage.setItem('adminSidebarCollapsed', JSON.stringify(next));
+      return next;
+    });
+  }
 
   async function handleChangePassword(event) {
     event.preventDefault();
@@ -139,7 +157,25 @@ export default function AdminConsole({ user, onLogout }) {
           {NAV.map(section => {
             const items = isSuper ? section.items : section.items.filter(item => !SUPER_ONLY.has(item.id));
             if (!items.length) return null;
-            return <div key={section.section}><div className="sidebar-section">{section.section}</div>{items.map(item => <div key={item.id} className={`nav-item${activeId === item.id ? ' active' : ''}`} onClick={() => navigate(item.id)}><span>{item.icon}</span><span>{item.label}</span></div>)}</div>;
+            const isCollapsed = !!collapsedSections[section.section];
+            return (
+              <div key={section.section}>
+                <div
+                  className="sidebar-section"
+                  style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between', userSelect: 'none' }}
+                  onClick={() => toggleSection(section.section)}
+                >
+                  <span>{section.section}</span>
+                  <ChevronRight size={12} style={{ transform: isCollapsed ? 'rotate(0deg)' : 'rotate(90deg)', transition: 'transform .18s ease', opacity: 0.5, flexShrink: 0 }} />
+                </div>
+                {!isCollapsed && items.map(item => (
+                  <div key={item.id} className={`nav-item${activeId === item.id ? ' active' : ''}`} onClick={() => navigate(item.id)}>
+                    <span style={{ display: 'flex', alignItems: 'center', width: 16, flexShrink: 0 }}>{item.icon}</span>
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            );
           })}
         </div>
 

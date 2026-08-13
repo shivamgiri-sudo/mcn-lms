@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { api, downloadCsv } from '../../utils/api.js';
+import { api, downloadCsv, fetchAuthenticatedBlobUrl } from '../../utils/api.js';
 import { formatDate, formatDateTime, pct, riskColor } from '../../utils/format.js';
 
 const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile,DOJ\nEMP1001,John Doe,john@example.com,9876543210,2026-05-01\n,Jane Smith,jane@example.com,9876543211,2026-05-01\n';
@@ -102,7 +102,7 @@ export default function BatchDetail({ batchNo, onBack }) {
         const { success, failed, errors } = res.data;
         setShowBulk(false);
         setCsvPreview(null);
-        setMsg(`✓ ${success} onboarded${failed > 0 ? `, ${failed} failed: ${errors.slice(0, 3).join('; ')}` : '.'}`);
+        setMsg(`✓ ${success} onboarded${failed > 0 ? `, ${failed} failed: ${(errors || []).slice(0, 3).join('; ')}` : '.'}`);
         load();
       } else {
         setMsg(res.message || 'Upload failed.');
@@ -142,7 +142,7 @@ export default function BatchDetail({ batchNo, onBack }) {
 
   if (!data) return <div style={{ paddingTop: 40, textAlign: 'center' }}><div className="spinner" /></div>;
 
-  const { batch, trainees, pending, queries, risks } = data;
+  const { batch, trainees = [], pending = [], queries = [], risks = [] } = data;
   const tabs = [
     { id: 'trainees', label: `Trainees (${trainees.length})` },
     { id: 'pending', label: `Pending (${pending.length})` },
@@ -154,7 +154,7 @@ export default function BatchDetail({ batchNo, onBack }) {
   return (
     <div>
       {msg && !showClose && !showOnboard && (
-        <div className="toast warn" style={{ marginBottom: 12 }}>{msg}<button style={{ marginLeft: 10, cursor: 'pointer', border: 0, background: 'transparent', color: 'inherit', fontWeight: 700 }} onClick={() => setMsg('')}>✕</button></div>
+        <div className={`toast ${msg.startsWith('✓') ? 'ok' : 'warn'}`} style={{ marginBottom: 12 }}>{msg}<button style={{ marginLeft: 10, cursor: 'pointer', border: 0, background: 'transparent', color: 'inherit', fontWeight: 700 }} onClick={() => setMsg('')}>✕</button></div>
       )}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 14 }}>
         <button className="btn small secondary" onClick={onBack}>← Back</button>
@@ -167,7 +167,7 @@ export default function BatchDetail({ batchNo, onBack }) {
           <button
             className="btn small danger"
             onClick={() => {
-              const pendingCert = trainees.filter(t => t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Failed').length;
+              const pendingCert = trainees.filter(t => !['Certified', 'Not Certified', 'Attrition'].includes(t.certificationStatus)).length;
               const pendingHO = trainees.filter(t => t.certificationStatus === 'Certified' && !t.handoverToOps).length;
               if (pendingCert > 0 || pendingHO > 0) {
                 setActiveTab('certification');
@@ -528,11 +528,13 @@ export default function BatchDetail({ batchNo, onBack }) {
 function PendingCard({ activity: a, onAction }) {
   const [answer, setAnswer] = useState('');
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
 
   async function markDone() {
-    setSaving(true);
-    await api.patch(`/coordinator/pending-activities/${a.id}`, { actionTaken: answer, status: 'Actioned' }, 'coordinator');
+    setSaving(true); setErr('');
+    const res = await api.patch(`/coordinator/pending-activities/${a.id}`, { actionTaken: answer, status: 'Actioned' }, 'coordinator');
     setSaving(false);
+    if (!res.ok) { setErr(res.message || 'Failed to mark done.'); return; }
     onAction();
   }
 
@@ -546,6 +548,7 @@ function PendingCard({ activity: a, onAction }) {
         </div>
         <span className={`pill ${a.severity === 'CRITICAL' ? 'bad' : a.severity === 'HIGH' ? 'warn' : 'info'}`}>{a.severity}</span>
       </div>
+      {err && <div className="toast bad" style={{ margin: '6px 0 0', fontSize: 12 }}>{err}</div>}
       <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
         <input className="input" style={{ fontSize: 12 }} placeholder="Action taken..." value={answer} onChange={e => setAnswer(e.target.value)} />
         <button className="btn small ok" onClick={markDone} disabled={saving}>Done</button>
@@ -557,12 +560,14 @@ function PendingCard({ activity: a, onAction }) {
 function QueryCard({ query: q, onAction }) {
   const [answer, setAnswer] = useState('');
   const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
 
   async function submitAnswer() {
     if (!answer.trim()) return;
-    setSaving(true);
-    await api.patch(`/coordinator/queries/${q.id}`, { coordinatorAnswer: answer }, 'coordinator');
+    setSaving(true); setErr('');
+    const res = await api.patch(`/coordinator/queries/${q.id}`, { coordinatorAnswer: answer }, 'coordinator');
     setSaving(false);
+    if (!res.ok) { setErr(res.message || 'Failed to submit answer.'); return; }
     setAnswer('');
     onAction();
   }
@@ -581,6 +586,7 @@ function QueryCard({ query: q, onAction }) {
           <b>Your answer:</b> {q.coordinatorAnswer}
         </div>
       )}
+      {err && <div className="toast bad" style={{ margin: '6px 0 0', fontSize: 12 }}>{err}</div>}
       {q.status === 'Open' && (
         <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
           <textarea className="input" style={{ minHeight: 60, fontSize: 12 }} placeholder="Type your answer..." value={answer} onChange={e => setAnswer(e.target.value)} />
@@ -684,9 +690,13 @@ function CertificationTab({ batchNo, trainees }) {
 
   async function openCertificate(employeeId) {
     const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
-    const token = localStorage.getItem('lms_token_coordinator') || '';
     try {
-      const res = await fetch(`${BASE}/coordinator/certificates/${employeeId}/generate`, { headers: { Authorization: `Bearer ${token}` } });
+      // Use credentials: 'include' to send the HttpOnly session cookie — never rely on localStorage token
+      const res = await fetch(`${BASE}/coordinator/certificates/${employeeId}/generate`, {
+        credentials: 'include',
+        headers: { 'x-portal-type': 'coordinator' },
+      });
+      if (!res.ok) { setMsg('Failed to generate certificate.'); return; }
       const html = await res.text();
       const w = window.open('', '_blank');
       if (w) { w.document.write(html); w.document.close(); w.print(); }

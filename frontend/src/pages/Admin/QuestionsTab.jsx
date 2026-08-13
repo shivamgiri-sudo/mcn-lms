@@ -55,6 +55,9 @@ export default function QuestionsTab() {
   const [deleteModal, setDeleteModal] = useState(null);
   const [editModal, setEditModal] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [assessmentEditModal, setAssessmentEditModal] = useState(null);
+  const [savingAssessmentEdit, setSavingAssessmentEdit] = useState(false);
+  const [showGrants, setShowGrants] = useState(false);
   const [aSearch, setASearch] = useState({ name: '', classroomId: '' });
 
   useEffect(() => {
@@ -117,6 +120,22 @@ export default function QuestionsTab() {
     await api.delete(`/admin/questions/${questionId}`, 'admin');
     api.get(`/admin/assessments/${selected.assessmentId}/questions`, 'admin').then(r => r.ok && setQuestions(r.data));
     refreshAssessments();
+  }
+
+  async function saveEditedAssessment(form) {
+    setSavingAssessmentEdit(true);
+    const res = await api.put(`/admin/assessments/${assessmentEditModal.assessmentId}`, form, 'admin');
+    setSavingAssessmentEdit(false);
+    if (res.ok) {
+      setAssessmentEditModal(null);
+      setMsg('Assessment updated.');
+      if (selected?.assessmentId === assessmentEditModal.assessmentId) {
+        setSelected(prev => ({ ...prev, ...form }));
+      }
+      refreshAssessments();
+    } else {
+      setMsg(res.message || 'Failed to update assessment.');
+    }
   }
 
   async function saveEditedQuestion(form) {
@@ -255,13 +274,18 @@ export default function QuestionsTab() {
               ? <p style={{fontSize:'12px',color:'var(--muted)'}}>{assessments.length === 0 ? 'No assessments yet.' : 'No match.'}</p>
               : filteredA.map(a => (
             <div key={a.assessmentId} style={{marginBottom:'4px'}}>
-              <div onClick={() => { setSelected(a); setShowBulk(false); setMsg(''); }}
+              <div onClick={() => { setSelected(a); setShowBulk(false); setShowGrants(false); setMsg(''); }}
                 style={{padding:'10px 12px',borderRadius:'var(--radius-sm)',cursor:'pointer',background:selected?.assessmentId===a.assessmentId?'var(--accent-soft)':'var(--card)',border:`1px solid ${selected?.assessmentId===a.assessmentId?'var(--accent)':'var(--line)'}`,fontSize:'13px',fontWeight:selected?.assessmentId===a.assessmentId?'700':'400', position:'relative'}}>
-                <div style={{paddingRight:24}}>{a.assessmentName}</div>
+                <div style={{paddingRight:52}}>{a.assessmentName}</div>
                 <div style={{fontSize:'10px',marginTop:2,color:a.moduleId?'var(--ok)':'var(--muted)'}}>
                   {a.moduleId ? '✓ Linked to module' : '⚠ Not linked'}
                 </div>
                 <div style={{fontSize:'10px',color:'var(--muted)',marginTop:1}}>{a._count?.questions || 0} questions</div>
+                <button
+                  onClick={e => { e.stopPropagation(); setAssessmentEditModal(a); setMsg(''); }}
+                  style={{position:'absolute',top:8,right:30,background:'none',border:'none',color:'rgba(148,163,184,.7)',cursor:'pointer',fontSize:13,padding:'2px 4px',borderRadius:4,lineHeight:1}}
+                  title="Edit assessment"
+                >✏</button>
                 <button
                   onClick={e => { e.stopPropagation(); setDeleteModal({ assessment: a, step: 1, error: '' }); }}
                   style={{position:'absolute',top:8,right:8,background:'none',border:'none',color:'rgba(248,113,113,.6)',cursor:'pointer',fontSize:13,padding:'2px 4px',borderRadius:4,lineHeight:1}}
@@ -286,9 +310,15 @@ export default function QuestionsTab() {
                     : <span style={{fontSize:'11px',color:'var(--warn)',marginLeft:8}}>⚠ Not linked to any module — learners won't see this</span>
                   }
                 </div>
-                <button className="btn small" onClick={() => { setShowBulk(!showBulk); setMsg(''); }}>
-                  {showBulk ? 'Hide Upload' : '+ Bulk Upload'}
-                </button>
+                <div style={{display:'flex',gap:6}}>
+                  <button className="btn small secondary" onClick={() => { setAssessmentEditModal(selected); setMsg(''); }}>Edit</button>
+                  <button className="btn small secondary" onClick={() => { setShowGrants(g => !g); setShowBulk(false); setMsg(''); }}>
+                    {showGrants ? 'Hide Grants' : 'Manage Attempts'}
+                  </button>
+                  <button className="btn small" onClick={() => { setShowBulk(b => !b); setShowGrants(false); setMsg(''); }}>
+                    {showBulk ? 'Hide Upload' : '+ Bulk Upload'}
+                  </button>
+                </div>
               </div>
               {!selected.moduleId && selected.classroomId && (
                 <LinkToModulePanel assessmentId={selected.assessmentId} classroomId={selected.classroomId} onLinked={a => { setSelected(a); api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data)); }} />
@@ -346,6 +376,10 @@ export default function QuestionsTab() {
                 </div>
               )}
 
+              {showGrants && (
+                <ManageAttemptsPanel key={selected.assessmentId} assessment={selected} />
+              )}
+
               <table style={{width:'100%',borderCollapse:'collapse'}}>
                 <thead>
                   <tr style={{borderBottom:'1px solid var(--line)'}}>
@@ -392,6 +426,14 @@ export default function QuestionsTab() {
           saving={savingEdit}
           onClose={() => setEditModal(null)}
           onSave={saveEditedQuestion}
+        />
+      )}
+      {assessmentEditModal && (
+        <EditAssessmentModal
+          assessment={assessmentEditModal}
+          saving={savingAssessmentEdit}
+          onClose={() => setAssessmentEditModal(null)}
+          onSave={saveEditedAssessment}
         />
       )}
     </div>
@@ -467,7 +509,7 @@ function DeleteAssessmentModal({ assessment, error, onCancel, onConfirm }) {
   }
 
   return (
-    <div className="modal-overlay">
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onCancel()}>
       <div className="modal-box" style={{maxWidth:420}}>
         <div className="modal-head">
           <b style={{color:'#f87171'}}>🗑 Delete Assessment</b>
@@ -518,6 +560,223 @@ function DeleteAssessmentModal({ assessment, error, onCancel, onConfirm }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EditAssessmentModal({ assessment, saving, onClose, onSave }) {
+  const [form, setForm] = useState({
+    assessmentName: assessment.assessmentName || '',
+    passingPct: assessment.passingPct ?? 60,
+    attemptLimit: assessment.attemptLimit ?? 3,
+    timeLimitMins: assessment.timeLimitMins ?? 30,
+  });
+
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 480 }}>
+        <div className="modal-head">
+          <b>Edit Assessment</b>
+          <button className="btn small secondary" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <form onSubmit={e => { e.preventDefault(); onSave(form); }} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="field">
+              <label>Assessment Name *</label>
+              <input className="input" required value={form.assessmentName} onChange={e => setForm(p => ({ ...p, assessmentName: e.target.value }))} />
+            </div>
+            <div className="col-2">
+              <div className="field">
+                <label>Passing %</label>
+                <input className="input" type="number" min={0} max={100} value={form.passingPct} onChange={e => setForm(p => ({ ...p, passingPct: Number(e.target.value) }))} />
+              </div>
+              <div className="field">
+                <label>Attempt Limit</label>
+                <input className="input" type="number" min={1} value={form.attemptLimit} onChange={e => setForm(p => ({ ...p, attemptLimit: Number(e.target.value) }))} />
+              </div>
+              <div className="field">
+                <label>Time Limit (mins)</label>
+                <input className="input" type="number" min={1} value={form.timeLimitMins} onChange={e => setForm(p => ({ ...p, timeLimitMins: Number(e.target.value) }))} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <button className="btn" type="submit" disabled={saving}>{saving ? 'Saving...' : 'Save Changes'}</button>
+              <button className="btn secondary" type="button" onClick={onClose}>Cancel</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManageAttemptsPanel({ assessment }) {
+  const [grants, setGrants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [traineeQuery, setTraineeQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [selectedTrainee, setSelectedTrainee] = useState(null);
+  const [extraAttempts, setExtraAttempts] = useState(1);
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [panelMsg, setPanelMsg] = useState('');
+  const [revoking, setRevoking] = useState(null);
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeReason, setRevokeReason] = useState('');
+
+  function loadGrants() {
+    setLoading(true);
+    api.get(`/admin/assessments/${assessment.assessmentId}/attempt-grants`, 'admin')
+      .then(r => { if (r.ok) setGrants(r.data || []); setLoading(false); });
+  }
+
+  useEffect(() => { loadGrants(); }, [assessment.assessmentId]);
+
+  useEffect(() => {
+    if (!traineeQuery.trim() || traineeQuery.length < 2) { setSearchResults([]); return; }
+    const t = setTimeout(() => {
+      setSearching(true);
+      api.get(`/admin/trainees/search?q=${encodeURIComponent(traineeQuery)}`, 'admin')
+        .then(r => { setSearchResults(r.ok ? (r.data || []).slice(0, 8) : []); setSearching(false); });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [traineeQuery]);
+
+  async function grant() {
+    if (!selectedTrainee) return;
+    setSaving(true); setPanelMsg('');
+    const res = await api.post(`/admin/assessments/${assessment.assessmentId}/attempt-grants`, {
+      employeeId: selectedTrainee.employeeId,
+      extraAttempts: Number(extraAttempts),
+      reason: reason.trim() || undefined,
+    }, 'admin');
+    setSaving(false);
+    if (res.ok) {
+      setPanelMsg('Grant created.');
+      setSelectedTrainee(null); setTraineeQuery(''); setExtraAttempts(1); setReason('');
+      loadGrants();
+    } else {
+      setPanelMsg(res.message || 'Failed to create grant.');
+    }
+  }
+
+  async function revoke(grantId) {
+    setRevoking(grantId);
+    const res = await api.post(`/admin/attempt-grants/${grantId}/revoke`, { reason: revokeReason.trim() || undefined }, 'admin');
+    setRevoking(null);
+    if (res.ok) { setRevokeTarget(null); setRevokeReason(''); loadGrants(); }
+    else setPanelMsg(res.message || 'Failed to revoke grant.');
+  }
+
+  const activeGrants = grants.filter(g => g.active);
+  const totalExtra = activeGrants.reduce((s, g) => s + (g.extraAttempts || 0), 0);
+
+  return (
+    <div style={{ marginBottom: 16, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 16, padding: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <b style={{ fontSize: 14 }}>Manage Attempt Grants</b>
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+          Base limit: <b style={{ color: 'var(--ink)' }}>{assessment.attemptLimit ?? 3}</b>
+          {totalExtra > 0 && <span style={{ marginLeft: 8, color: 'var(--ok)' }}>+{totalExtra} extra via active grants</span>}
+        </div>
+      </div>
+
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, color: 'var(--muted)' }}>GRANT EXTRA ATTEMPTS TO A TRAINEE</div>
+        <div style={{ position: 'relative', marginBottom: 10 }}>
+          <input
+            className="input"
+            style={{ fontSize: 12 }}
+            placeholder="Search trainee by name or Employee ID..."
+            value={selectedTrainee ? `${selectedTrainee.traineeName} (${selectedTrainee.employeeId})` : traineeQuery}
+            onChange={e => { if (selectedTrainee) setSelectedTrainee(null); setTraineeQuery(e.target.value); }}
+          />
+          {searching && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>Searching...</div>}
+          {!selectedTrainee && searchResults.length > 0 && (
+            <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, zIndex: 20, maxHeight: 180, overflowY: 'auto', boxShadow: '0 4px 20px rgba(0,0,0,.4)' }}>
+              {searchResults.map(t => (
+                <div key={t.employeeId}
+                  style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, borderBottom: '1px solid var(--line)' }}
+                  onMouseDown={() => { setSelectedTrainee(t); setTraineeQuery(''); setSearchResults([]); }}
+                >
+                  <b>{t.traineeName}</b> <span style={{ color: 'var(--muted)', marginLeft: 4 }}>{t.employeeId}</span>
+                  {t.batchNo && <span style={{ color: 'var(--muted)', marginLeft: 6 }}>· {t.batchNo}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '140px 1fr auto', gap: 8, alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Extra Attempts (1–10)</label>
+            <input className="input" style={{ fontSize: 12 }} type="number" min={1} max={10} value={extraAttempts} onChange={e => setExtraAttempts(Number(e.target.value))} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Reason <span style={{ color: 'var(--muted)', fontWeight: 400 }}>(optional)</span></label>
+            <input className="input" style={{ fontSize: 12 }} placeholder="e.g. Technical issue during attempt" value={reason} onChange={e => setReason(e.target.value)} />
+          </div>
+          <button className="btn small" onClick={grant} disabled={!selectedTrainee || saving} style={{ paddingBottom: 1 }}>
+            {saving ? 'Granting...' : 'Grant'}
+          </button>
+        </div>
+        {panelMsg && <div className={`toast ${panelMsg.toLowerCase().includes('fail') || panelMsg.toLowerCase().includes('error') ? 'bad' : 'ok'}`} style={{ marginTop: 10, fontSize: 12 }}>{panelMsg}</div>}
+      </div>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: 'var(--muted)', padding: 8 }}>Loading grants...</div>
+      ) : grants.length === 0 ? (
+        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>No attempt grants for this assessment yet.</div>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <thead>
+            <tr style={{ borderBottom: '1px solid var(--line)' }}>
+              <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Trainee</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>+Attempts</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Reason</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Granted By</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Date</th>
+              <th style={{ textAlign: 'left', padding: '6px 8px', fontSize: 11, color: 'var(--muted)', textTransform: 'uppercase' }}>Status</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {grants.map(g => (
+              <tr key={g.grantId} style={{ borderBottom: '1px solid rgba(255,255,255,.04)', opacity: g.active ? 1 : 0.5 }}>
+                <td style={{ padding: '8px', fontWeight: g.active ? 600 : 400 }}>{g.traineeName || g.employeeId}</td>
+                <td style={{ padding: '8px', color: g.active ? 'var(--ok)' : 'var(--muted)', fontWeight: 700 }}>+{g.extraAttempts}</td>
+                <td style={{ padding: '8px', color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.reason || '—'}</td>
+                <td style={{ padding: '8px', color: 'var(--muted)' }}>{g.grantedByName || g.grantedBy}</td>
+                <td style={{ padding: '8px', color: 'var(--muted)' }}>{new Date(g.createdAt).toLocaleDateString()}</td>
+                <td style={{ padding: '8px' }}>
+                  {g.active
+                    ? <span style={{ color: 'var(--ok)', fontWeight: 600 }}>Active</span>
+                    : <span style={{ color: 'var(--muted)' }}>Revoked</span>}
+                </td>
+                <td style={{ padding: '8px', whiteSpace: 'nowrap' }}>
+                  {g.active && (
+                    revokeTarget === g.grantId
+                      ? <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input
+                            className="input"
+                            style={{ fontSize: 11, padding: '3px 6px', width: 130 }}
+                            placeholder="Reason (optional)..."
+                            value={revokeReason}
+                            onChange={e => setRevokeReason(e.target.value)}
+                          />
+                          <button className="btn small danger" onClick={() => revoke(g.grantId)} disabled={revoking === g.grantId}>
+                            {revoking === g.grantId ? '...' : 'Confirm'}
+                          </button>
+                          <button className="btn small secondary" onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}>✕</button>
+                        </span>
+                      : <button className="btn small secondary" style={{ fontSize: 11 }} onClick={() => setRevokeTarget(g.grantId)}>Revoke</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

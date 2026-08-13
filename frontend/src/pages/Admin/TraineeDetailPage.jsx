@@ -1,6 +1,154 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
+function TraineeAttemptsTab({ empId, traineeName }) {
+  const [grants, setGrants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [assessments, setAssessments] = useState([]);
+  const [grantForm, setGrantForm] = useState({ assessmentId: '', extraAttempts: 1, reason: '' });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeReason, setRevokeReason] = useState('');
+  const [revoking, setRevoking] = useState(null);
+
+  function loadGrants() {
+    setLoading(true);
+    api.get(`/admin/trainees/${empId}/attempt-grants`, 'admin')
+      .then(r => { if (r.ok) setGrants(r.data || []); setLoading(false); });
+  }
+
+  useEffect(() => {
+    loadGrants();
+    api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data || []));
+  }, [empId]);
+
+  async function grant(e) {
+    e.preventDefault();
+    if (!grantForm.assessmentId) return;
+    setSaving(true); setMsg('');
+    const res = await api.post(`/admin/assessments/${grantForm.assessmentId}/attempt-grants`, {
+      employeeId: empId,
+      extraAttempts: Number(grantForm.extraAttempts),
+      reason: grantForm.reason.trim() || undefined,
+    }, 'admin');
+    setSaving(false);
+    if (res.ok) {
+      setMsg('Grant created.');
+      setGrantForm({ assessmentId: '', extraAttempts: 1, reason: '' });
+      loadGrants();
+    } else {
+      setMsg(res.message || 'Failed to create grant.');
+    }
+  }
+
+  async function revoke(grantId) {
+    setRevoking(grantId);
+    const res = await api.post(`/admin/attempt-grants/${grantId}/revoke`, { reason: revokeReason.trim() || undefined }, 'admin');
+    setRevoking(null);
+    if (res.ok) { setRevokeTarget(null); setRevokeReason(''); loadGrants(); }
+    else setMsg(res.message || 'Failed to revoke grant.');
+  }
+
+  const activeGrants = grants.filter(g => g.active);
+  const totalExtra = activeGrants.reduce((s, g) => s + (g.extraAttempts || 0), 0);
+
+  return (
+    <div className="glass-panel">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div className="panel-title" style={{ marginBottom: 0 }}>Attempt Grants</div>
+        {totalExtra > 0 && (
+          <span style={{ fontSize: 12, color: 'var(--ok)' }}>
+            {activeGrants.length} active grant{activeGrants.length !== 1 ? 's' : ''} · +{totalExtra} extra attempts
+          </span>
+        )}
+      </div>
+
+      <form onSubmit={grant} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, color: 'var(--muted)' }}>GRANT EXTRA ATTEMPTS</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 1fr auto', gap: 8, alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Assessment *</label>
+            <select className="select" value={grantForm.assessmentId} onChange={e => setGrantForm(f => ({ ...f, assessmentId: e.target.value }))} required>
+              <option value="">Select assessment...</option>
+              {assessments.map(a => <option key={a.assessmentId} value={a.assessmentId}>{a.assessmentName}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Extra Attempts</label>
+            <input className="input" type="number" min={1} max={10} value={grantForm.extraAttempts} onChange={e => setGrantForm(f => ({ ...f, extraAttempts: Number(e.target.value) }))} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Reason <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label>
+            <input className="input" placeholder="e.g. Technical issue during exam" value={grantForm.reason} onChange={e => setGrantForm(f => ({ ...f, reason: e.target.value }))} />
+          </div>
+          <button className="btn small" type="submit" disabled={!grantForm.assessmentId || saving}>
+            {saving ? 'Granting...' : 'Grant'}
+          </button>
+        </div>
+        {msg && <div className={`toast ${msg.toLowerCase().includes('fail') || msg.toLowerCase().includes('error') ? 'bad' : 'ok'}`} style={{ marginTop: 10, fontSize: 12 }}>{msg}</div>}
+      </form>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>
+      ) : grants.length === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 12 }}>No attempt grants for {traineeName || empId}.</p>
+      ) : (
+        <table className="glass-table">
+          <thead><tr>
+            <th>Assessment</th>
+            <th>+Attempts</th>
+            <th>Reason</th>
+            <th>Granted By</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            {grants.map(g => (
+              <tr key={g.grantId} style={{ opacity: g.active ? 1 : 0.5 }}>
+                <td style={{ fontWeight: g.active ? 600 : 400 }}>{g.assessmentName || g.assessmentId}</td>
+                <td style={{ color: g.active ? 'var(--ok)' : 'var(--muted)', fontWeight: 700 }}>+{g.extraAttempts}</td>
+                <td style={{ color: 'var(--muted)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.reason || '—'}</td>
+                <td style={{ color: 'var(--muted)' }}>{g.grantedByName || g.grantedBy}</td>
+                <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(g.createdAt).toLocaleDateString('en-IN')}</td>
+                <td>
+                  {g.active
+                    ? <span className="pill ok">Active</span>
+                    : <span className="pill" style={{ background: 'rgba(255,255,255,.06)', color: 'var(--muted)' }}>Revoked</span>}
+                </td>
+                <td style={{ whiteSpace: 'nowrap', position: 'relative' }}>
+                  {g.active && (
+                    <>
+                      <button className="btn small secondary" style={{ fontSize: 11 }} onClick={() => { setRevokeTarget(revokeTarget === g.grantId ? null : g.grantId); setRevokeReason(''); }}>Revoke</button>
+                      {revokeTarget === g.grantId && (
+                        <div style={{ position: 'absolute', right: 0, top: '110%', zIndex: 20, background: 'var(--card-solid)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', display: 'flex', gap: 6, alignItems: 'center', boxShadow: 'var(--shadow)', whiteSpace: 'nowrap', minWidth: 260 }}>
+                          <input
+                            className="input"
+                            style={{ fontSize: 11, padding: '4px 8px', flex: 1 }}
+                            placeholder="Reason (optional)..."
+                            value={revokeReason}
+                            onChange={e => setRevokeReason(e.target.value)}
+                            autoFocus
+                          />
+                          <button className="btn small danger" onClick={() => revoke(g.grantId)} disabled={revoking === g.grantId}>
+                            {revoking === g.grantId ? '…' : 'Confirm'}
+                          </button>
+                          <button className="btn small secondary" onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}>✕</button>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function AssignModuleModal({ empId, traineeName, onClose }) {
   const [classrooms, setClassrooms] = useState([]);
   const [modules, setModules] = useState([]);
@@ -108,13 +256,31 @@ function AssignModuleModal({ empId, traineeName, onClose }) {
 
 export default function TraineeDetailPage({ empId, context, navigate }) {
   const [data, setData] = useState(null);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState(() => {
+    const p = new URLSearchParams(window.location.search);
+    const t = p.get('tab');
+    return ['overview','attendance','queries','risk','attempts'].includes(t) ? t : 'overview';
+  });
   const [loading, setLoading] = useState(true);
   const [showAssign, setShowAssign] = useState(false);
   const [assignMsg, setAssignMsg] = useState('');
   const [permId, setPermId] = useState('');
   const [mappingLoading, setMappingLoading] = useState(false);
   const [mappingMsg, setMappingMsg] = useState(null);
+
+  const _today = new Date().toISOString().split('T')[0];
+  const _defaultFrom = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+  const [attendanceFrom, setAttendanceFrom] = useState(_defaultFrom);
+  const [attendanceTo, setAttendanceTo] = useState(_today);
+  const [attendancePage, setAttendancePage] = useState(1);
+  const ATTN_PAGE = 25;
+
+  function switchTab(t) {
+    setTab(t);
+    const url = new URL(window.location.href);
+    url.searchParams.set('tab', t);
+    window.history.replaceState(null, '', url.toString());
+  }
 
   function loadTrainee() {
     api.get(`/admin/trainees/${empId}/detail`, 'admin').then(r => { if (r.ok) setData(r.data); setLoading(false); });
@@ -145,11 +311,26 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
     }
   }
 
-  if (loading) return <div style={{color:'var(--muted)',padding:'40px',textAlign:'center'}}>Loading trainee...</div>;
+  if (loading) return (
+    <div>
+      <div className="skeleton" style={{height:20,width:90,borderRadius:4,marginBottom:20}} />
+      <div style={{marginBottom:20}}>
+        <div className="skeleton" style={{height:24,width:'40%',borderRadius:6,marginBottom:8}} />
+        <div className="skeleton" style={{height:14,width:'28%',borderRadius:4}} />
+      </div>
+      <div style={{display:'flex',gap:4,marginBottom:16}}>
+        {[1,2,3,4,5].map(i => <div key={i} className="skeleton" style={{height:34,width:88,borderRadius:8}} />)}
+      </div>
+      <div className="glass-panel">
+        <div className="skeleton" style={{height:14,width:'35%',borderRadius:4,marginBottom:16}} />
+        {[1,2,3].map(i => <div key={i} className="skeleton" style={{height:48,borderRadius:8,marginBottom:8}} />)}
+      </div>
+    </div>
+  );
   if (!data) return <div style={{color:'var(--bad)',padding:'40px'}}>Trainee not found.</div>;
 
   const { trainee, attendance, queries, riskLogs } = data;
-  const tabs = ['overview','attendance','queries','risk'];
+  const tabs = ['overview','attendance','queries','risk','attempts'];
 
   return (
     <div>
@@ -182,14 +363,14 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
       )}
 
       <div className="inner-tabs">
-        {tabs.map(t => <button key={t} className={`itab${tab===t?' active':''}`} onClick={() => setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
+        {tabs.map(t => <button key={t} className={`itab${tab===t?' active':''}`} onClick={() => switchTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
       </div>
 
       {tab === 'overview' && (
         <div>
           <div className="glass-panel" style={{marginBottom:'14px'}}>
             <div className="panel-title">Readiness</div>
-            {[['Course Completion', trainee.courseCompletionPct],['Attendance', trainee.attendancePct],['MCQ Score', trainee.assessmentPassPct]].map(([label,val]) => (
+            {[['Course Completion', trainee.courseCompletionPct],['Attendance', trainee.attendancePct],['Assessment Pass Rate', trainee.assessmentPassPct]].map(([label,val]) => (
               <div key={label} className="rrow">
                 <span className="rlabel">{label}</span>
                 <div className="rbar"><div className="rbar-fill" style={{width:`${val}%`,background:val>=80?'linear-gradient(90deg,#16a34a,#22c55e)':val>=60?'linear-gradient(90deg,#d97706,#f59e0b)':'linear-gradient(90deg,#dc2626,#f97316)'}}></div></div>
@@ -250,26 +431,58 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
         </div>
       )}
 
-      {tab === 'attendance' && (
-        <div className="glass-panel">
-          <div className="panel-title">Attendance Record <span className="panel-sub">Last {attendance.length} entries</span></div>
-          {attendance.length === 0 && <p style={{color:'var(--muted)',fontSize:'12px'}}>No attendance records.</p>}
-          {attendance.length > 0 && (
-            <table className="glass-table">
-              <thead><tr><th>Date</th><th>Status</th><th>Source</th></tr></thead>
-              <tbody>
-                {attendance.map(a => (
-                  <tr key={a.id}>
-                    <td>{new Date(a.date).toLocaleDateString('en-IN')}</td>
-                    <td><span className={`pill ${a.finalAttendance==='Present'?'ok':'bad'}`}>{a.finalAttendance}</span></td>
-                    <td style={{color:'var(--muted)',fontSize:'11px'}}>{a.attendanceSource}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
+      {tab === 'attendance' && (() => {
+        const filtered = attendance.filter(a => {
+          const d = (a.date || '').split('T')[0];
+          return d >= attendanceFrom && d <= attendanceTo;
+        });
+        const totalPages = Math.ceil(filtered.length / ATTN_PAGE);
+        const pageItems = filtered.slice((attendancePage - 1) * ATTN_PAGE, attendancePage * ATTN_PAGE);
+        return (
+          <div className="glass-panel">
+            <div style={{display:'flex',gap:8,alignItems:'flex-end',marginBottom:14,flexWrap:'wrap'}}>
+              <div style={{flex:1}}>
+                <div className="panel-title" style={{marginBottom:0}}>Attendance Record <span className="panel-sub">{filtered.length} entries</span></div>
+              </div>
+              <div style={{display:'flex',gap:6,alignItems:'center',fontSize:12,flexWrap:'wrap'}}>
+                <label style={{fontSize:11,color:'var(--muted)'}}>From
+                  <input type="date" className="input" style={{marginLeft:5,padding:'3px 7px',fontSize:12}} value={attendanceFrom}
+                    onChange={e => { setAttendanceFrom(e.target.value); setAttendancePage(1); }} />
+                </label>
+                <label style={{fontSize:11,color:'var(--muted)'}}>To
+                  <input type="date" className="input" style={{marginLeft:5,padding:'3px 7px',fontSize:12}} value={attendanceTo}
+                    onChange={e => { setAttendanceTo(e.target.value); setAttendancePage(1); }} />
+                </label>
+                <button className="btn small secondary" onClick={() => { setAttendanceFrom(_defaultFrom); setAttendanceTo(_today); setAttendancePage(1); }}>Reset</button>
+              </div>
+            </div>
+            {filtered.length === 0 && <p style={{color:'var(--muted)',fontSize:'12px'}}>No records in this date range.</p>}
+            {filtered.length > 0 && (
+              <>
+                <table className="glass-table">
+                  <thead><tr><th>Date</th><th>Status</th><th>Source</th></tr></thead>
+                  <tbody>
+                    {pageItems.map(a => (
+                      <tr key={a.id}>
+                        <td>{new Date(a.date).toLocaleDateString('en-IN')}</td>
+                        <td><span className={`pill ${a.finalAttendance==='Present'?'ok':'bad'}`}>{a.finalAttendance}</span></td>
+                        <td style={{color:'var(--muted)',fontSize:'11px'}}>{a.attendanceSource}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {totalPages > 1 && (
+                  <div style={{display:'flex',gap:6,justifyContent:'flex-end',alignItems:'center',marginTop:12,fontSize:12,color:'var(--muted)'}}>
+                    <span>Page {attendancePage} of {totalPages}</span>
+                    <button className="btn small secondary" disabled={attendancePage <= 1} onClick={() => setAttendancePage(p => p - 1)}>← Prev</button>
+                    <button className="btn small secondary" disabled={attendancePage >= totalPages} onClick={() => setAttendancePage(p => p + 1)}>Next →</button>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        );
+      })()}
 
       {tab === 'queries' && (
         <div className="glass-panel">
@@ -303,6 +516,10 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
             </div>
           ))}
         </div>
+      )}
+
+      {tab === 'attempts' && (
+        <TraineeAttemptsTab empId={trainee.employeeId} traineeName={trainee.traineeName} />
       )}
     </div>
   );

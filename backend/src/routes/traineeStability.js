@@ -340,7 +340,8 @@ async function enrichIndependentAssignments(assignments) {
       independentModule: knownIndependent.has(assignment.moduleId),
       contents: byModule[assignment.moduleId] || [],
     }));
-  } catch {
+  } catch (err) {
+    console.error('[traineeStability] enrichIndependentAssignments failed:', err.message);
     return assignments;
   }
 }
@@ -359,9 +360,32 @@ async function syncCourseAndTraineeStats(employeeId, classroomId) {
   const completedContents = progressRows.filter(isComplete).length;
   const completionPct = totalContent > 0 ? Math.round((completedContents / totalContent) * 100) : 0;
   const totalSecondsSpent = progressRows.reduce((sum, progress) => sum + Number(progress.totalSecondsSpent || 0), 0);
+  // Per-classroom assessment values — kept for context but NOT written to traineeMaster
+  // because writing them on each single-classroom sync would overwrite the cross-classroom
+  // aggregate (see globalAttemptPct / globalPassPct below).
   const passedAssessments = assessmentResults.filter(result => result.result === 'Pass').length;
-  const assessmentAttemptPct = totalAssessments > 0 ? Math.round((assessmentResults.length / totalAssessments) * 100) : 0;
-  const assessmentPassPct = totalAssessments > 0 ? Math.round((passedAssessments / totalAssessments) * 100) : 0;
+  const assessmentAttemptPct = totalAssessments > 0 ? Math.round((assessmentResults.length / totalAssessments) * 100) : 0; // eslint-disable-line no-unused-vars
+  const assessmentPassPct = totalAssessments > 0 ? Math.round((passedAssessments / totalAssessments) * 100) : 0; // eslint-disable-line no-unused-vars
+
+  // Aggregate assessment pct across ALL classrooms the trainee is enrolled in so that
+  // syncing one classroom does not overwrite the trainee-level aggregate with a
+  // single-classroom value (e.g. 0/2 in classroom B would erase 3/3 from classroom A).
+  const mappedClassroomIds = (await prisma.traineeClassroomMap.findMany({
+    where: { employeeId, active: true },
+    select: { classroomId: true },
+  })).map(m => m.classroomId);
+  const primaryClassroomId = trainee?.classroomId || classroomId;
+  const allClassroomIds = [...new Set([primaryClassroomId, ...mappedClassroomIds].filter(Boolean))];
+  // Fall back to the triggering classroom if the trainee has no map entries at all.
+  const aggregateClassroomIds = allClassroomIds.length ? allClassroomIds : [classroomId];
+
+  const [totalAssessmentsAll, assessmentResultsAll] = await Promise.all([
+    prisma.assessmentMaster.count({ where: { classroomId: { in: aggregateClassroomIds }, active: true } }),
+    prisma.assessmentResult.findMany({ where: { employeeId, classroomId: { in: aggregateClassroomIds } } }),
+  ]);
+  const passedAll = assessmentResultsAll.filter(r => r.result === 'Pass').length;
+  const globalAttemptPct = totalAssessmentsAll > 0 ? Math.round((assessmentResultsAll.length / totalAssessmentsAll) * 100) : 0;
+  const globalPassPct = totalAssessmentsAll > 0 ? Math.round((passedAll / totalAssessmentsAll) * 100) : 0;
 
   await prisma.$transaction([
     prisma.courseCompletionReport.upsert({
@@ -369,7 +393,7 @@ async function syncCourseAndTraineeStats(employeeId, classroomId) {
       create: { employeeId, batchNo: trainee?.batchNo || null, classroomId, totalContents: totalContent, openedContents, completionPct, totalSecondsSpent, status: completionPct >= 100 ? 'Completed' : 'In Progress' },
       update: { totalContents: totalContent, openedContents, completionPct, totalSecondsSpent, status: completionPct >= 100 ? 'Completed' : 'In Progress' },
     }),
-    prisma.traineeMaster.update({ where: { employeeId }, data: { courseCompletionPct: completionPct, assessmentAttemptPct, assessmentPassPct } }),
+    prisma.traineeMaster.update({ where: { employeeId }, data: { courseCompletionPct: completionPct, assessmentAttemptPct: globalAttemptPct, assessmentPassPct: globalPassPct } }),
   ]);
   await detectAndSyncRisks(employeeId).catch(error => console.error('[traineeStability] risk sync failed:', error.message));
 }
@@ -653,20 +677,25 @@ async function getOrCreateAttempt(employeeId, assessment, totalQuestions) {
   }
   if (pending) return pending;
 
-  const attemptsUsed = await prisma.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId } });
-  const attemptLimit = Math.max(1, Number(assessment.attemptLimit || 3));
-  if (attemptsUsed >= attemptLimit) return null;
+  return prisma.$transaction(async (tx) => {
+    const [attemptsUsed, grantsAgg] = await Promise.all([
+      tx.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId, result: { not: 'Expired' } } }),
+      tx.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId: assessment.assessmentId, active: true }, _sum: { extraAttempts: true } }),
+    ]);
+    const attemptLimit = Math.max(1, Number(assessment.attemptLimit || 3)) + (grantsAgg._sum.extraAttempts || 0);
+    if (attemptsUsed >= attemptLimit) return null;
 
-  return prisma.assessmentAttempt.create({
-    data: {
-      attemptId: `ATT-${randomUUID()}`,
-      employeeId,
-      assessmentId: assessment.assessmentId,
-      attemptNo: attemptsUsed + 1,
-      startedAt: new Date(),
-      totalQuestions,
-      result: 'In Progress',
-    },
+    return tx.assessmentAttempt.create({
+      data: {
+        attemptId: `ATT-${randomUUID()}`,
+        employeeId,
+        assessmentId: assessment.assessmentId,
+        attemptNo: attemptsUsed + 1,
+        startedAt: new Date(),
+        totalQuestions,
+        result: 'In Progress',
+      },
+    });
   });
 }
 
@@ -688,7 +717,7 @@ router.get('/assessment/:assessmentId', ...auth, async (req, res) => {
     if (!questions.length) return res.status(409).json({ ok: false, message: 'This assessment has no active questions.' });
 
     const attempt = await getOrCreateAttempt(employeeId, assessment, questions.length);
-    if (!attempt) return res.status(409).json({ ok: false, message: `Maximum attempts (${assessment.attemptLimit || 3}) reached.` });
+    if (!attempt) return res.status(409).json({ ok: false, message: 'Maximum attempts reached.' });
     const bestResult = await prisma.assessmentResult.findUnique({ where: { employeeId_assessmentId: { employeeId, assessmentId: assessment.assessmentId } } });
 
     return res.json({
@@ -795,8 +824,12 @@ router.post('/assessment/:assessmentId/submit', ...auth, async (req, res) => {
 
     await syncCourseAndTraineeStats(employeeId, assessment.classroomId);
     await syncDailyActivity(employeeId, trainee, { mcqActivity: true });
-    const attemptsUsed = await prisma.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId } });
-    const attemptsLeft = Math.max(0, Number(assessment.attemptLimit || 3) - attemptsUsed);
+    const [attemptsUsed, grantsAggPost] = await Promise.all([
+      prisma.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId } }),
+      prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId: assessment.assessmentId, active: true }, _sum: { extraAttempts: true } }),
+    ]);
+    const effectiveLimitPost = Math.max(1, Number(assessment.attemptLimit || 3)) + (grantsAggPost._sum.extraAttempts || 0);
+    const attemptsLeft = Math.max(0, effectiveLimitPost - attemptsUsed);
     const revealAnswers = result === 'Pass' || attemptsLeft === 0;
     const review = questions.map(question => ({
       questionId: question.questionId,
