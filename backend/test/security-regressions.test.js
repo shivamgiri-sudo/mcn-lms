@@ -94,7 +94,11 @@ test('sensitive admin mutations require super-admin scope and recent elevation',
   const text = await source('src/routes/admin.js');
   assert.match(text, /const superAuth = \[requireSession, requireRole\('admin'\), requireSuperAdmin\]/);
   assert.match(text, /const superElevatedAuth = \[requireSession, requireRole\('admin'\), requireSuperAdmin, requireRecentElevation\]/);
-  assert.match(text, /router\.get\('\/portal-users', \.\.\.superAuth/);
+  // Visibility and PIN/password reset are intentionally open to any Admin (parity with
+  // Coordinators access) — only account creation/deletion/role-change/bulk-import stay
+  // super-admin + elevation-gated.
+  assert.match(text, /router\.get\('\/portal-users', \.\.\.auth/);
+  assert.match(text, /router\.post\('\/portal-users\/:id\/reset-pin', \.\.\.auth/);
   assert.match(text, /router\.post\('\/portal-users', \.\.\.superElevatedAuth/);
   assert.match(text, /router\.put\('\/hrms\/config', \.\.\.superElevatedAuth/);
   assert.match(text, /router\.post\('\/comm-config', \.\.\.superElevatedAuth/);

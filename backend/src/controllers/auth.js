@@ -2,7 +2,6 @@ import { prisma } from '../utils/db.js';
 import { createSession, deleteSession, deleteAllSessions } from '../utils/session.js';
 import { hashPassword, verifyPassword, generateSalt, normalize, verifyCredential, hashCredential, isHashedCredential } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
-import { notifyPasswordReset } from '../utils/notify.js';
 
 // ── Coordinator Login (PIN-based, no Google required) ─────────────────────────
 export async function coordinatorLogin(req, res) {
@@ -272,141 +271,11 @@ export async function getMyProfile(req, res) {
   }
 }
 
-// ── Self-service forgot password ──────────────────────────────────────────────
-// Trainee enters their Employee ID / LMS ID / email / mobile.
-// System resets to temp password (last 4 of mobile or "1234") and sends via SMS/email.
-// Returns a generic response to prevent user enumeration.
-export async function traineeForgotPassword(req, res) {
-  try {
-    const { identifier } = req.body;
-    if (!identifier?.trim()) {
-      return res.status(400).json({ ok: false, message: 'Please provide your Employee ID, LMS ID, email, or mobile number.' });
-    }
-
-    const id = identifier.trim();
-    let resolvedEmployeeId = null;
-
-    // Resolve same way as login
-    const directMatch = await prisma.userMaster.findFirst({
-      where: { employeeId: normalize(id), active: true },
-      select: { employeeId: true },
-    });
-    if (directMatch) resolvedEmployeeId = directMatch.employeeId;
-
-    if (!resolvedEmployeeId && /^LMS/i.test(id)) {
-      const byLmsId = await prisma.traineeMaster.findFirst({
-        where: { lmsId: id },
-        select: { employeeId: true },
-      });
-      if (byLmsId) resolvedEmployeeId = byLmsId.employeeId;
-    }
-
-    if (!resolvedEmployeeId && id.includes('@')) {
-      const byEmail = await prisma.userMaster.findFirst({
-        where: { email: id, active: true },
-        select: { employeeId: true },
-      });
-      if (byEmail) resolvedEmployeeId = byEmail.employeeId;
-    }
-
-    if (!resolvedEmployeeId) {
-      const cleanMobile = id.replace(/\D/g, '').slice(-10);
-      if (cleanMobile.length === 10) {
-        const byMobile = await prisma.userMaster.findFirst({
-          where: { mobile: { endsWith: cleanMobile }, active: true },
-          select: { employeeId: true },
-        });
-        if (byMobile) resolvedEmployeeId = byMobile.employeeId;
-      }
-    }
-
-    // Always return the same response to prevent enumeration
-    if (!resolvedEmployeeId) {
-      return res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent.' });
-    }
-
-    const [user, trainee] = await Promise.all([
-      prisma.userMaster.findFirst({ where: { employeeId: resolvedEmployeeId, active: true } }),
-      prisma.traineeMaster.findUnique({ where: { employeeId: resolvedEmployeeId }, select: { traineeName: true, mobile: true, email: true } }),
-    ]);
-
-    if (!user) return res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent.' });
-
-    // Generate temp password — last 4 of mobile or "1234"
-    const mobile = user.mobile || trainee?.mobile;
-    const tempPassword = mobile ? mobile.slice(-4) : '1234';
-
-    const salt = generateSalt();
-    const passwordHash = await hashPassword(tempPassword, salt);
-    await prisma.userMaster.update({
-      where: { id: user.id },
-      data: { passwordHash, salt, forcePasswordReset: true, failedAttempts: 0, locked: false },
-    });
-
-    // Notify via email + SMS — fire and forget
-    notifyPasswordReset({
-      traineeName: trainee?.traineeName || resolvedEmployeeId,
-      mobile: mobile,
-      email: user.email || trainee?.email,
-      tempPassword,
-    }).catch(err => console.error('[AUTH] Forgot password notification failed:', err.message));
-
-    await audit({ userIdentity: resolvedEmployeeId, userRole: 'Trainee', action: 'FORGOT_PASSWORD', module: 'Auth', source: 'Self-Service' });
-
-    res.json({ ok: true, message: 'If a matching account was found, a temporary password has been sent to your registered mobile/email.' });
-  } catch (err) {
-    console.error('[AUTH] forgotPassword error:', err);
-    res.status(500).json({ ok: false, message: 'Server error' });
-  }
-}
-
-export async function adminForgotPassword(req, res) {
-  try {
-    const { adminId } = req.body;
-    if (!adminId?.trim()) return res.status(400).json({ ok: false, message: 'Admin ID is required.' });
-
-    const admin = await prisma.adminUserMaster.findFirst({ where: { adminId: adminId.trim(), active: true } });
-    if (!admin) return res.json({ ok: true, message: 'If the account exists, a temporary password has been generated.' });
-
-    const tempPassword = `reset${Math.random().toString(36).slice(2, 8)}`;
-    const salt = generateSalt();
-    const passwordHash = await hashPassword(tempPassword, salt);
-    await prisma.adminUserMaster.update({
-      where: { id: admin.id },
-      data: { passwordHash, salt, failedAttempts: 0, locked: false },
-    });
-
-    await audit({ userIdentity: admin.adminId, userRole: 'Admin', action: 'FORGOT_PASSWORD', module: 'Auth', source: 'Self-Service' });
-
-    res.json({ ok: true, tempPassword, message: 'Temporary password generated. Use it to log in and change your password immediately.' });
-  } catch (err) {
-    console.error('[AUTH] adminForgotPassword error:', err);
-    res.status(500).json({ ok: false, message: 'Server error' });
-  }
-}
-
-export async function coordinatorForgotPassword(req, res) {
-  try {
-    const { loginId } = req.body;
-    if (!loginId?.trim()) return res.status(400).json({ ok: false, message: 'Login ID is required.' });
-
-    const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: loginId.trim(), active: true } });
-    if (!coord) return res.json({ ok: true, message: 'If the account exists, a temporary PIN has been generated.' });
-
-    const tempPin = Math.floor(1000 + Math.random() * 9000).toString();
-    const salt = generateSalt();
-    const pinHash = await hashPassword(tempPin, salt);
-    const storedPin = `v1$bcrypt$${salt}$${pinHash}`;
-    await prisma.roleAccessMatrix.update({
-      where: { id: coord.id },
-      data: { pin: storedPin, failedAttempts: 0, locked: false },
-    });
-
-    await audit({ userIdentity: coord.loginId, userRole: 'Coordinator', action: 'FORGOT_PASSWORD', module: 'Auth', source: 'Self-Service' });
-
-    res.json({ ok: true, message: 'If the account exists, a temporary PIN has been generated. Please contact your administrator.' });
-  } catch (err) {
-    console.error('[AUTH] coordinatorForgotPassword error:', err);
-    res.status(500).json({ ok: false, message: 'Server error' });
-  }
-}
+// Self-service password recovery for trainee/admin/coordinator now lives entirely in
+// secureRecovery.js (token-based, assisted-verification flow — see routes/auth.js).
+// The three legacy handlers that used to live here (traineeForgotPassword,
+// adminForgotPassword, coordinatorForgotPassword) generated and returned a temp
+// credential directly in the API response to an unauthenticated caller — an
+// account-takeover vector for anyone who knew/guessed a login ID. They were never
+// wired to a route, but dead insecure code is a landmine for a future accidental
+// wire-up, so removed rather than left in place.

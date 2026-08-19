@@ -36,13 +36,10 @@ export default function AdminLogin({ onLogin }) {
     setForgotLoading(true); setForgotResult('');
     const res = await api.post('/auth/admin/forgot-password', { adminId: forgotId });
     setForgotLoading(false);
-    if (res.ok && res.tempPassword) {
-      setForgotOk(true);
-      setForgotResult(`Temporary password: ${res.tempPassword}`);
-    } else {
-      setForgotOk(res.ok);
-      setForgotResult(res.message || 'Your request has been recorded for verification.');
-    }
+    // Admin recovery is always assisted verification — the API never returns a
+    // credential to display client-side, only a generic status message.
+    setForgotOk(res.ok);
+    setForgotResult(res.message || 'Your request has been recorded for verification.');
   }
 
   return (
