@@ -2,7 +2,7 @@ import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId, hashCredential } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
-import { notifyPasswordReset, notifyModuleAssigned } from '../utils/notify.js';
+import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import path from 'path';
@@ -802,10 +802,11 @@ export async function deleteQuestion(req, res) {
 // ── Trainee Accounts ──────────────────────────────────────────────────────────
 export async function searchTrainees(req, res) {
   try {
-    const { q } = req.query;
+    const { q, designation } = req.query;
     const where = {
       status: { not: 'Deleted' },
       ...(req.userBranch ? { branch: req.userBranch } : {}),
+      ...(designation ? { designation: { contains: designation } } : {}),
       ...(q ? {
         OR: [
           { employeeId: { contains: q } },
@@ -815,8 +816,9 @@ export async function searchTrainees(req, res) {
         ],
       } : {}),
     };
+    const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
     const trainees = await prisma.traineeMaster.findMany({
-      where, take: 50, orderBy: { createdAt: 'desc' },
+      where, take, orderBy: { createdAt: 'desc' },
       include: { userAccount: { select: { locked: true, failedAttempts: true, active: true, forcePasswordReset: true } } },
     });
     const data = trainees.map(t => ({ ...t, locked: t.userAccount?.locked ?? false, hasAccount: !!t.userAccount }));
@@ -1051,7 +1053,7 @@ export async function assignModule(req, res) {
 // Broadcast a module to a group: process, branch, company, or multiple batches
 export async function broadcastModule(req, res) {
   try {
-    const { moduleId, moduleName, broadcastTitle, scope, scopeValue, assignmentType, message, dueDate, contentIds } = req.body;
+    const { moduleId, moduleName, broadcastTitle, scope, scopeValue, assignmentType, message, dueDate, contentIds, assessmentId } = req.body;
     if (!moduleId || !moduleName || !scope) {
       return res.status(400).json({ ok: false, message: 'moduleId, moduleName and scope are required.' });
     }
@@ -1071,12 +1073,23 @@ export async function broadcastModule(req, res) {
       message: message || null,
       dueDate: dueDate ? new Date(dueDate) : null,
       assignedBy: req.userId,
+      assessmentId: assessmentId || null,
     };
     // Store optional content filter as JSON in the message field prefix if provided
     if (Array.isArray(contentIds) && contentIds.length > 0) {
       data.message = `[contentIds:${contentIds.join(',')}]${message ? ' ' + message : ''}`;
     }
     const assignment = await prisma.assignedModule.create({ data });
+
+    // Notify recipients that a PKT/test was attached — fire-and-forget, gated by
+    // notificationConfig. Only fires when an assessment is actually attached; a plain
+    // (no-MCQ) broadcast on this single-scope endpoint sends no email either way, matching
+    // this endpoint's existing (pre-existing, unchanged) behavior.
+    if (assessmentId) {
+      notifyAssessmentAssignedForScope({ scope, scopeValue: data.assignedTo, moduleName, assessmentId, dueDate, userBranch: req.userBranch })
+        .catch(err => console.error('[NOTIFY] broadcastModule PKT notification failed:', err.message));
+    }
+
     res.json({ ok: true, data: assignment });
   } catch (err) {
     console.error(err);
@@ -1089,7 +1102,7 @@ export async function broadcastModule(req, res) {
 //   2. scopeType + scopeValues[]  — expand multiple batches/processes/branches to individuals
 export async function broadcastModuleBulk(req, res) {
   try {
-    const { moduleId, moduleName, broadcastTitle, employeeIds, scopeType, scopeValues, assignmentType, message, dueDate } = req.body;
+    const { moduleId, moduleName, broadcastTitle, employeeIds, scopeType, scopeValues, assignmentType, message, dueDate, assessmentId } = req.body;
     if (!moduleId || !moduleName) {
       return res.status(400).json({ ok: false, message: 'moduleId and moduleName are required.' });
     }
@@ -1149,6 +1162,7 @@ export async function broadcastModuleBulk(req, res) {
       message: message || null,
       dueDate: dueDate ? new Date(dueDate) : null,
       assignedBy: req.userId,
+      assessmentId: assessmentId || null,
     }));
 
     await prisma.assignedModule.createMany({ data: records, skipDuplicates: true });
@@ -1172,6 +1186,13 @@ export async function broadcastModuleBulk(req, res) {
       ));
     }).catch(() => {});
 
+    // PKT/test attached — separate notification, only when an assessment was actually
+    // attached to this broadcast. Fire-and-forget, same config gate.
+    if (assessmentId) {
+      notifyAssessmentAssignedForTrainees({ employeeIds: unique.map(t => t.employeeId), moduleName, assessmentId, dueDate })
+        .catch(err => console.error('[NOTIFY] broadcastModuleBulk PKT notification failed:', err.message));
+    }
+
     res.json({
       ok: true,
       assigned: unique.length,
@@ -1182,6 +1203,48 @@ export async function broadcastModuleBulk(req, res) {
     console.error('[broadcastModuleBulk]', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
+}
+
+// PKT/test-attached notification — resolves a single (non-bulk) broadcast scope to its
+// trainee list and emails each one. Reuses the notifyModuleAssigned config toggle since
+// this is still "a module got assigned to you", just with a test attached.
+async function notifyAssessmentAssignedForScope({ scope, scopeValue, moduleName, assessmentId, dueDate, userBranch }) {
+  const cfg = await prisma.notificationConfig.findUnique({ where: { id: 'default' } });
+  if (!cfg?.notifyModuleAssigned) return;
+
+  const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId }, select: { assessmentName: true } });
+  if (!assessment) return;
+
+  const where = { status: { not: 'Deleted' } };
+  if (scope === 'individual') where.employeeId = scopeValue;
+  else if (scope === 'batch') where.batchNo = scopeValue;
+  else if (scope === 'process') where.process = scopeValue;
+  else if (scope === 'branch') where.branch = scopeValue;
+  // scope === 'company' → no extra filter, every active trainee
+  if (userBranch) where.branch = userBranch;
+
+  const trainees = await prisma.traineeMaster.findMany({ where, select: { email: true, traineeName: true } });
+  await Promise.all(trainees.map(t => t.email
+    ? notifyAssessmentAssigned({ traineeName: t.traineeName, email: t.email, moduleName, assessmentName: assessment.assessmentName, dueDate }).catch(() => {})
+    : Promise.resolve()));
+}
+
+// PKT/test-attached notification for the bulk path — trainees are already resolved to a
+// concrete employeeId list, so this just fetches emails and sends.
+async function notifyAssessmentAssignedForTrainees({ employeeIds, moduleName, assessmentId, dueDate }) {
+  const cfg = await prisma.notificationConfig.findUnique({ where: { id: 'default' } });
+  if (!cfg?.notifyModuleAssigned) return;
+
+  const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId }, select: { assessmentName: true } });
+  if (!assessment) return;
+
+  const trainees = await prisma.traineeMaster.findMany({
+    where: { employeeId: { in: employeeIds } },
+    select: { email: true, traineeName: true },
+  });
+  await Promise.all(trainees.map(t => t.email
+    ? notifyAssessmentAssigned({ traineeName: t.traineeName, email: t.email, moduleName, assessmentName: assessment.assessmentName, dueDate }).catch(() => {})
+    : Promise.resolve()));
 }
 
 // Validate a list of employee IDs — returns found/notFound without assigning
@@ -1721,11 +1784,12 @@ export async function getBroadcastTargets(req, res) {
     const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
     const trainees = await prisma.traineeMaster.findMany({
       where: { status: 'Active', ...branchFilter },
-      select: { branch: true, process: true, lob: true },
+      select: { branch: true, process: true, lob: true, designation: true },
     });
     const branches = [...new Set(trainees.map(t => t.branch).filter(Boolean))].sort();
     const processes = [...new Set(trainees.map(t => t.process).filter(Boolean))].sort();
-    res.json({ ok: true, data: { branches, processes } });
+    const designations = [...new Set(trainees.map(t => t.designation).filter(Boolean))].sort();
+    res.json({ ok: true, data: { branches, processes, designations } });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }

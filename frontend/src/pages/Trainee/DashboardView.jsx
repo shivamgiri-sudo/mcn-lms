@@ -139,7 +139,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
       {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
       {activeTab === 'qa' && <QATab />}
-      {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} />}
+      {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} />}
       {activeTab === 'profile' && <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />}
 
       <style>{`

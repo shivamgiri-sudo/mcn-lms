@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { formatDate } from '../../utils/format.js';
+import AssessmentModal from './AssessmentModal.jsx';
 
 const API_ORIGIN = import.meta.env.VITE_API_URL || '';
 
@@ -15,7 +17,9 @@ function getContentUrl(content) {
   return publicUrl(content.openUrl || content.directMediaUrl || content.driveUrl || content.localFilePath || '');
 }
 
-export default function AssignedTab({ assignments }) {
+export default function AssignedTab({ assignments, onRefresh }) {
+  const [openAssessmentId, setOpenAssessmentId] = useState(null);
+
   if (!assignments || assignments.length === 0) {
     return <div className="empty" style={{ marginTop: 16 }}>No direct module assignments right now. Mandatory updates will appear here.</div>;
   }
@@ -39,6 +43,14 @@ export default function AssignedTab({ assignments }) {
             <span className={`pill ${a.assignmentType === 'Mandatory' ? 'warn' : 'info'}`}>{a.assignmentType}</span>
           </div>
 
+          {a.assessment && (
+            <AssignedAssessmentRow
+              assessment={a.assessment}
+              result={a.assessmentResult}
+              onStart={() => setOpenAssessmentId(a.assessment.assessmentId)}
+            />
+          )}
+
           {(a.contents || []).length > 0 && (
             <div style={{ marginTop: 12, display: 'grid', gap: 8 }}>
               {(a.contents || []).map((content, index) => {
@@ -61,6 +73,43 @@ export default function AssignedTab({ assignments }) {
           )}
         </div>
       ))}
+
+      {openAssessmentId && (
+        <AssessmentModal
+          assessmentId={openAssessmentId}
+          onClose={() => { setOpenAssessmentId(null); onRefresh && onRefresh(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Pass/fail/attempts state for a broadcast-attached PKT — same shape and thresholds as the
+// classroom AssessmentCard in LearningTab.jsx, so a trainee sees consistent messaging
+// whether the test came from their curriculum or a broadcast.
+function AssignedAssessmentRow({ assessment, result, onStart }) {
+  const passed = result?.result === 'Pass';
+  const attemptsLeft = assessment.attemptLimit != null
+    ? assessment.attemptLimit - (result?.totalAttempts || 0)
+    : Infinity;
+
+  return (
+    <div style={{ marginTop: 12, border: '1.5px solid #c7d2fe', background: 'linear-gradient(135deg, var(--accent-soft), rgba(255,255,255,.04))', borderRadius: 12, padding: '10px 14px' }}>
+      <div className="row between" style={{ gap: 12, alignItems: 'flex-start' }}>
+        <div>
+          <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+            <span className="pill accent">PKT</span>
+            <b style={{ fontSize: 13.5 }}>{assessment.assessmentName}</b>
+          </div>
+          <p style={{ fontSize: 12, color: 'var(--muted)' }}>Pass: {assessment.passingPct}% &nbsp;·&nbsp;{result?.totalAttempts || 0}/{assessment.attemptLimit ?? '∞'} attempts used &nbsp;·&nbsp;{assessment.timeLimitMins}m limit</p>
+          {result && <p style={{ fontSize: 12.5, marginTop: 5, fontWeight: 800, color: passed ? 'var(--ok)' : 'var(--bad)' }}>Best score: {Math.round(result.bestPercentage || 0)}% — {result.result}</p>}
+        </div>
+        <div className="row" style={{ gap: 8, flexShrink: 0 }}>
+          {passed && <span className="pill ok">✓ Passed</span>}
+          {!passed && attemptsLeft <= 0 && <span className="pill bad">No attempts left</span>}
+          {!passed && attemptsLeft > 0 && <button className="btn small accent" onClick={onStart}>{(result?.totalAttempts || 0) > 0 ? 'Retry Test (PKT)' : 'Take Test (PKT)'}</button>}
+        </div>
+      </div>
     </div>
   );
 }

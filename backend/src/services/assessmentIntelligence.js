@@ -441,9 +441,41 @@ async function learnerAssessmentAccess(employeeId, assessmentId) {
     });
     classroomAccess = Boolean(mapping);
   }
+
+  // Broadcast/refresher access: an active AssignedModule row (individual / batch / process /
+  // branch / company scope) that carries this assessmentId as its attached PKT. This is what
+  // lets a graduated/refresher trainee with no classroomId — or no membership in this
+  // assessment's classroom — take a broadcast-attached MCQ.
+  let viaBroadcastOnly = false;
+  if (!classroomAccess) {
+    const broadcastAccess = await prisma.assignedModule.findFirst({
+      where: {
+        assessmentId,
+        active: true,
+        OR: [
+          { assignedTo: employeeId, assignedToType: 'individual' },
+          { assignedTo: trainee.batchNo || '', assignedToType: 'batch' },
+          { assignedTo: trainee.process || '', assignedToType: 'process' },
+          { assignedTo: trainee.branch || '', assignedToType: 'branch' },
+          { assignedToType: 'company' },
+        ],
+      },
+      select: { id: true },
+    });
+    if (broadcastAccess) {
+      classroomAccess = true;
+      viaBroadcastOnly = true;
+    }
+  }
+
   if (!classroomAccess) {
     throw new AssessmentIntelligenceError('ASSESSMENT_SCOPE_DENIED', 'This assessment is not assigned to your classroom.', 403);
   }
+
+  // Content-completion prerequisites are classroom curriculum content — meaningless (and
+  // wrongly blocking) for a trainee who only has broadcast access to this assessment, since
+  // they have no ContentProgress rows against that classroom's content at all.
+  if (viaBroadcastOnly) return { trainee, assessment };
 
   const contentWhere = { active: true, required: true };
   if (assessment.moduleId) contentWhere.moduleId = assessment.moduleId;

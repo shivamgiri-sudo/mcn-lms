@@ -20,7 +20,7 @@ export async function getLearnerDashboard(req, res) {
 
     const classroomId = trainee.classroomId || user.classroomId;
     if (!classroomId) {
-      const directAssignments = await prisma.assignedModule.findMany({
+      const directAssignmentsRaw = await prisma.assignedModule.findMany({
         where: {
           OR: [
             { assignedTo: empId, assignedToType: 'individual' },
@@ -33,6 +33,7 @@ export async function getLearnerDashboard(req, res) {
         },
         orderBy: { createdAt: 'desc' },
       });
+      const directAssignments = await attachAssessmentsToAssignments(directAssignmentsRaw, empId);
       const payload = {
         ok: true,
         dashboard: {
@@ -104,8 +105,10 @@ export async function getLearnerDashboard(req, res) {
     const totalDays = days.length;
     const totalModules = modules.length;
 
-    // Assigned modules
-    const directAssignments = await prisma.assignedModule.findMany({
+    // Assigned modules — fetched regardless of classroom enrollment. A trainee who is
+    // enrolled in a classroom can still have broadcast/refresher assignments on top of
+    // their curriculum, and those may carry an attached PKT/MCQ (assessmentId).
+    const directAssignmentsRaw = await prisma.assignedModule.findMany({
       where: {
         OR: [
           { assignedTo: empId, assignedToType: 'individual' },
@@ -118,6 +121,7 @@ export async function getLearnerDashboard(req, res) {
       },
       orderBy: { createdAt: 'desc' },
     });
+    const directAssignments = await attachAssessmentsToAssignments(directAssignmentsRaw, empId);
 
     const payload = {
       ok: true,
@@ -639,7 +643,7 @@ export async function getAssignedModules(req, res) {
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId: empId } });
     if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
 
-    const assignments = await prisma.assignedModule.findMany({
+    const assignmentsRaw = await prisma.assignedModule.findMany({
       where: {
         OR: [
           { assignedTo: empId, assignedToType: 'individual' },
@@ -652,10 +656,33 @@ export async function getAssignedModules(req, res) {
       },
       orderBy: { createdAt: 'desc' },
     });
+    const assignments = await attachAssessmentsToAssignments(assignmentsRaw, empId);
     res.json({ ok: true, data: assignments });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
+}
+
+// Enriches AssignedModule rows that carry an attached PKT/MCQ (assessmentId) with the
+// AssessmentMaster row + this trainee's best result — same shallow shape already used for
+// classroom assessments (assessment + result, no question payload; AssessmentModal fetches
+// the actual question set on open via the assessment-intelligence engine).
+async function attachAssessmentsToAssignments(assignments, employeeId) {
+  const assessmentIds = [...new Set(assignments.map(a => a.assessmentId).filter(Boolean))];
+  if (assessmentIds.length === 0) return assignments;
+
+  const [assessments, results] = await Promise.all([
+    prisma.assessmentMaster.findMany({ where: { assessmentId: { in: assessmentIds }, active: true } }),
+    prisma.assessmentResult.findMany({ where: { employeeId, assessmentId: { in: assessmentIds } } }),
+  ]);
+  const assessmentMap = {};
+  for (const a of assessments) assessmentMap[a.assessmentId] = a;
+  const resultMap = {};
+  for (const r of results) resultMap[r.assessmentId] = r;
+
+  return assignments.map(a => a.assessmentId && assessmentMap[a.assessmentId]
+    ? { ...a, assessment: assessmentMap[a.assessmentId], assessmentResult: resultMap[a.assessmentId] || null }
+    : a);
 }
 
 async function syncAttendance(employeeId, trainee) {

@@ -374,6 +374,30 @@ export async function notifyModuleAssigned({ traineeName, email, mobile, moduleN
   return results;
 }
 
+export async function notifyAssessmentAssigned({ traineeName, email, moduleName, assessmentName, dueDate }) {
+  const results = [];
+  const dueDateStr = dueDate ? new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+
+  if (email) {
+    results.push(await sendEmail({
+      to: email,
+      subject: `New test assigned: "${assessmentName}" — MCN LMS`,
+      html: `<p>Hi <b>${traineeName}</b>,</p>
+<p>A test (PKT) has been assigned to you${moduleName ? ` as part of <b>${moduleName}</b>` : ''}.</p>
+<table style="border:1px solid #e2e8f0;border-radius:6px;padding:16px;font-size:14px;width:100%;max-width:400px">
+  <tr><td><b>Test</b></td><td>${assessmentName}</td></tr>
+  ${moduleName ? `<tr><td><b>Module</b></td><td>${moduleName}</td></tr>` : ''}
+  ${dueDateStr ? `<tr><td><b>Due Date</b></td><td>${dueDateStr}</td></tr>` : ''}
+</table>
+<p style="margin-top:16px">Log in to MCN LMS and open the <b>Assigned</b> tab to take this test.</p>
+<p style="color:#6b7280;font-size:12px">— MCN LMS</p>`,
+      text: `Hi ${traineeName}, a test (PKT) "${assessmentName}"${moduleName ? ` for module "${moduleName}"` : ''} has been assigned to you${dueDateStr ? `, due ${dueDateStr}` : ''}. Log in to the Assigned tab to take it.`,
+    }));
+  }
+
+  return results;
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function certHtml({ traineeName, employeeId, batchNo, batchName, proc, lob, dateStr }) {

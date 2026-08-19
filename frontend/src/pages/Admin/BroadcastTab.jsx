@@ -24,6 +24,7 @@ export default function BroadcastTab() {
   const [batches, setBatches] = useState([]);
   const [branches, setBranches] = useState([]);
   const [processes, setProcesses] = useState([]);
+  const [designations, setDesignations] = useState([]);
 
   const [form, setForm] = useState({
     broadcastTitle: '',
@@ -50,6 +51,8 @@ export default function BroadcastTab() {
   const [pasteMode, setPasteMode] = useState(false);
   const [validateLoading, setValidateLoading] = useState(false);
   const [pasteResult, setPasteResult] = useState(null); // {found, notFound}
+  const [designationFilter, setDesignationFilter] = useState('');
+  const [designationLoading, setDesignationLoading] = useState(false);
 
   // Upload state
   const [uploadFile, setUploadFile] = useState(null);
@@ -73,7 +76,7 @@ export default function BroadcastTab() {
     api.get('/admin/classrooms', 'admin').then(r => r.ok && setClassrooms(r.data));
     api.get('/admin/batches', 'admin').then(r => r.ok && setBatches(r.data));
     api.get('/admin/broadcast-targets', 'admin').then(r => {
-      if (r.ok) { setBranches(r.data.branches || []); setProcesses(r.data.processes || []); }
+      if (r.ok) { setBranches(r.data.branches || []); setProcesses(r.data.processes || []); setDesignations(r.data.designations || []); }
     });
   }, []);
 
@@ -103,7 +106,7 @@ export default function BroadcastTab() {
 
   function changeScope(scopeVal) {
     setForm(f => ({ ...f, scope: scopeVal, scopeValue: '', scopeValues: [] }));
-    setSelectedEmployees([]); setPasteText(''); setPasteResult(null);
+    setSelectedEmployees([]); setPasteText(''); setPasteResult(null); setDesignationFilter('');
   }
 
   function toggleContent(contentId) {
@@ -121,6 +124,19 @@ export default function BroadcastTab() {
 
   function removeEmployee(empId) {
     setSelectedEmployees(s => s.filter(e => e.employeeId !== empId));
+  }
+
+  async function selectAllByDesignation() {
+    if (!designationFilter) return;
+    setDesignationLoading(true);
+    const res = await api.get(`/admin/trainees/search?designation=${encodeURIComponent(designationFilter)}&limit=500`, 'admin');
+    setDesignationLoading(false);
+    if (res.ok) {
+      const found = res.data || [];
+      const newOnes = found.filter(f => !selectedEmployees.find(e => e.employeeId === f.employeeId));
+      setSelectedEmployees(s => [...s, ...newOnes]);
+      setMsg({ type: found.length ? 'ok' : 'bad', text: found.length ? `Added ${newOnes.length} "${designationFilter}" trainee(s) (${found.length} matched).` : `No trainees found with designation "${designationFilter}".` });
+    }
   }
 
   async function validatePaste() {
@@ -174,7 +190,42 @@ export default function BroadcastTab() {
       if (form.scope === 'specific' && selectedEmployees.length === 0) return setMsg({ type: 'bad', text: 'Add at least one employee.' });
     }
 
+    const mcqWanted = mcqEnabled && mcqName.trim();
+    const validQs = mcqWanted ? questions.filter(q => q.question.trim() && q.optionA.trim() && q.optionB.trim()) : [];
+    if (mcqWanted && validQs.length === 0) {
+      return setMsg({ type: 'bad', text: 'Add at least one complete question (text + option A + option B) to the attached MCQ.' });
+    }
+
     setLoading(true); setMsg(null);
+
+    // Create the MCQ FIRST so its assessmentId can be attached to the broadcast — this is
+    // what makes the test reachable from the trainee's Assigned tab / dashboard, and (for
+    // audience members with no active classroom) scoreable at all.
+    let assessmentId = null;
+    if (mcqWanted) {
+      const aRes = await api.post('/admin/assessments', {
+        classroomId: form.classroomId, moduleId: form.moduleId,
+        assessmentName: mcqName.trim(), passingPct: mcqPassPct,
+        attemptLimit: mcqAttempts, timeLimitMins: mcqTimeMins,
+        instructions: `Broadcast MCQ for: ${form.broadcastTitle || form.moduleName}`,
+      }, 'admin');
+      if (!aRes.ok || !aRes.data?.assessmentId) {
+        setLoading(false);
+        return setMsg({ type: 'bad', text: aRes.message || 'Could not create the MCQ. Broadcast was not sent.' });
+      }
+      assessmentId = aRes.data.assessmentId;
+      const qRes = await api.post(`/admin/assessments/${assessmentId}/questions/upload`, {
+        questions: validQs.map(q => ({
+          question: q.question, option_a: q.optionA, option_b: q.optionB,
+          option_c: q.optionC || '', option_d: q.optionD || '',
+          correct: q.correct, marks: q.marks || 1, difficulty: 'Medium', explanation: '',
+        })),
+      }, 'admin');
+      if (!qRes.ok) {
+        setLoading(false);
+        return setMsg({ type: 'bad', text: qRes.message || 'MCQ created but questions failed to upload. Broadcast was not sent.' });
+      }
+    }
 
     const basePayload = {
       broadcastTitle: form.broadcastTitle.trim() || null,
@@ -184,6 +235,7 @@ export default function BroadcastTab() {
       message: form.message || null,
       dueDate: form.dueDate || null,
       contentIds: form.selectedContentIds.length > 0 ? form.selectedContentIds : null,
+      assessmentId,
     };
 
     let res;
@@ -206,28 +258,6 @@ export default function BroadcastTab() {
       }, 'admin');
     }
 
-    // Optionally create MCQ
-    if (res.ok && mcqEnabled && mcqName.trim()) {
-      const validQs = questions.filter(q => q.question.trim() && q.optionA.trim() && q.optionB.trim());
-      if (validQs.length > 0) {
-        const aRes = await api.post('/admin/assessments', {
-          classroomId: form.classroomId, moduleId: form.moduleId,
-          assessmentName: mcqName.trim(), passingPct: mcqPassPct,
-          attemptLimit: mcqAttempts, timeLimitMins: mcqTimeMins,
-          instructions: `Broadcast MCQ for: ${form.broadcastTitle || form.moduleName}`,
-        }, 'admin');
-        if (aRes.ok && aRes.data?.assessmentId) {
-          await api.post(`/admin/assessments/${aRes.data.assessmentId}/questions/upload`, {
-            questions: validQs.map(q => ({
-              question: q.question, option_a: q.optionA, option_b: q.optionB,
-              option_c: q.optionC || '', option_d: q.optionD || '',
-              correct: q.correct, marks: q.marks || 1, difficulty: 'Medium', explanation: '',
-            })),
-          }, 'admin');
-        }
-      }
-    }
-
     setLoading(false);
     if (res.ok) {
       const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
@@ -235,7 +265,7 @@ export default function BroadcastTab() {
       if (mcqEnabled && mcqName.trim()) successText += ' + MCQ created.';
       setMsg({ type: 'ok', text: successText });
       setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', scopeValues: [], message: '', dueDate: '', selectedContentIds: [] }));
-      setSelectedEmployees([]); setPasteText(''); setPasteResult(null);
+      setSelectedEmployees([]); setPasteText(''); setPasteResult(null); setDesignationFilter('');
       setQuestions([EMPTY_MCQ()]); setMcqEnabled(false); setMcqName('');
     } else {
       setMsg({ type: 'bad', text: res.message || 'Broadcast failed.' });
@@ -340,6 +370,21 @@ export default function BroadcastTab() {
                 {/* Specific Employees */}
                 {form.scope === 'specific' && (
                   <div>
+                    {/* Designation quick-filter */}
+                    {designations.length > 0 && (
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+                        <select className="select" style={{ maxWidth: 220 }} value={designationFilter}
+                          onChange={e => setDesignationFilter(e.target.value)}>
+                          <option value="">Filter by designation…</option>
+                          {designations.map(d => <option key={d} value={d}>{d}</option>)}
+                        </select>
+                        <button type="button" className="btn small secondary" style={{ fontSize: 11 }}
+                          onClick={selectAllByDesignation} disabled={!designationFilter || designationLoading}>
+                          {designationLoading ? 'Adding…' : `+ Select all "${designationFilter || '…'}"`}
+                        </button>
+                      </div>
+                    )}
+
                     {/* Search panel */}
                     <div style={{ position: 'relative', marginBottom: 10 }}>
                       <input className="input" placeholder="Search by name or Employee ID…"

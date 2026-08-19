@@ -170,6 +170,7 @@ model TraineeMaster {
   branch               String?
   process              String?
   lob                  String?
+  designation          String?
   classroomId          String?   @map("classroom_id")
   classroomName        String?   @map("classroom_name")
   status               String    @default("Active")
@@ -202,6 +203,7 @@ model TraineeMaster {
   @@index([process, lob])
   @@index([certificationStatus])
   @@index([riskStatus])
+  @@index([designation])
   @@map("trainee_master")
 }
 
@@ -717,6 +719,9 @@ model AssignedModule {
   dueDate        DateTime? @map("due_date")
   active         Boolean   @default(true)
   createdAt      DateTime  @default(now()) @map("created_at")
+  // Optional attached MCQ (PKT) — nullable, no FK, matches the loosely-coupled
+  // moduleId/assignedTo pattern already used by this model.
+  assessmentId   String?   @map("assessment_id")
 
   @@map("assigned_modules")
 }

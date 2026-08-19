@@ -301,6 +301,7 @@ export async function syncEmployees(req, res) {
       };
       const designation = clean(row[cfg.cols.designation]);
       const department = clean(row[cfg.cols.department]);
+      if (designation) payload.designation = designation;
 
       if (dryRun) {
         results.push({ employeeId, status: 'would_create', profile: { ...payload, designation, department } });
