@@ -162,14 +162,15 @@ router.post('/content/:contentId/unlock/:employeeId', ...auth, unlockContentForT
 router.get('/branches', ...auth, listBranches);
 router.get('/branches/:branch', ...auth, getBranchDetail);
 
-// Identity and role mutations are super-admin-only and elevation-gated.
-router.get('/portal-users', ...superAuth, listPortalUsers);
+// Visibility and PIN/password reset are open to any Admin (parity with Coordinators access).
+// Role changes, account creation/deletion and bulk import stay super-admin + elevation-gated.
+router.get('/portal-users', ...auth, listPortalUsers);
 router.post('/portal-users', ...superElevatedAuth, createPortalUser);
 router.post('/portal-users/bulk', ...superElevatedAuth, bulkCreatePortalUsers);
 router.put('/portal-users/:id', ...superElevatedAuth, updatePortalUser);
 router.post('/portal-users/:id/change-role', ...superElevatedAuth, changeUserRole);
 router.delete('/portal-users/:id', ...superElevatedAuth, deletePortalUser);
-router.post('/portal-users/:id/reset-pin', ...superElevatedAuth, resetPortalUserPin);
+router.post('/portal-users/:id/reset-pin', ...auth, resetPortalUserPin);
 
 // Organization-master mutations are centrally governed and elevation-gated.
 router.get('/org/branches', ...superAuth, listBranchMaster);
