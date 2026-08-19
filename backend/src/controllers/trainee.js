@@ -204,7 +204,7 @@ export async function logContentOpen(req, res) {
       });
     }
 
-    cache.delPrefix('dashboard:');
+    cache.del('dashboard:' + empId);
 
     await prisma.videoWatchLog.create({
       data: {
@@ -246,8 +246,9 @@ export async function logContentHeartbeat(req, res) {
     if (!progress) return res.json({ ok: true }); // OPEN not yet logged, ignore
 
     const newTotal = (progress.totalSecondsSpent || 0) + cappedDelta;
-    const requiredSecs = progress.requiredSeconds || (durSec > 0 ? Math.round(durSec * 0.8) : 0);
-    const completionPct = requiredSecs > 0 ? Math.min(100, Math.round((newTotal / requiredSecs) * 100)) : 0;
+    const noThreshold = progress.requiredSeconds === 0;
+    const requiredSecs = noThreshold ? 0 : (progress.requiredSeconds || (durSec > 0 ? Math.round(durSec * 0.8) : 0));
+    const completionPct = noThreshold ? 100 : (requiredSecs > 0 ? Math.min(100, Math.round((newTotal / requiredSecs) * 100)) : 0);
     const isCompleted = completionPct >= 100;
 
     await prisma.contentProgress.update({
@@ -265,7 +266,7 @@ export async function logContentHeartbeat(req, res) {
       },
     });
 
-    cache.delPrefix('dashboard:');
+    cache.del('dashboard:' + empId);
 
     if (cappedDelta > 0) {
       await prisma.videoWatchLog.create({
@@ -316,7 +317,7 @@ export async function logContentClose(req, res) {
       const newTotal = (progress.totalSecondsSpent || 0) + cappedDelta;
       let completionPct = progress.requiredSeconds > 0
         ? Math.min(100, Math.round((newTotal / progress.requiredSeconds) * 100))
-        : progress.completionPct;
+        : progress.requiredSeconds === 0 ? 100 : progress.completionPct;
       // Manual mark-complete always sets 100%
       if (forceComplete) completionPct = 100;
       const isCompleted = completionPct >= 100 || forceComplete;
@@ -338,7 +339,7 @@ export async function logContentClose(req, res) {
       }
     }
 
-    cache.delPrefix('dashboard:');
+    cache.del('dashboard:' + empId);
 
     res.json({ ok: true });
   } catch (err) {
@@ -411,7 +412,7 @@ export async function getAssessment(req, res) {
           attemptLimit: assessment.attemptLimit,
           timeLimitMins: assessment.timeLimitMins,
           instructions: assessment.instructions,
-          totalAttempts: attempts,
+          attemptsUsed: attempts,
         },
         questions,
         bestResult,
@@ -500,32 +501,18 @@ export async function submitAssessment(req, res) {
       },
     });
 
-    // Update trainee MCQ stats
-    const allResults = await prisma.assessmentResult.findMany({ where: { employeeId: empId, classroomId: assessment.classroomId } });
-    if (traineeForBatch) {
-      const allAssessments = await prisma.assessmentMaster.count({ where: { classroomId: assessment.classroomId, active: true } });
-      const passedCount = allResults.filter(r => r.result === 'Pass').length;
-      await prisma.traineeMaster.update({
-        where: { employeeId: empId },
-        data: {
-          assessmentAttemptPct: allAssessments > 0 ? Math.round((allResults.length / allAssessments) * 100) : 0,
-          assessmentPassPct: allResults.length > 0 ? Math.round((passedCount / allResults.length) * 100) : 0,
-        },
-      });
-    }
-
     await detectAndSyncRisks(empId);
 
-    // FIX 2: Sync TraineeMaster stats after assessment submit
+    // syncTraineeMasterStats is the sole authority for assessmentPassPct / assessmentAttemptPct
     await syncTraineeMasterStats(empId, assessment.classroomId);
 
-    cache.delPrefix('dashboard:');
+    cache.del('dashboard:' + empId);
 
-    // Mark mcqActivity on today's attendance inference record
+    // Mark mcqActivity on today's attendance inference record, then sync attendancePct
     if (traineeForBatch?.batchNo) {
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      prisma.attendanceInference.upsert({
+      await prisma.attendanceInference.upsert({
         where: { date_batchNo_employeeId: { date: today, batchNo: traineeForBatch.batchNo, employeeId: empId } },
         create: {
           date: today,
@@ -542,6 +529,7 @@ export async function submitAssessment(req, res) {
         update: { mcqActivity: true },
       }).catch(() => {});
     }
+    await syncAttendance(empId, traineeForBatch);
 
     // Return correct answers for review
     const attemptsLeft = Math.max(0, limit - attemptNo);
@@ -627,12 +615,15 @@ export async function getMyQuestions(req, res) {
   }
 }
 
-// FIX 7: Trainee profile update
 export async function updateProfile(req, res) {
   try {
     const empId = req.userId;
     const { traineeName, email, mobile } = req.body;
     await prisma.traineeMaster.update({
+      where: { employeeId: empId },
+      data: { traineeName, email, mobile },
+    });
+    await prisma.userMaster.updateMany({
       where: { employeeId: empId },
       data: { traineeName, email, mobile },
     });

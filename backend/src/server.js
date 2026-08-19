@@ -11,6 +11,7 @@ import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
+import { runNotificationCampaignCycle } from './services/notificationCampaigns.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 import { provisionHrmsEmployees } from './controllers/hrmsSeed.js';
@@ -188,9 +189,9 @@ app.use('/api/ilt', normalizeIltAttendanceRequest);
 app.use('/api/ilt', iltRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
-  app.use(express.static(frontendDist, { index: false, dotfiles: 'allow' }));
+  app.use(express.static(frontendDist, { index: false }));
   app.get(/^(?!\/api\/).*/, (_req, res) => {
-    return res.sendFile(path.join(frontendDist, 'index.html'), { dotfiles: 'allow' });
+    return res.sendFile(path.join(frontendDist, 'index.html'));
   });
 } else {
   app.get('/', (_req, res) => res.status(200).send('LMS API is running.'));
@@ -318,6 +319,11 @@ function startBackgroundWork() {
   kpiTimer.unref?.();
   scheduleDailyEmail();
   startScheduler();
+  runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] initial run failed:', e.message));
+  const campaignTimer = setInterval(() => {
+    runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] cycle failed:', e.message));
+  }, 5 * 60 * 1000);
+  campaignTimer.unref?.();
   const sessionTimer = setInterval(() => {
     cleanExpiredSessions().catch(error => console.error('[Sessions] Cleanup failed:', error.message));
   }, 60 * 60 * 1000);

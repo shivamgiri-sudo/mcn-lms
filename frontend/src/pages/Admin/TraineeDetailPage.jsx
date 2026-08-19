@@ -1,6 +1,150 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
+function TraineeAttemptsTab({ empId, traineeName }) {
+  const [grants, setGrants] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [assessments, setAssessments] = useState([]);
+  const [grantForm, setGrantForm] = useState({ assessmentId: '', extraAttempts: 1, reason: '' });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+  const [revokeTarget, setRevokeTarget] = useState(null);
+  const [revokeReason, setRevokeReason] = useState('');
+  const [revoking, setRevoking] = useState(null);
+
+  function loadGrants() {
+    setLoading(true);
+    api.get(`/admin/trainees/${empId}/attempt-grants`, 'admin')
+      .then(r => { if (r.ok) setGrants(r.data || []); setLoading(false); });
+  }
+
+  useEffect(() => {
+    loadGrants();
+    api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data || []));
+  }, [empId]);
+
+  async function grant(e) {
+    e.preventDefault();
+    if (!grantForm.assessmentId) return;
+    setSaving(true); setMsg('');
+    const res = await api.post(`/admin/assessments/${grantForm.assessmentId}/attempt-grants`, {
+      employeeId: empId,
+      extraAttempts: Number(grantForm.extraAttempts),
+      reason: grantForm.reason.trim() || undefined,
+    }, 'admin');
+    setSaving(false);
+    if (res.ok) {
+      setMsg('Grant created.');
+      setGrantForm({ assessmentId: '', extraAttempts: 1, reason: '' });
+      loadGrants();
+    } else {
+      setMsg(res.message || 'Failed to create grant.');
+    }
+  }
+
+  async function revoke(grantId) {
+    setRevoking(grantId);
+    const res = await api.post(`/admin/attempt-grants/${grantId}/revoke`, { reason: revokeReason.trim() || undefined }, 'admin');
+    setRevoking(null);
+    if (res.ok) { setRevokeTarget(null); setRevokeReason(''); loadGrants(); }
+    else setMsg(res.message || 'Failed to revoke grant.');
+  }
+
+  const activeGrants = grants.filter(g => g.active);
+  const totalExtra = activeGrants.reduce((s, g) => s + (g.extraAttempts || 0), 0);
+
+  return (
+    <div className="glass-panel">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+        <div className="panel-title" style={{ marginBottom: 0 }}>Attempt Grants</div>
+        {totalExtra > 0 && (
+          <span style={{ fontSize: 12, color: 'var(--ok)' }}>
+            {activeGrants.length} active grant{activeGrants.length !== 1 ? 's' : ''} · +{totalExtra} extra attempts
+          </span>
+        )}
+      </div>
+
+      <form onSubmit={grant} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: 14, marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10, color: 'var(--muted)' }}>GRANT EXTRA ATTEMPTS</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 120px 1fr auto', gap: 8, alignItems: 'end' }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Assessment *</label>
+            <select className="select" value={grantForm.assessmentId} onChange={e => setGrantForm(f => ({ ...f, assessmentId: e.target.value }))} required>
+              <option value="">Select assessment...</option>
+              {assessments.map(a => <option key={a.assessmentId} value={a.assessmentId}>{a.assessmentName}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Extra Attempts</label>
+            <input className="input" type="number" min={1} max={10} value={grantForm.extraAttempts} onChange={e => setGrantForm(f => ({ ...f, extraAttempts: Number(e.target.value) }))} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>Reason <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></label>
+            <input className="input" placeholder="e.g. Technical issue during exam" value={grantForm.reason} onChange={e => setGrantForm(f => ({ ...f, reason: e.target.value }))} />
+          </div>
+          <button className="btn small" type="submit" disabled={!grantForm.assessmentId || saving}>
+            {saving ? 'Granting...' : 'Grant'}
+          </button>
+        </div>
+        {msg && <div className={`toast ${msg.toLowerCase().includes('fail') || msg.toLowerCase().includes('error') ? 'bad' : 'ok'}`} style={{ marginTop: 10, fontSize: 12 }}>{msg}</div>}
+      </form>
+
+      {loading ? (
+        <div style={{ fontSize: 12, color: 'var(--muted)' }}>Loading...</div>
+      ) : grants.length === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 12 }}>No attempt grants for {traineeName || empId}.</p>
+      ) : (
+        <table className="glass-table">
+          <thead><tr>
+            <th>Assessment</th>
+            <th>+Attempts</th>
+            <th>Reason</th>
+            <th>Granted By</th>
+            <th>Date</th>
+            <th>Status</th>
+            <th></th>
+          </tr></thead>
+          <tbody>
+            {grants.map(g => (
+              <tr key={g.grantId} style={{ opacity: g.active ? 1 : 0.5 }}>
+                <td style={{ fontWeight: g.active ? 600 : 400 }}>{g.assessmentName || g.assessmentId}</td>
+                <td style={{ color: g.active ? 'var(--ok)' : 'var(--muted)', fontWeight: 700 }}>+{g.extraAttempts}</td>
+                <td style={{ color: 'var(--muted)', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{g.reason || '—'}</td>
+                <td style={{ color: 'var(--muted)' }}>{g.grantedByName || g.grantedBy}</td>
+                <td style={{ color: 'var(--muted)', whiteSpace: 'nowrap' }}>{new Date(g.createdAt).toLocaleDateString('en-IN')}</td>
+                <td>
+                  {g.active
+                    ? <span className="pill ok">Active</span>
+                    : <span className="pill" style={{ background: 'rgba(255,255,255,.06)', color: 'var(--muted)' }}>Revoked</span>}
+                </td>
+                <td style={{ whiteSpace: 'nowrap' }}>
+                  {g.active && (
+                    revokeTarget === g.grantId
+                      ? <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          <input
+                            className="input"
+                            style={{ fontSize: 11, padding: '3px 6px', width: 130 }}
+                            placeholder="Reason (optional)..."
+                            value={revokeReason}
+                            onChange={e => setRevokeReason(e.target.value)}
+                          />
+                          <button className="btn small danger" onClick={() => revoke(g.grantId)} disabled={revoking === g.grantId}>
+                            {revoking === g.grantId ? '...' : 'Confirm'}
+                          </button>
+                          <button className="btn small secondary" onClick={() => { setRevokeTarget(null); setRevokeReason(''); }}>✕</button>
+                        </span>
+                      : <button className="btn small secondary" style={{ fontSize: 11 }} onClick={() => setRevokeTarget(g.grantId)}>Revoke</button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 function AssignModuleModal({ empId, traineeName, onClose }) {
   const [classrooms, setClassrooms] = useState([]);
   const [modules, setModules] = useState([]);
@@ -149,7 +293,7 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
   if (!data) return <div style={{color:'var(--bad)',padding:'40px'}}>Trainee not found.</div>;
 
   const { trainee, attendance, queries, riskLogs } = data;
-  const tabs = ['overview','attendance','queries','risk'];
+  const tabs = ['overview','attendance','queries','risk','attempts'];
 
   return (
     <div>
@@ -303,6 +447,10 @@ export default function TraineeDetailPage({ empId, context, navigate }) {
             </div>
           ))}
         </div>
+      )}
+
+      {tab === 'attempts' && (
+        <TraineeAttemptsTab empId={trainee.employeeId} traineeName={trainee.traineeName} />
       )}
     </div>
   );

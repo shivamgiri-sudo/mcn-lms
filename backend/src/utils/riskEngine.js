@@ -63,13 +63,18 @@ export async function detectAndSyncRisks(employeeId) {
         expectedValue: THRESHOLDS.MCQ_LOW,
       });
     } else if (attemptPct === 0 && Number(trainee.courseCompletionPct || 0) >= THRESHOLDS.COURSE_LOW) {
-      risks.push({
-        riskType: 'NO_ASSESSMENT_ACTIVITY',
-        riskTitle: 'Required learning progressed but no assessment has been attempted',
-        severity: 'WATCH',
-        currentValue: 0,
-        expectedValue: 1,
-      });
+      const assessmentCount = trainee.classroomId
+        ? await prisma.assessmentMaster.count({ where: { classroomId: trainee.classroomId, active: true } })
+        : 0;
+      if (assessmentCount > 0) {
+        risks.push({
+          riskType: 'NO_ASSESSMENT_ACTIVITY',
+          riskTitle: 'Required learning progressed but no assessment has been attempted',
+          severity: 'WATCH',
+          currentValue: 0,
+          expectedValue: 1,
+        });
+      }
     }
 
     const attendancePct = Number(trainee.attendancePct || 0);

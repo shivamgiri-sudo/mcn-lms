@@ -1,20 +1,12 @@
 import { useState } from 'react';
+import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
 
 const CSV_TEMPLATE = 'traineeName,employeeId,lmsId,email,mobile,batchNo,branch,process,lob\nJohn Doe,JOHNDOE001,LMS000001,john@example.com,9876543210,BATCH001,Mumbai,Support,LOB1\n';
 
 function parseCsv(text) {
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  if (lines.length < 2) return [];
-  const header = lines[0].split(',').map(h => h.trim().toLowerCase());
-  const records = [];
-  for (let i = 1; i < lines.length; i++) {
-    const vals = lines[i].split(',').map(v => v.trim());
-    const obj = {};
-    header.forEach((h, idx) => { obj[h] = vals[idx] || ''; });
-    if (obj.traineename || obj.name) records.push(obj);
-  }
-  return records;
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') });
+  return result.data.filter(r => r.traineename || r.name || r.fullname || r.employeeid || r.empid);
 }
 
 export default function BulkImportTab() {
@@ -47,7 +39,7 @@ export default function BulkImportTab() {
     const records = skipDuplicates ? preview.filter(r => !r._duplicate) : preview;
     if (!records.length) { setMsg('No records to import after filtering duplicates.'); setBusy(false); return; }
     const res = await api.post('/admin/trainees/import/execute', { records, skipDuplicates }, 'admin');
-    if (res.ok) { setResult(res); setMsg(res.message); setPreview(null); setRawInput(''); }
+    if (res.ok) { setResult(res); setMsg(`✓ ${res.message}`); setPreview(null); setRawInput(''); }
     else setMsg(res.message || 'Import failed.');
     setBusy(false);
   }
@@ -78,7 +70,7 @@ export default function BulkImportTab() {
           Skip duplicates
         </label>
       </div>
-      {msg && <div className={`toast ${msg.includes('created') || msg.includes('✓') ? 'ok' : 'bad'}`} style={{ marginTop: 12 }}>{msg}</div>}
+      {msg && <div className={`toast ${msg.startsWith('✓') ? 'ok' : 'bad'}`} style={{ marginTop: 12 }}>{msg}</div>}
       {preview && (
         <div style={{ marginTop: 16 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>

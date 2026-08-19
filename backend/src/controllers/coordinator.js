@@ -7,11 +7,11 @@ import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { notifyCertification, notifyBatchAssignment, notifyOnboarding } from '../utils/notify.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as cache from '../utils/cache.js';
+import { randomInt } from 'crypto';
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
 export async function getDashboard(req, res) {
   try {
-    const coord = await prisma.roleAccessMatrix.findFirst({ where: { loginId: req.userId } });
     const where = { coordinatorLoginId: req.userId };
 
     const activeBatchList = await prisma.batchMaster.findMany({ where: { ...where, batchStatus: 'Active' }, select: { batchNo: true } });
@@ -199,8 +199,11 @@ export async function createBatch(req, res) {
 export async function getBatchDetails(req, res) {
   try {
     const { batchNo } = req.params;
-    const [batch, trainees, pending, queries, risks, attendance] = await Promise.all([
-      prisma.batchMaster.findUnique({ where: { batchNo } }),
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+
+    const [trainees, pending, queries, risks, attendance] = await Promise.all([
       prisma.traineeMaster.findMany({ where: { batchNo }, orderBy: { createdAt: 'asc' } }),
       prisma.pendingActivityLog.findMany({ where: { batchNo, status: 'Open' }, orderBy: { createdAt: 'desc' }, take: 50 }),
       prisma.traineeQueryLog.findMany({ where: { batchNo }, orderBy: { createdAt: 'desc' }, take: 50 }),
@@ -208,8 +211,6 @@ export async function getBatchDetails(req, res) {
       prisma.attendanceInference.findMany({ where: { batchNo }, orderBy: { date: 'desc' }, take: 60 }),
     ]);
 
-    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
-    if (batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
     res.json({ ok: true, data: { batch, trainees, pending, queries, risks, attendance } });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
@@ -369,11 +370,12 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
   if (existing) return { ok: false, message: `Duplicate trainee: Employee ID ${existing.employeeId} already exists.` };
 
   let lmsId = `LMS${normEmpId.replace(/\D/g, '').padStart(6, '0').slice(-6)}`;
-  // Keep generating until we find a unique lmsId
-  while (await prisma.traineeMaster.findFirst({ where: { lmsId } })) {
-    lmsId = `LMS${Date.now().toString().slice(-5)}${Math.floor(Math.random() * 1000).toString().padStart(3, '0')}`;
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const exists = await prisma.traineeMaster.findFirst({ where: { lmsId }, select: { employeeId: true } });
+    if (!exists) break;
+    lmsId = `LMS${normEmpId.replace(/\D/g, '').slice(-4).padStart(4, '0')}${randomInt(100, 999)}`;
   }
-  const tempPassword = mobile ? mobile.replace(/\D/g, '').slice(-4) : '1234';
+  const tempPassword = randomInt(100000, 999999).toString();
   const salt = generateSalt();
   const passwordHash = await hashPassword(tempPassword, salt);
   const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
@@ -517,6 +519,13 @@ export async function updatePendingActivity(req, res) {
     const { id } = req.params;
     const { actionTaken, status, followUpDate, closureRemarks } = req.body;
 
+    const activity = await prisma.pendingActivityLog.findUnique({ where: { id } });
+    if (!activity) return res.status(404).json({ ok: false, message: 'Activity not found.' });
+    if (activity.batchNo) {
+      const batch = await prisma.batchMaster.findUnique({ where: { batchNo: activity.batchNo } });
+      if (!batch || batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    }
+
     const updated = await prisma.pendingActivityLog.update({
       where: { id },
       data: {
@@ -569,6 +578,10 @@ export async function answerQuery(req, res) {
 
     const query = await prisma.traineeQueryLog.findUnique({ where: { id } });
     if (!query) return res.status(404).json({ ok: false, message: 'Query not found.' });
+    if (query.batchNo) {
+      const batch = await prisma.batchMaster.findUnique({ where: { batchNo: query.batchNo } });
+      if (!batch || batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    }
     const tatHours = (Date.now() - new Date(query.createdAt).getTime()) / 3600000;
 
     const updated = await prisma.traineeQueryLog.update({
@@ -595,6 +608,14 @@ export async function updateRiskAction(req, res) {
   try {
     const { id } = req.params;
     const { actionTaken, status, followUpDate, closureRemarks } = req.body;
+
+    const risk = await prisma.trainingRiskLog.findUnique({ where: { id } });
+    if (!risk) return res.status(404).json({ ok: false, message: 'Risk not found.' });
+    if (risk.batchNo) {
+      const batch = await prisma.batchMaster.findUnique({ where: { batchNo: risk.batchNo } });
+      if (!batch || batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    }
+
     const updated = await prisma.trainingRiskLog.update({
       where: { id },
       data: { actionTaken, status: status || 'Actioned', actionBy: req.userId, actionAt: new Date(), followUpDate: followUpDate ? new Date(followUpDate) : undefined, closureRemarks },
@@ -609,6 +630,10 @@ export async function updateRiskAction(req, res) {
 export async function getCertificationData(req, res) {
   try {
     const { batchNo } = req.params;
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo }, select: { coordinatorLoginId: true } });
+    if (!batch || batch.coordinatorLoginId !== req.userId) {
+      return res.status(403).json({ ok: false, message: 'Access denied.' });
+    }
     const trainees = await prisma.traineeMaster.findMany({ where: { batchNo } });
 
     const rule = trainees[0]?.process && trainees[0]?.lob
@@ -679,17 +704,18 @@ export async function certifyTrainee(req, res) {
     if (!batchCheck || batchCheck.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
     if (!traineeCheck || traineeCheck.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
 
-    const [trainee, batch] = await Promise.all([
-      prisma.traineeMaster.update({
+    const [trainee, batch] = await prisma.$transaction(async tx => {
+      const t = await tx.traineeMaster.update({
         where: { employeeId },
         data: { certificationStatus: 'Certified' },
-      }),
-      prisma.batchMaster.update({
+      });
+      const b = await tx.batchMaster.update({
         where: { batchNo },
         data: { certified: { increment: 1 } },
         select: { batchNo: true, batchName: true, process: true, lob: true },
-      }),
-    ]);
+      });
+      return [t, b];
+    });
 
     await audit({ userIdentity: req.userId, userRole: 'Coordinator', action: 'CERTIFY_TRAINEE', module: 'Certification', referenceId: employeeId });
 
@@ -718,13 +744,15 @@ export async function handoverTrainee(req, res) {
     if (!batchCheck || batchCheck.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
     const traineeCheck = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!traineeCheck || traineeCheck.batchNo !== req.params.batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
-    await prisma.traineeMaster.update({
-      where: { employeeId },
-      data: { handoverToOps: true },
-    });
-    await prisma.batchMaster.update({
-      where: { batchNo: req.params.batchNo },
-      data: { handoverToOps: { increment: 1 } },
+    await prisma.$transaction(async tx => {
+      await tx.traineeMaster.update({
+        where: { employeeId },
+        data: { handoverToOps: true },
+      });
+      await tx.batchMaster.update({
+        where: { batchNo: req.params.batchNo },
+        data: { handoverToOps: { increment: 1 } },
+      });
     });
     res.json({ ok: true, message: `${employeeId} handed over to OPS.` });
   } catch (err) {
@@ -812,6 +840,7 @@ export async function closeBatchByCoordinator(req, res) {
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
     if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
     if (batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'You are not the coordinator of this batch.' });
+    if (!req.coordinator?.canCloseBatch) return res.status(403).json({ ok: false, message: 'You do not have permission to close batches.' });
     if (batch.batchStatus === 'Completed') return res.status(400).json({ ok: false, message: 'Batch already closed.' });
 
     // Hard check: every active trainee must have been explicitly marked Certified or Attrition
@@ -875,6 +904,10 @@ export async function coordMapEmpId(req, res) {
 
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
+    if (trainee.batchNo) {
+      const batch = await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } });
+      if (!batch || batch.coordinatorLoginId !== req.userId) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    }
     if (!trainee.mobile) return res.status(400).json({ ok: false, message: 'Trainee has no mobile — cannot map.' });
 
     const result = await mapEmployeeId({
@@ -899,10 +932,11 @@ function fmtDate(v) { if (!v) return ''; return new Date(v).toISOString().slice(
 
 function toCsv(headers, rows) {
   const esc = v => {
-    if (v === null || v === undefined) return '';
-    const s = String(v);
-    if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
-    return s;
+    if (v === null || v === undefined) return '""';
+    let s = String(v);
+    // Prefix formula-injection triggers so spreadsheet apps don't execute them
+    if (/^[=+\-@|]/.test(s)) s = '\t' + s;
+    return `"${s.replace(/"/g, '""')}"`;
   };
   return [headers.map(esc).join(','), ...rows.map(r => r.map(esc).join(','))].join('\r\n');
 }

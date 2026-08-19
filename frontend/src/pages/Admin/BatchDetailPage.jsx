@@ -1,23 +1,17 @@
 import { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import { api, downloadCsv } from '../../utils/api.js';
 
 const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile\nEMP1001,John Doe,john@example.com,9876543210\n';
 
 function parseCsvTrainees(text) {
-  const lines = text.trim().split('\n').filter(Boolean);
-  if (lines.length < 2) return [];
-  const header = lines[0].split(',').map(h => h.trim().replace(/"/g, '').toLowerCase());
-  const empIdx = header.findIndex(h => h.includes('emp') || h.includes('id'));
-  const nameIdx = header.findIndex(h => h.includes('name'));
-  const emailIdx = header.findIndex(h => h.includes('email') || h.includes('mail'));
-  const mobileIdx = header.findIndex(h => h.includes('mobile') || h.includes('phone'));
-  return lines.slice(1).map(line => {
-    const cols = line.split(',').map(s => s.trim().replace(/^"|"$/g, ''));
+  const parsed = Papa.parse(String(text || '').trim(), { header: true, skipEmptyLines: true, transformHeader: h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') });
+  return parsed.data.map(row => {
     return {
-      employeeId: (empIdx >= 0 ? cols[empIdx] : cols[0]) || '',
-      traineeName: (nameIdx >= 0 ? cols[nameIdx] : cols[1]) || '',
-      email: (emailIdx >= 0 ? cols[emailIdx] : cols[2]) || '',
-      mobile: (mobileIdx >= 0 ? cols[mobileIdx] : cols[3]) || '',
+      employeeId: row.employeeid || row.empid || row.employeecode || row.empcode || row.id || '',
+      traineeName: row.traineename || row.name || row.fullname || row.employeename || '',
+      email: row.email || row.emailid || row.mail || '',
+      mobile: row.mobile || row.mobilenumber || row.phone || row.contact || '',
     };
   }).filter(t => t.employeeId);
 }

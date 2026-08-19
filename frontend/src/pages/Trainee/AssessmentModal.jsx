@@ -5,7 +5,7 @@ const ENGINE_BASE = '/assessment-intelligence/learner';
 
 function formatTime(seconds) {
   const safe = Math.max(0, Number(seconds || 0));
-  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(safe % 60).padStart(2, '0')}`;
+  return `${String(Math.floor(safe / 60)).padStart(2, '0')}:${String(Math.floor(safe % 60)).padStart(2, '0')}`;
 }
 
 function priorityClass(priority) {
@@ -50,7 +50,7 @@ export default function AssessmentModal({ assessmentId, onClose }) {
     }
     setData(response.data);
     setTimeLeft(Math.max(0, Number(response.data?.assessment?.timeLeftSeconds ?? response.data?.assessment?.effectiveTimeLimitSeconds ?? 0)));
-    startTimer();
+    // Timer starts only when the user clicks "Begin", not here — prevents auto-submit from instructions screen
   }
 
   function startTimer() {
@@ -71,6 +71,7 @@ export default function AssessmentModal({ assessmentId, onClose }) {
   function begin() {
     setStarted(true);
     lastInteractionRef.current = Date.now();
+    startTimer(); // timer only starts when user explicitly begins
   }
 
   function chooseAnswer(questionId, option) {
@@ -83,6 +84,8 @@ export default function AssessmentModal({ assessmentId, onClose }) {
 
   async function submitAssessment(autoSubmitted = false) {
     if (submittedRef.current || submitting || !data?.assessment?.attemptId) return;
+    // Don't auto-submit if user hasn't clicked Begin (timer fired from instructions screen)
+    if (!started && autoSubmitted) return;
     if (!autoSubmitted) {
       const unanswered = data.questions.filter(question => !answers[question.questionId]).length;
       if (unanswered && !window.confirm(`${unanswered} question(s) are unanswered. Submit anyway?`)) return;
@@ -151,7 +154,7 @@ export default function AssessmentModal({ assessmentId, onClose }) {
                 <span className="pill info">{data.questions.length} questions</span>
                 <span className="pill info">{data.assessment.timeLimitMins} effective minutes</span>
                 <span className="pill info">Pass at {data.assessment.passingPct}%</span>
-                <span className="pill">{data.assessment.attemptLimit - data.assessment.attemptsUsed} attempt(s) available</span>
+                <span className="pill">{(data.assessment.attemptLimit ?? '∞')} attempt limit · {data.assessment.attemptsUsed || 0} used</span>
               </div>
               {accommodation && <div className="ok-box" style={{ marginTop: 12 }}><b>Approved accommodation applied.</b> {Number(accommodation.timeMultiplier || 1).toFixed(2)}× time{accommodation.extraBreakMinutes ? ` · ${accommodation.extraBreakMinutes} extra break minutes` : ''}{accommodation.languageCode ? ` · ${accommodation.languageCode}` : ''}.</div>}
               <div className="warn-box" style={{ marginTop: 12 }}>The server timer began when this form was issued. Remaining time: <b>{formatTime(timeLeft)}</b>.</div>

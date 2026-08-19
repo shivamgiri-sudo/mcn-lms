@@ -15,7 +15,7 @@ import { api } from '../../utils/api.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
 
-function buildShimHtml({ entryUrl, learnerId, learnerName, sessionData, packageId, scormVersion, apiBase, token, mastery }) {
+function buildShimHtml({ entryUrl, learnerId, learnerName, sessionData, packageId, scormVersion, apiBase, mastery }) {
   // Normalise existing CMI values from DB
   const cmi = sessionData || {};
   const completionStatus = cmi.completionStatus || 'not attempted';
@@ -81,10 +81,14 @@ function buildShimHtml({ entryUrl, learnerId, learnerName, sessionData, packageI
       location: _data['cmi.location'] || _data['cmi.core.lesson_location'],
       exitStatus: _data['cmi.exit'] || _data['cmi.core.exit'],
     };
+    var csrf = '';
+    try { var m = document.cookie.match(/(?:^|;)\s*lms_trainee_csrf=([^;]*)/); if (m) csrf = decodeURIComponent(m[1]); } catch(e) {}
     var xhr = new XMLHttpRequest();
+    xhr.withCredentials = true;
     xhr.open('POST', ${JSON.stringify(apiBase + '/scorm/session/' + packageId)}, false); // sync for LMSFinish
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Authorization', 'Bearer ' + ${JSON.stringify(token)});
+    xhr.setRequestHeader('x-lms-role', 'trainee');
+    if (csrf) xhr.setRequestHeader('x-csrf-token', csrf);
     xhr.send(JSON.stringify(payload));
     if (onDone) onDone();
   }
@@ -219,7 +223,6 @@ export default function ScormLauncher({ packageId, onClose }) {
   }
 
   const { session, package: pkg, learner } = sessionInfo;
-  const token = localStorage.getItem('lms_token_trainee') || localStorage.getItem('lms_token_admin') || '';
   const apiBase = API_BASE;
 
   // Build absolute entry URL
@@ -235,7 +238,6 @@ export default function ScormLauncher({ packageId, onClose }) {
     packageId,
     scormVersion: pkg.scormVersion,
     apiBase,
-    token,
     mastery: pkg.mastery,
   });
 

@@ -100,7 +100,11 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
 
     // 2. Add trainees if any
     if (trainees.length > 0) {
-      await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees }, 'admin');
+      const traineeRes = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees }, 'admin');
+      if (!traineeRes.ok) {
+        setLoading(false);
+        return setMsg(`Batch created (${batchNo}), but trainees could not be added: ${traineeRes.message || 'Upload failed.'}`);
+      }
     }
 
     setLoading(false);

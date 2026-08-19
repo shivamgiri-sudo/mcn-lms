@@ -1,16 +1,13 @@
 import { useState, useEffect } from 'react';
+import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
 
 function parseCsv(text) {
-  const lines = text.trim().split('\n').filter(Boolean);
-  if (lines.length < 2) return [];
-  const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/[^a-z_]/g, ''));
-  return lines.slice(1).map(line => {
-    const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-    const obj = {};
-    headers.forEach((h, i) => { obj[h] = vals[i] || ''; });
-    return { mobile: obj.mobile || obj['mobile_number'] || '', permanentEmpId: obj.permanentempid || obj.permanent_emp_id || obj.empid || '' };
-  }).filter(r => r.mobile && r.permanentEmpId);
+  const result = Papa.parse(text.trim(), { header: true, skipEmptyLines: true, transformHeader: h => String(h || '').trim().toLowerCase().replace(/[^a-z0-9]/g, '') });
+  return result.data.map(row => ({
+    mobile: row.mobile || row.mobilenumber || row.phone || row.contact || '',
+    permanentEmpId: row.permanentempid || row.empid || row.employeeid || row.employeecode || row.empcode || '',
+  })).filter(r => r.mobile && r.permanentEmpId);
 }
 
 export default function EmpIdMappingUpload() {

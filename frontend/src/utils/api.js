@@ -197,6 +197,7 @@ export const api = {
   put: (url, body, type) => request('PUT', url, body, type),
   patch: (url, body, type) => request('PATCH', url, body, type),
   delete: (url, type) => request('DELETE', url, undefined, type),
+  deleteWithBody: (url, body, type) => request('DELETE', url, body, type),
 };
 
 export async function fetchAuthenticatedBlobUrl(url, type = 'trainee') {
