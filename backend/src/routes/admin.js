@@ -8,12 +8,14 @@ import {
   listContents, createContent, updateContent, deleteContent,
   listFaqs, createFaq, bulkUploadFaqs, updateFaq, deleteFaq,
   listAssessments, createAssessment, updateAssessment, deleteAssessment,
+  attachAssessmentToClassroom, detachAssessmentFromClassroom,
   listAttemptGrantsForAssessment, listAttemptGrantsForTrainee, createAttemptGrant, revokeAttemptGrant,
   listQuestions, uploadQuestions, updateQuestion, deleteQuestion,
   searchTrainees, resetTraineePassword, unlockTrainee, deleteTraineeAccount,
   listCertificationRules, saveCertificationRule, updateCertificationRule, deleteCertificationRule,
   syncClassroomFromDrive,
   assignModule, broadcastModule, broadcastModuleBulk, validateEmployeeIds, getBroadcastTargets,
+  searchBroadcastContent,
   getProcessLobList, saveProcessLob, updateProcessLob, deleteProcessLob,
   exportTrainees,
   syncHistoricalKpi,
@@ -86,6 +88,8 @@ router.get('/assessments', ...auth, listAssessments);
 router.post('/assessments', ...auth, validate(assessmentSchema), createAssessment);
 router.put('/assessments/:assessmentId', ...auth, updateAssessment);
 router.delete('/assessments/:assessmentId', ...auth, deleteAssessment);
+router.put('/assessments/:assessmentId/attach-classroom', ...auth, attachAssessmentToClassroom);
+router.put('/assessments/:assessmentId/detach-classroom', ...auth, detachAssessmentFromClassroom);
 router.get('/assessments/:assessmentId/attempt-grants', ...auth, listAttemptGrantsForAssessment);
 router.post('/assessments/:assessmentId/attempt-grants', ...auth, createAttemptGrant);
 router.post('/attempt-grants/:grantId/revoke', ...auth, revokeAttemptGrant);
@@ -129,6 +133,7 @@ router.post('/broadcast-module', ...auth, broadcastModule);
 router.post('/broadcast-module-bulk', ...auth, broadcastModuleBulk);
 router.post('/validate-employee-ids', ...auth, validateEmployeeIds);
 router.get('/broadcast-targets', ...auth, getBroadcastTargets);
+router.get('/broadcast-search/content', ...auth, searchBroadcastContent);
 router.get('/broadcast-assignments', ...auth, listBroadcastAssignments);
 router.delete('/broadcast-assignments/:batchKey', ...auth, withdrawBroadcastAssignment);
 

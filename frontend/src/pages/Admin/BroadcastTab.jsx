@@ -42,6 +42,23 @@ export default function BroadcastTab() {
     dueDate: '',
   });
 
+  // What to assign — 'module' is the existing classroom -> module flow. 'assessment' and
+  // 'content' are direct-assign modes: pick one specific already-existing Assessment or
+  // Content item (searched across every classroom + the standalone repository) without
+  // first drilling into a classroom/module. See resolveBroadcastTarget in admin.js for how
+  // the backend turns either direct pick into an AssignedModule row.
+  const [assignMode, setAssignMode] = useState('module'); // 'module' | 'assessment' | 'content'
+
+  const [directAssessmentQuery, setDirectAssessmentQuery] = useState('');
+  const [directAssessmentResults, setDirectAssessmentResults] = useState([]);
+  const [directAssessmentLoading, setDirectAssessmentLoading] = useState(false);
+  const [selectedDirectAssessment, setSelectedDirectAssessment] = useState(null);
+
+  const [directContentQuery, setDirectContentQuery] = useState('');
+  const [directContentResults, setDirectContentResults] = useState([]);
+  const [directContentLoading, setDirectContentLoading] = useState(false);
+  const [selectedDirectContent, setSelectedDirectContent] = useState(null);
+
   // Specific Employees state
   const [empSearch, setEmpSearch] = useState('');
   const [empSearchResults, setEmpSearchResults] = useState([]);
@@ -116,7 +133,44 @@ export default function BroadcastTab() {
     return () => clearTimeout(t);
   }, [empSearch]);
 
+  // Direct-assign: search ALL assessments (classroom-bound and standalone) by name.
+  useEffect(() => {
+    if (assignMode !== 'assessment' || directAssessmentQuery.trim().length < 2) { setDirectAssessmentResults([]); return; }
+    const t = setTimeout(async () => {
+      setDirectAssessmentLoading(true);
+      const res = await api.get(`/admin/assessments?q=${encodeURIComponent(directAssessmentQuery)}`, 'admin');
+      setDirectAssessmentLoading(false);
+      if (res.ok) setDirectAssessmentResults(res.data || []);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [assignMode, directAssessmentQuery]);
+
+  // Direct-assign: search classroom content (any classroom) + the standalone content
+  // repository by title, in one combined result list.
+  useEffect(() => {
+    if (assignMode !== 'content' || directContentQuery.trim().length < 2) { setDirectContentResults([]); return; }
+    const t = setTimeout(async () => {
+      setDirectContentLoading(true);
+      const res = await api.get(`/admin/broadcast-search/content?q=${encodeURIComponent(directContentQuery)}`, 'admin');
+      setDirectContentLoading(false);
+      if (res.ok) setDirectContentResults(res.data || []);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [assignMode, directContentQuery]);
+
   function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
+
+  // Switching "What to Assign" mode clears whatever the other two modes had picked, so
+  // stale state (e.g. a module still selected from before) can't leak into a broadcast
+  // sent under a different mode.
+  function changeAssignMode(mode) {
+    setAssignMode(mode);
+    setF('classroomId', ''); setF('moduleId', ''); setF('moduleName', ''); setF('selectedContentIds', []);
+    setUploadMode(false); setUploadFile(null);
+    setSelectedDirectAssessment(null); setDirectAssessmentQuery(''); setDirectAssessmentResults([]);
+    setSelectedDirectContent(null); setDirectContentQuery(''); setDirectContentResults([]);
+    setMcqEnabled(false); setMcqMode('existing'); setExistingAssessmentId('');
+  }
 
   function changeScope(scopeVal) {
     setForm(f => ({ ...f, scope: scopeVal, scopeValue: '', scopeValues: [] }));
@@ -192,7 +246,9 @@ export default function BroadcastTab() {
 
   async function submit(e) {
     e.preventDefault();
-    if (!form.moduleId) return setMsg({ type: 'bad', text: 'Select a module.' });
+    if (assignMode === 'module' && !form.moduleId) return setMsg({ type: 'bad', text: 'Select a module.' });
+    if (assignMode === 'assessment' && !selectedDirectAssessment) return setMsg({ type: 'bad', text: 'Select an assessment to assign.' });
+    if (assignMode === 'content' && !selectedDirectContent) return setMsg({ type: 'bad', text: 'Select a content item to assign.' });
 
     const isMultiScope = ['batch', 'process', 'branch'].includes(form.scope);
     const isBulk = form.scope === 'specific' || isMultiScope;
@@ -204,13 +260,17 @@ export default function BroadcastTab() {
       if (form.scope === 'specific' && selectedEmployees.length === 0) return setMsg({ type: 'bad', text: 'Add at least one employee.' });
     }
 
-    const mcqWantedNew = mcqEnabled && mcqMode === 'new' && mcqName.trim();
-    const mcqWantedExisting = mcqEnabled && mcqMode === 'existing' && existingAssessmentId;
+    // The MCQ-attach panel only applies to the classic classroom/module flow — direct-assign
+    // of a specific Assessment already IS the assessment; direct-assign of a specific Content
+    // item skips it for simplicity (an admin can still create a standalone assessment and
+    // direct-assign that instead).
+    const mcqWantedNew = assignMode === 'module' && mcqEnabled && mcqMode === 'new' && mcqName.trim();
+    const mcqWantedExisting = assignMode === 'module' && mcqEnabled && mcqMode === 'existing' && existingAssessmentId;
     const validQs = mcqWantedNew ? questions.filter(q => q.question.trim() && q.optionA.trim() && q.optionB.trim()) : [];
     if (mcqWantedNew && validQs.length === 0) {
       return setMsg({ type: 'bad', text: 'Add at least one complete question (text + option A + option B) to the attached MCQ.' });
     }
-    if (mcqEnabled && mcqMode === 'existing' && !existingAssessmentId) {
+    if (assignMode === 'module' && mcqEnabled && mcqMode === 'existing' && !existingAssessmentId) {
       return setMsg({ type: 'bad', text: 'Select an existing assessment to attach, or switch to "Create New".' });
     }
 
@@ -248,7 +308,24 @@ export default function BroadcastTab() {
       }
     }
 
-    const basePayload = {
+    // Build the base payload per assign mode. In 'assessment'/'content' mode the backend
+    // (resolveBroadcastTarget in admin.js) resolves moduleId/moduleName itself — reusing the
+    // real module if the picked item already belongs to one, or wrapping it in a thin
+    // independent module if it's standalone — so no moduleId/moduleName is sent from here.
+    const basePayload = assignMode === 'assessment' ? {
+      broadcastTitle: form.broadcastTitle.trim() || null,
+      directAssessmentId: selectedDirectAssessment.assessmentId,
+      assignmentType: form.assignmentType,
+      message: form.message || null,
+      dueDate: form.dueDate || null,
+    } : assignMode === 'content' ? {
+      broadcastTitle: form.broadcastTitle.trim() || null,
+      directContentId: selectedDirectContent.contentId,
+      directContentSource: selectedDirectContent.source,
+      assignmentType: form.assignmentType,
+      message: form.message || null,
+      dueDate: form.dueDate || null,
+    } : {
       broadcastTitle: form.broadcastTitle.trim() || null,
       moduleId: form.moduleId,
       moduleName: form.moduleName,
@@ -282,13 +359,18 @@ export default function BroadcastTab() {
     setLoading(false);
     if (res.ok) {
       const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
-      let successText = res.message || `Module "${form.moduleName}" assigned to ${scopeLabel}.`;
+      const targetLabel = assignMode === 'assessment' ? `Assessment "${selectedDirectAssessment.assessmentName}"`
+        : assignMode === 'content' ? `Content "${selectedDirectContent.title}"`
+        : `Module "${form.moduleName}"`;
+      let successText = res.message || `${targetLabel} assigned to ${scopeLabel}.`;
       if (mcqWantedExisting) successText += ' + existing MCQ attached.';
       else if (mcqWantedNew) successText += ' + MCQ created.';
       setMsg({ type: 'ok', text: successText });
       setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', scopeValues: [], message: '', dueDate: '', selectedContentIds: [] }));
       setSelectedEmployees([]); setPasteText(''); setPasteResult(null); setDesignationFilter('');
       setQuestions([EMPTY_MCQ()]); setMcqEnabled(false); setMcqName(''); setMcqMode('existing'); setExistingAssessmentId('');
+      setSelectedDirectAssessment(null); setDirectAssessmentQuery(''); setDirectAssessmentResults([]);
+      setSelectedDirectContent(null); setDirectContentQuery(''); setDirectContentResults([]);
     } else {
       setMsg({ type: 'bad', text: res.message || 'Broadcast failed.' });
     }
@@ -508,32 +590,118 @@ export default function BroadcastTab() {
               </div>
             )}
 
-            {/* Step 3: Module */}
+            {/* Step 3: What to assign */}
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
-                Step {2 + stepBase} — Select Module
+                Step {2 + stepBase} — What to Assign
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                <div className="field" style={{ margin: 0 }}>
-                  <label>Classroom</label>
-                  <select className="select" value={form.classroomId} onChange={e => setF('classroomId', e.target.value)} required>
-                    <option value="">Select classroom…</option>
-                    {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
-                  </select>
-                </div>
-                <div className="field" style={{ margin: 0 }}>
-                  <label>Module</label>
-                  <select className="select" value={form.moduleId} disabled={!form.classroomId}
-                    onChange={e => { const m = modules.find(m => m.moduleId === e.target.value); setF('moduleId', e.target.value); setF('moduleName', m?.moduleTitle || ''); }} required>
-                    <option value="">{form.classroomId ? 'Select module…' : 'Select classroom first'}</option>
-                    {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} — {m.moduleTitle}</option>)}
-                  </select>
-                </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+                {[
+                  ['module', 'Classroom Module', 'Pick a classroom → module (whole module\'s content)'],
+                  ['assessment', 'Specific Assessment', 'Search any assessment — classroom-bound or standalone'],
+                  ['content', 'Specific Content', 'Search any content item — classroom or repository'],
+                ].map(([val, label, desc]) => (
+                  <div key={val} onClick={() => changeAssignMode(val)} style={{
+                    border: `2px solid ${assignMode === val ? 'var(--brand)' : 'var(--line)'}`,
+                    borderRadius: 10, padding: '10px 12px', cursor: 'pointer',
+                    background: assignMode === val ? 'rgba(29,78,216,.08)' : 'var(--card)',
+                  }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: assignMode === val ? 'var(--brand)' : 'var(--ink)' }}>{label}</div>
+                    <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 3, lineHeight: 1.4 }}>{desc}</div>
+                  </div>
+                ))}
               </div>
+
+              {assignMode === 'module' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Classroom</label>
+                    <select className="select" value={form.classroomId} onChange={e => setF('classroomId', e.target.value)} required>
+                      <option value="">Select classroom…</option>
+                      {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+                    </select>
+                  </div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Module</label>
+                    <select className="select" value={form.moduleId} disabled={!form.classroomId}
+                      onChange={e => { const m = modules.find(m => m.moduleId === e.target.value); setF('moduleId', e.target.value); setF('moduleName', m?.moduleTitle || ''); }} required>
+                      <option value="">{form.classroomId ? 'Select module…' : 'Select classroom first'}</option>
+                      {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} — {m.moduleTitle}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              {assignMode === 'assessment' && (
+                <div>
+                  <div className="field" style={{ margin: 0, position: 'relative' }}>
+                    <label>Search assessments by name</label>
+                    <input className="input" placeholder="e.g. Week 3 MCQ" value={directAssessmentQuery}
+                      onChange={e => { setDirectAssessmentQuery(e.target.value); setSelectedDirectAssessment(null); }} />
+                    {directAssessmentLoading && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Searching…</span>}
+                  </div>
+                  {directAssessmentResults.length > 0 && !selectedDirectAssessment && (
+                    <div style={{ marginTop: 8, border: '1.5px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
+                      {directAssessmentResults.map(a => (
+                        <div key={a.assessmentId} onClick={() => { setSelectedDirectAssessment(a); setDirectAssessmentQuery(a.assessmentName); setDirectAssessmentResults([]); }}
+                          style={{ padding: '9px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}>
+                          <div style={{ fontWeight: 700 }}>{a.assessmentName}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                            {a._count?.questions ?? 0} question{a._count?.questions === 1 ? '' : 's'} · pass {a.passingPct}%
+                            {a.classroomId ? ' · classroom-bound' : ' · standalone'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedDirectAssessment && (
+                    <div style={{ marginTop: 10, background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ok)' }}>✓ {selectedDirectAssessment.assessmentName}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{selectedDirectAssessment.classroomId ? 'Already classroom-bound — that classroom/module will be used.' : 'Standalone — will be wrapped for direct delivery.'}</div>
+                      </div>
+                      <button type="button" className="btn small secondary" onClick={() => { setSelectedDirectAssessment(null); setDirectAssessmentQuery(''); }}>Change</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {assignMode === 'content' && (
+                <div>
+                  <div className="field" style={{ margin: 0, position: 'relative' }}>
+                    <label>Search content by title</label>
+                    <input className="input" placeholder="e.g. KYC Refresher Deck" value={directContentQuery}
+                      onChange={e => { setDirectContentQuery(e.target.value); setSelectedDirectContent(null); }} />
+                    {directContentLoading && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Searching…</span>}
+                  </div>
+                  {directContentResults.length > 0 && !selectedDirectContent && (
+                    <div style={{ marginTop: 8, border: '1.5px solid var(--line)', borderRadius: 10, maxHeight: 220, overflowY: 'auto' }}>
+                      {directContentResults.map(c => (
+                        <div key={`${c.source}-${c.contentId}`} onClick={() => { setSelectedDirectContent(c); setDirectContentQuery(c.title); setDirectContentResults([]); }}
+                          style={{ padding: '9px 12px', borderBottom: '1px solid var(--line)', cursor: 'pointer', fontSize: 13 }}>
+                          <div style={{ fontWeight: 700 }}>{c.title}</div>
+                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                            {c.contentType} · {c.source === 'classroom' ? `${c.classroomName || 'classroom'} / ${c.moduleTitle || 'module'}` : 'standalone repository'}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {selectedDirectContent && (
+                    <div style={{ marginTop: 10, background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: 10, padding: '10px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ok)' }}>✓ {selectedDirectContent.title}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{selectedDirectContent.source === 'classroom' ? 'Already in a classroom module — that classroom/module will be used.' : 'Standalone repository item — will be wrapped for direct delivery.'}</div>
+                      </div>
+                      <button type="button" className="btn small secondary" onClick={() => { setSelectedDirectContent(null); setDirectContentQuery(''); }}>Change</button>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Content picker */}
-            {form.moduleId && contents.length > 0 && (
+            {assignMode === 'module' && form.moduleId && contents.length > 0 && (
               <div style={{ marginBottom: 20, background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', padding: '14px 16px' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4, marginBottom: 10 }}>
                   Content from Module <span style={{ fontWeight: 400 }}>(optional — leave blank for all)</span>
@@ -557,8 +725,8 @@ export default function BroadcastTab() {
               </div>
             )}
 
-            {/* Direct upload */}
-            {form.moduleId && (
+            {/* Direct upload — classic classroom/module flow only */}
+            {assignMode === 'module' && form.moduleId && (
               <div style={{ marginBottom: 20 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .4 }}>Upload New Content</div>
@@ -617,7 +785,9 @@ export default function BroadcastTab() {
               </div>
             </div>
 
-            {/* Optional MCQ */}
+            {/* Optional MCQ — classic classroom/module flow only; direct-assign an
+                Assessment IS the test, and direct-assign Content skips this for simplicity */}
+            {assignMode === 'module' && (
             <div style={{ marginBottom: 24, border: `2px solid ${mcqEnabled ? 'var(--brand)' : 'var(--line)'}`, borderRadius: 12, overflow: 'hidden' }}>
               <div onClick={() => setMcqEnabled(v => !v)} style={{
                 display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px', cursor: 'pointer',
@@ -742,6 +912,7 @@ export default function BroadcastTab() {
                 </div>
               )}
             </div>
+            )}
 
             <button type="submit" className="btn" style={{ width: '100%', justifyContent: 'center' }} disabled={loading}>
               {loading ? 'Broadcasting…' : `📢 Broadcast to ${SCOPE_OPTIONS.find(s => s.value === form.scope)?.label}`}

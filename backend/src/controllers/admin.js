@@ -6,6 +6,7 @@ import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } f
 import * as cache from '../utils/cache.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
+import { ensureContentRepositoryTable, ensureIndependentWrapperForAssessment, ensureIndependentWrapperForContent } from '../services/independentModules.js';
 import path from 'path';
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -544,8 +545,11 @@ function parseAssessmentOrder(name) {
 
 export async function listAssessments(req, res) {
   try {
-    const { classroomId } = req.query;
-    const where = classroomId ? { classroomId } : {};
+    const { classroomId, q, standaloneOnly } = req.query;
+    const where = {};
+    if (classroomId) where.classroomId = classroomId;
+    if (standaloneOnly === 'true' || standaloneOnly === '1') where.classroomId = null;
+    if (q && q.trim()) where.assessmentName = { contains: q.trim() };
     const assessments = await prisma.assessmentMaster.findMany({
       where,
       orderBy: [{ moduleId: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -560,7 +564,12 @@ export async function listAssessments(req, res) {
 export async function createAssessment(req, res) {
   try {
     const { classroomId, dayNo, moduleId, assessmentName, passingPct, attemptLimit, timeLimitMins, instructions } = req.body;
-    if (!classroomId || !assessmentName) return res.status(400).json({ ok: false, message: 'Classroom and name required.' });
+    // classroomId is optional — a standalone assessment (classroomId: null,
+    // moduleId: null) can be created directly and attached to a classroom
+    // later via attach-classroom.
+    if (!assessmentName) return res.status(400).json({ ok: false, message: 'Assessment name is required.' });
+    // A moduleId only makes sense scoped to a classroom.
+    const resolvedModuleId = classroomId ? (moduleId || null) : null;
 
     // Extract sort order from numeric prefix in name (e.g. "1_MCQ" → 10000, "2. Quiz" → 20000)
     const sortOrder = parseAssessmentOrder(assessmentName);
@@ -568,9 +577,9 @@ export async function createAssessment(req, res) {
     const assessmentId = `ASS-${generateId()}`;
     const a = await prisma.assessmentMaster.create({
       data: {
-        assessmentId, classroomId,
+        assessmentId, classroomId: classroomId || null,
         dayNo: dayNo ? parseInt(dayNo) : null,
-        moduleId: moduleId || null,
+        moduleId: resolvedModuleId,
         sortOrder,
         assessmentName,
         passingPct: parseFloat(passingPct || 60),
@@ -582,6 +591,125 @@ export async function createAssessment(req, res) {
 
     res.json({ ok: true, data: a });
   } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// Attach a previously-standalone (or currently classroom-bound) assessment to
+// a real classroom + optional module. "Later if we want to add it in any
+// classroom we should be able to" — this is that escape hatch.
+export async function attachAssessmentToClassroom(req, res) {
+  try {
+    const { assessmentId } = req.params;
+    const { classroomId, moduleId } = req.body;
+    if (!classroomId) return res.status(400).json({ ok: false, message: 'classroomId is required.' });
+
+    const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
+    if (!assessment) return res.status(404).json({ ok: false, message: 'Assessment not found.' });
+
+    const classroom = await prisma.classroomMaster.findUnique({ where: { classroomId } });
+    if (!classroom) return res.status(404).json({ ok: false, message: 'Classroom not found.' });
+
+    if (moduleId) {
+      const mod = await prisma.moduleMaster.findUnique({ where: { moduleId } });
+      if (!mod || mod.classroomId !== classroomId) {
+        return res.status(400).json({ ok: false, message: 'That module does not belong to the selected classroom.' });
+      }
+    }
+
+    const updated = await prisma.assessmentMaster.update({
+      where: { assessmentId },
+      data: { classroomId, moduleId: moduleId || null },
+    });
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'ATTACH_ASSESSMENT_TO_CLASSROOM',
+      module: 'Assessment', referenceId: assessmentId,
+      newValue: { classroomId, moduleId: moduleId || null },
+    });
+
+    res.json({ ok: true, data: updated });
+  } catch (err) {
+    console.error('[attachAssessmentToClassroom]', err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// Reverse of attach — detaches an assessment back to standalone (classroomId/moduleId
+// both null). The assessment row, its questions, attempts and results are untouched.
+export async function detachAssessmentFromClassroom(req, res) {
+  try {
+    const { assessmentId } = req.params;
+    const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
+    if (!assessment) return res.status(404).json({ ok: false, message: 'Assessment not found.' });
+
+    const updated = await prisma.assessmentMaster.update({
+      where: { assessmentId },
+      data: { classroomId: null, moduleId: null },
+    });
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'DETACH_ASSESSMENT_FROM_CLASSROOM',
+      module: 'Assessment', referenceId: assessmentId,
+    });
+
+    res.json({ ok: true, data: updated });
+  } catch (err) {
+    console.error('[detachAssessmentFromClassroom]', err);
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// Search across BOTH classroom-scoped content (ContentMaster, any classroom) and the
+// standalone content repository (content_repository_master) by title, for BroadcastTab's
+// "Assign a specific Content item" direct-assign mode — an admin should not have to drill
+// into a classroom first just to find one piece of content to broadcast.
+export async function searchBroadcastContent(req, res) {
+  try {
+    const q = String(req.query.q || '').trim();
+    if (q.length < 2) return res.json({ ok: true, data: [] });
+    const likeQ = `%${q.replace(/[%_]/g, '')}%`;
+
+    const [classroomRows, repoRows] = await Promise.all([
+      prisma.contentMaster.findMany({
+        where: { active: true, contentTitle: { contains: q } },
+        include: { module: { include: { classroom: true } } },
+        take: 25,
+        orderBy: { updatedAt: 'desc' },
+      }),
+      ensureContentRepositoryTable().then(() => prisma.$queryRawUnsafe(
+        'SELECT * FROM content_repository_master WHERE status = ? AND title LIKE ? ORDER BY updated_at DESC LIMIT 25',
+        'Active', likeQ,
+      )),
+    ]);
+
+    const classroomResults = classroomRows.map(c => ({
+      source: 'classroom',
+      contentId: c.contentId,
+      title: c.contentTitle,
+      contentType: c.contentType,
+      moduleId: c.moduleId,
+      moduleTitle: c.module?.moduleTitle || null,
+      classroomId: c.module?.classroomId || null,
+      classroomName: c.module?.classroom?.classroomName || null,
+    }));
+    const repoResults = (repoRows || []).map(r => ({
+      source: 'repository',
+      contentId: r.repository_content_id,
+      title: r.title,
+      contentType: r.content_type,
+      moduleId: null,
+      moduleTitle: null,
+      classroomId: null,
+      classroomName: null,
+      process: r.process,
+      lob: r.lob,
+      category: r.category,
+    }));
+
+    res.json({ ok: true, data: [...classroomResults, ...repoResults] });
+  } catch (err) {
+    console.error('[searchBroadcastContent]', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
@@ -1051,13 +1179,76 @@ export async function assignModule(req, res) {
   }
 }
 
+// Resolves what a broadcast actually assigns to AssignedModule.moduleId/moduleName.
+//
+// Three mutually-exclusive input shapes, in priority order:
+//   1. directAssessmentId  — admin picked "Assign a specific Assessment" (BroadcastTab
+//      direct-assign mode), searched across ALL assessments regardless of classroom.
+//      If that assessment already belongs to a real ModuleMaster row, we reuse that
+//      moduleId/moduleName as-is (no wrapper). Otherwise (a standalone assessment with
+//      no classroomId/moduleId) we get-or-create a thin independent_module_master wrapper
+//      keyed IND-ASSESSMENT-<assessmentId> — see ensureIndependentWrapperForAssessment.
+//   2. directContentId (+ directContentSource: 'classroom' | 'repository') — admin picked
+//      "Assign a specific Content item". A classroom ContentMaster row already has a real
+//      moduleId, reused as-is with contentIds:[directContentId] filtering it down to just
+//      that item. A content_repository_master row has no classroom/module at all, so it
+//      gets the same independent_module_master wrapper treatment, keyed
+//      IND-CONTENT-<repositoryContentId> — see ensureIndependentWrapperForContent.
+//   3. moduleId + moduleName — the existing classroom -> module broadcast flow, untouched.
+//
+// Either way the trainee side needs zero changes: enrichIndependentAssignments() in
+// routes/traineeStability.js already resolves an AssignedModule.moduleId that points at an
+// independent_module_master row exactly the same way it resolves auto-assigned ones.
+async function resolveBroadcastTarget(body, createdBy) {
+  const { moduleId, moduleName, contentIds, assessmentId, directAssessmentId, directContentId, directContentSource } = body;
+
+  if (directAssessmentId) {
+    const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId: directAssessmentId } });
+    if (!assessment) return { error: 'Assessment not found.' };
+    if (assessment.moduleId) {
+      const mod = await prisma.moduleMaster.findUnique({ where: { moduleId: assessment.moduleId } });
+      if (mod) {
+        return { moduleId: mod.moduleId, moduleName: mod.moduleTitle, assessmentId: directAssessmentId, contentIds: null };
+      }
+    }
+    const wrapperModuleId = await ensureIndependentWrapperForAssessment({
+      assessmentId: directAssessmentId, assessmentName: assessment.assessmentName, createdBy,
+    });
+    return { moduleId: wrapperModuleId, moduleName: assessment.assessmentName, assessmentId: directAssessmentId, contentIds: null };
+  }
+
+  if (directContentId) {
+    if (directContentSource === 'repository') {
+      const rows = await prisma.$queryRawUnsafe(
+        'SELECT * FROM content_repository_master WHERE repository_content_id = ? AND status = ?',
+        directContentId, 'Active',
+      );
+      const repo = rows?.[0];
+      if (!repo) return { error: 'Repository content item not found.' };
+      const wrapperModuleId = await ensureIndependentWrapperForContent({
+        repositoryContentId: directContentId, title: repo.title, createdBy,
+      });
+      return { moduleId: wrapperModuleId, moduleName: repo.title, assessmentId: assessmentId || null, contentIds: null };
+    }
+    const content = await prisma.contentMaster.findUnique({ where: { contentId: directContentId }, include: { module: true } });
+    if (!content) return { error: 'Content item not found.' };
+    return { moduleId: content.moduleId, moduleName: content.module?.moduleTitle || moduleName || content.contentTitle, assessmentId: assessmentId || null, contentIds: [directContentId] };
+  }
+
+  if (!moduleId || !moduleName) return { error: 'moduleId and moduleName are required.' };
+  return { moduleId, moduleName, assessmentId: assessmentId || null, contentIds: Array.isArray(contentIds) && contentIds.length ? contentIds : null };
+}
+
 // Broadcast a module to a group: process, branch, company, or multiple batches
 export async function broadcastModule(req, res) {
   try {
-    const { moduleId, moduleName, broadcastTitle, scope, scopeValue, assignmentType, message, dueDate, contentIds, assessmentId } = req.body;
-    if (!moduleId || !moduleName || !scope) {
-      return res.status(400).json({ ok: false, message: 'moduleId, moduleName and scope are required.' });
+    const { broadcastTitle, scope, scopeValue, assignmentType, message, dueDate } = req.body;
+    if (!scope) {
+      return res.status(400).json({ ok: false, message: 'scope is required.' });
     }
+    const resolved = await resolveBroadcastTarget(req.body, req.userId);
+    if (resolved.error) return res.status(400).json({ ok: false, message: resolved.error });
+    const { moduleId, moduleName, assessmentId, contentIds } = resolved;
     if (req.userBranch && scope === 'branch' && scopeValue !== req.userBranch) {
       return res.status(403).json({ ok: false, message: 'You can only broadcast to your own branch.' });
     }
@@ -1109,10 +1300,10 @@ export async function broadcastModule(req, res) {
 //   2. scopeType + scopeValues[]  — expand multiple batches/processes/branches to individuals
 export async function broadcastModuleBulk(req, res) {
   try {
-    const { moduleId, moduleName, broadcastTitle, employeeIds, scopeType, scopeValues, assignmentType, message, dueDate, assessmentId } = req.body;
-    if (!moduleId || !moduleName) {
-      return res.status(400).json({ ok: false, message: 'moduleId and moduleName are required.' });
-    }
+    const { broadcastTitle, employeeIds, scopeType, scopeValues, assignmentType, message, dueDate } = req.body;
+    const resolved = await resolveBroadcastTarget(req.body, req.userId);
+    if (resolved.error) return res.status(400).json({ ok: false, message: resolved.error });
+    const { moduleId, moduleName, assessmentId } = resolved;
 
     let trainees = [];
     let notFound = [];

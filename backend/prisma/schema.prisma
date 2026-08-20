@@ -361,7 +361,11 @@ model TraineeClassroomMap {
 model AssessmentMaster {
   id             String   @id @default(uuid())
   assessmentId   String   @unique @map("assessment_id")
-  classroomId    String   @map("classroom_id")
+  // Nullable — a standalone assessment (created outside any classroom, e.g.
+  // from the Broadcast tab's "Assign a specific Assessment" flow) has no
+  // classroomId/moduleId at all until an admin later attaches it to a real
+  // classroom via PUT /admin/assessments/:assessmentId/attach-classroom.
+  classroomId    String?  @map("classroom_id")
   dayNo          Int?     @map("day_no")
   moduleId       String?  @map("module_id")
   assessmentName String   @map("assessment_name")
@@ -379,7 +383,7 @@ model AssessmentMaster {
   results        AssessmentResult[]
   attemptGrants  AssessmentAttemptGrant[]
 
-  classroomRel ClassroomMaster  @relation(fields: [classroomId], references: [classroomId])
+  classroomRel ClassroomMaster? @relation(fields: [classroomId], references: [classroomId])
   moduleRel    ModuleMaster?    @relation(fields: [moduleId], references: [moduleId])
 
   @@map("assessment_master")

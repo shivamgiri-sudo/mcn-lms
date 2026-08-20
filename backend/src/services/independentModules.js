@@ -173,3 +173,87 @@ export async function autoAssignModulesForNewUser({ employeeId, branch, process,
 export function newIndependentId(prefix) {
   return generateId(prefix);
 }
+
+// ── Direct-broadcast wrappers ───────────────────────────────────────────────
+// A "direct" broadcast (admin picks one specific already-existing Assessment
+// or Content item, without first drilling into a classroom/module) still has
+// to land on AssignedModule.moduleId — that column is required. When the
+// picked item already belongs to a real classroom/module we just reuse that
+// moduleId directly (see resolveBroadcastTarget in controllers/admin.js).
+// When it does NOT (a standalone assessment, or a content_repository_master
+// item), we get-or-create a thin independent_module_master row that wraps
+// just that one item, keyed deterministically so re-broadcasting the same
+// item reuses the same wrapper instead of creating duplicates. Zero
+// trainee-side changes are needed — enrichIndependentAssignments() in
+// routes/traineeStability.js already knows how to render any
+// independent_module_master-backed assignment.
+
+export function assessmentWrapperModuleId(assessmentId) {
+  return `IND-ASSESSMENT-${assessmentId}`;
+}
+
+export function contentWrapperModuleId(repositoryContentId) {
+  return `IND-CONTENT-${repositoryContentId}`;
+}
+
+// Get-or-create the wrapper module for a standalone assessment (no content
+// map row needed — the trainee-side assessment is resolved separately, off
+// AssignedModule.assessmentId, by attachAssessmentsToAssignments).
+export async function ensureIndependentWrapperForAssessment({ assessmentId, assessmentName, createdBy = null }) {
+  await ensureIndependentModuleTables();
+  const moduleId = assessmentWrapperModuleId(assessmentId);
+  const name = clean(assessmentName) || moduleId;
+  const existing = await prisma.$queryRawUnsafe(
+    'SELECT module_id FROM independent_module_master WHERE module_id = ?',
+    moduleId,
+  );
+  if (!existing?.length) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO independent_module_master (id, module_id, module_name, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'Active', ?, NOW(), NOW())`,
+      generateId('IMM'), moduleId, name, createdBy,
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `UPDATE independent_module_master SET status = 'Active', module_name = ? WHERE module_id = ?`,
+      name, moduleId,
+    );
+  }
+  return moduleId;
+}
+
+// Get-or-create the wrapper module for a standalone content_repository_master
+// item, plus the single content-map row that ties the wrapper to it.
+export async function ensureIndependentWrapperForContent({ repositoryContentId, title, createdBy = null }) {
+  await ensureIndependentModuleTables();
+  const moduleId = contentWrapperModuleId(repositoryContentId);
+  const name = clean(title) || moduleId;
+  const existing = await prisma.$queryRawUnsafe(
+    'SELECT module_id FROM independent_module_master WHERE module_id = ?',
+    moduleId,
+  );
+  if (!existing?.length) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO independent_module_master (id, module_id, module_name, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'Active', ?, NOW(), NOW())`,
+      generateId('IMM'), moduleId, name, createdBy,
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `UPDATE independent_module_master SET status = 'Active', module_name = ? WHERE module_id = ?`,
+      name, moduleId,
+    );
+  }
+  const mapExisting = await prisma.$queryRawUnsafe(
+    'SELECT id FROM independent_module_content_map WHERE module_id = ? AND repository_content_id = ?',
+    moduleId, repositoryContentId,
+  );
+  if (!mapExisting?.length) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO independent_module_content_map (id, module_id, repository_content_id, sort_order, required, active, created_at)
+       VALUES (?, ?, ?, 0, 1, 1, NOW())`,
+      generateId('IMC'), moduleId, repositoryContentId,
+    );
+  }
+  return moduleId;
+}

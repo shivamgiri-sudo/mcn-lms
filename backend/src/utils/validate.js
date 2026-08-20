@@ -61,7 +61,9 @@ const formNumber = value => {
 
 export const assessmentSchema = z.object({
   assessmentName: z.string().min(1, 'Assessment name required'),
-  classroomId: z.string().min(1, 'Classroom required'),
+  // Optional — a standalone assessment (no classroom yet) has this omitted/null
+  // and can be attached to a classroom later via attach-classroom.
+  classroomId: z.string().min(1).optional().nullable(),
   dayNo: z.preprocess(formNumber, z.number().int().optional().nullable()),
   moduleId: z.string().optional().nullable(),
   sortOrder: z.preprocess(formNumber, z.number().int().optional().default(0)),

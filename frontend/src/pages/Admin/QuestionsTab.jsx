@@ -208,9 +208,9 @@ export default function QuestionsTab() {
               <input className="input" required value={aForm.assessmentName} onChange={e => setAForm(f => ({...f,assessmentName:e.target.value}))} />
             </div>
             <div>
-              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Classroom *</label>
-              <select className="input" required value={aForm.classroomId} onChange={e => setAForm(f => ({...f,classroomId:e.target.value,moduleId:''}))}>
-                <option value="">-- Select Classroom --</option>
+              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Classroom <span style={{fontWeight:400,color:'var(--muted)'}}>(optional — leave blank for a standalone assessment)</span></label>
+              <select className="input" value={aForm.classroomId} onChange={e => setAForm(f => ({...f,classroomId:e.target.value,moduleId:''}))}>
+                <option value="">-- No classroom (standalone) --</option>
                 {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
               </select>
             </div>
@@ -307,7 +307,9 @@ export default function QuestionsTab() {
                   <span style={{fontSize:'12px',color:'var(--muted)',marginLeft:'10px'}}>{questions.length} questions</span>
                   {selected.moduleId
                     ? <span style={{fontSize:'11px',color:'var(--ok)',marginLeft:8}}>✓ Linked</span>
-                    : <span style={{fontSize:'11px',color:'var(--warn)',marginLeft:8}}>⚠ Not linked to any module — learners won't see this</span>
+                    : selected.classroomId
+                      ? <span style={{fontSize:'11px',color:'var(--warn)',marginLeft:8}}>⚠ Not linked to any module — learners won't see this</span>
+                      : <span style={{fontSize:'11px',color:'var(--muted)',marginLeft:8}}>◇ Standalone — no classroom yet. Broadcast it directly from the Broadcast tab, or attach a classroom below.</span>
                   }
                 </div>
                 <div style={{display:'flex',gap:6}}>
@@ -320,6 +322,10 @@ export default function QuestionsTab() {
                   </button>
                 </div>
               </div>
+              {!selected.classroomId && (
+                <AttachToClassroomPanel assessmentId={selected.assessmentId} classrooms={classrooms}
+                  onAttached={a => { setSelected(a); api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data)); }} />
+              )}
               {!selected.moduleId && selected.classroomId && (
                 <LinkToModulePanel assessmentId={selected.assessmentId} classroomId={selected.classroomId} onLinked={a => { setSelected(a); api.get('/admin/assessments', 'admin').then(r => r.ok && setAssessments(r.data)); }} />
               )}
@@ -777,6 +783,67 @@ function ManageAttemptsPanel({ assessment }) {
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// Attaches a fully standalone assessment (no classroomId at all) to a real classroom, and
+// optionally a module within it, via PUT /admin/assessments/:assessmentId/attach-classroom.
+// The "later if we want to add it in any classroom we should be able to" escape hatch.
+function AttachToClassroomPanel({ assessmentId, classrooms, onAttached }) {
+  const [show, setShow] = useState(false);
+  const [classroomId, setClassroomId] = useState('');
+  const [moduleId, setModuleId] = useState('');
+  const [modules, setModules] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (classroomId) api.get(`/admin/classrooms/${classroomId}/modules`, 'admin').then(r => r.ok && setModules(r.data || []));
+    else setModules([]);
+    setModuleId('');
+  }, [classroomId]);
+
+  async function attach() {
+    if (!classroomId) return;
+    setSaving(true); setError('');
+    const res = await api.put(`/admin/assessments/${assessmentId}/attach-classroom`, { classroomId, moduleId: moduleId || undefined }, 'admin');
+    setSaving(false);
+    if (res.ok) onAttached(res.data);
+    else setError(res.message || 'Could not attach classroom.');
+  }
+
+  if (!show) {
+    return (
+      <div className="toast" style={{marginBottom:12,fontSize:12,display:'flex',alignItems:'center',gap:8}}>
+        <span>This assessment is standalone — broadcast it directly, or attach it to a classroom.</span>
+        <button className="btn small" onClick={() => setShow(true)}>Attach to Classroom</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{background:'var(--card)',border:'1px solid var(--line)',borderRadius:'var(--radius)',padding:'14px',marginBottom:'14px'}}>
+      <b style={{fontSize:13}}>Attach to Classroom</b>
+      <div style={{display:'flex',gap:10,marginTop:10,alignItems:'flex-end',flexWrap:'wrap'}}>
+        <div style={{flex:1,minWidth:160}}>
+          <label style={{display:'block',fontSize:'11px',fontWeight:'600',marginBottom:'4px'}}>Classroom</label>
+          <select className="input" value={classroomId} onChange={e => setClassroomId(e.target.value)}>
+            <option value="">-- Select classroom --</option>
+            {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1,minWidth:160}}>
+          <label style={{display:'block',fontSize:'11px',fontWeight:'600',marginBottom:'4px'}}>Module <span style={{fontWeight:400,color:'var(--muted)'}}>(optional)</span></label>
+          <select className="input" value={moduleId} disabled={!classroomId} onChange={e => setModuleId(e.target.value)}>
+            <option value="">-- No module link --</option>
+            {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} · {m.moduleTitle}</option>)}
+          </select>
+        </div>
+        <button className="btn small" onClick={attach} disabled={saving || !classroomId}>{saving ? 'Attaching...' : 'Attach'}</button>
+        <button className="btn small secondary" onClick={() => setShow(false)}>Cancel</button>
+      </div>
+      {error && <div style={{fontSize:11,color:'var(--danger)',marginTop:8}}>{error}</div>}
     </div>
   );
 }
