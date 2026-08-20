@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { api } from '../../utils/api.js';
 
 const SCOPE_OPTIONS = [
@@ -45,9 +45,11 @@ export default function BroadcastTab() {
   // What to assign — 'module' is the existing classroom -> module flow. 'assessment' and
   // 'content' are direct-assign modes: pick one specific already-existing Assessment or
   // Content item (searched across every classroom + the standalone repository) without
-  // first drilling into a classroom/module. See resolveBroadcastTarget in admin.js for how
-  // the backend turns either direct pick into an AssignedModule row.
-  const [assignMode, setAssignMode] = useState('module'); // 'module' | 'assessment' | 'content'
+  // first drilling into a classroom/module. 'day' is a third direct-assign mode: pick a
+  // classroom + day number and broadcast every module's active content for that day as one
+  // assignment. See resolveBroadcastTarget in admin.js for how the backend turns any direct
+  // pick into an AssignedModule row.
+  const [assignMode, setAssignMode] = useState('module'); // 'module' | 'assessment' | 'content' | 'day'
 
   const [directAssessmentQuery, setDirectAssessmentQuery] = useState('');
   const [directAssessmentResults, setDirectAssessmentResults] = useState([]);
@@ -58,6 +60,11 @@ export default function BroadcastTab() {
   const [directContentResults, setDirectContentResults] = useState([]);
   const [directContentLoading, setDirectContentLoading] = useState(false);
   const [selectedDirectContent, setSelectedDirectContent] = useState(null);
+
+  // Direct-assign "A Specific Day": classroom picked via form.classroomId (shared with
+  // 'module' mode's classroom select, which already fetches that classroom's modules into
+  // `modules`); the day number itself is local state, derived options come from `modules`.
+  const [directDayNo, setDirectDayNo] = useState('');
 
   // Specific Employees state
   const [empSearch, setEmpSearch] = useState('');
@@ -160,15 +167,30 @@ export default function BroadcastTab() {
 
   function setF(k, v) { setForm(f => ({ ...f, [k]: v })); }
 
-  // Switching "What to Assign" mode clears whatever the other two modes had picked, so
-  // stale state (e.g. a module still selected from before) can't leak into a broadcast
-  // sent under a different mode.
+  // Group the selected classroom's modules by dayNo for the "A Specific Day" picker —
+  // `modules` is already fetched (with dayNo, moduleOrder, _count.contents) by the effect
+  // keyed off form.classroomId, so no extra endpoint is needed.
+  const dayGroups = useMemo(() => {
+    const byDay = new Map();
+    for (const m of modules) {
+      const existing = byDay.get(m.dayNo) || { dayNo: m.dayNo, moduleCount: 0, contentCount: 0 };
+      existing.moduleCount += 1;
+      existing.contentCount += m._count?.contents || 0;
+      byDay.set(m.dayNo, existing);
+    }
+    return [...byDay.values()].sort((a, b) => a.dayNo - b.dayNo);
+  }, [modules]);
+
+  // Switching "What to Assign" mode clears whatever the other modes had picked, so stale
+  // state (e.g. a module still selected from before) can't leak into a broadcast sent
+  // under a different mode.
   function changeAssignMode(mode) {
     setAssignMode(mode);
     setF('classroomId', ''); setF('moduleId', ''); setF('moduleName', ''); setF('selectedContentIds', []);
     setUploadMode(false); setUploadFile(null);
     setSelectedDirectAssessment(null); setDirectAssessmentQuery(''); setDirectAssessmentResults([]);
     setSelectedDirectContent(null); setDirectContentQuery(''); setDirectContentResults([]);
+    setDirectDayNo('');
     setMcqEnabled(false); setMcqMode('existing'); setExistingAssessmentId('');
   }
 
@@ -249,6 +271,8 @@ export default function BroadcastTab() {
     if (assignMode === 'module' && !form.moduleId) return setMsg({ type: 'bad', text: 'Select a module.' });
     if (assignMode === 'assessment' && !selectedDirectAssessment) return setMsg({ type: 'bad', text: 'Select an assessment to assign.' });
     if (assignMode === 'content' && !selectedDirectContent) return setMsg({ type: 'bad', text: 'Select a content item to assign.' });
+    if (assignMode === 'day' && !form.classroomId) return setMsg({ type: 'bad', text: 'Select a classroom.' });
+    if (assignMode === 'day' && !directDayNo) return setMsg({ type: 'bad', text: 'Select a day.' });
 
     const isMultiScope = ['batch', 'process', 'branch'].includes(form.scope);
     const isBulk = form.scope === 'specific' || isMultiScope;
@@ -325,6 +349,13 @@ export default function BroadcastTab() {
       assignmentType: form.assignmentType,
       message: form.message || null,
       dueDate: form.dueDate || null,
+    } : assignMode === 'day' ? {
+      broadcastTitle: form.broadcastTitle.trim() || null,
+      directDayClassroomId: form.classroomId,
+      directDayNo: Number(directDayNo),
+      assignmentType: form.assignmentType,
+      message: form.message || null,
+      dueDate: form.dueDate || null,
     } : {
       broadcastTitle: form.broadcastTitle.trim() || null,
       moduleId: form.moduleId,
@@ -361,6 +392,7 @@ export default function BroadcastTab() {
       const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
       const targetLabel = assignMode === 'assessment' ? `Assessment "${selectedDirectAssessment.assessmentName}"`
         : assignMode === 'content' ? `Content "${selectedDirectContent.title}"`
+        : assignMode === 'day' ? `Day ${directDayNo}`
         : `Module "${form.moduleName}"`;
       let successText = res.message || `${targetLabel} assigned to ${scopeLabel}.`;
       if (mcqWantedExisting) successText += ' + existing MCQ attached.';
@@ -595,11 +627,12 @@ export default function BroadcastTab() {
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
                 Step {2 + stepBase} — What to Assign
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
                 {[
                   ['module', 'Classroom Module', 'Pick a classroom → module (whole module\'s content)'],
                   ['assessment', 'Specific Assessment', 'Search any assessment — classroom-bound or standalone'],
                   ['content', 'Specific Content', 'Search any content item — classroom or repository'],
+                  ['day', 'A Specific Day', 'Pick a classroom + day — every module\'s content that day'],
                 ].map(([val, label, desc]) => (
                   <div key={val} onClick={() => changeAssignMode(val)} style={{
                     border: `2px solid ${assignMode === val ? 'var(--brand)' : 'var(--line)'}`,
@@ -694,6 +727,45 @@ export default function BroadcastTab() {
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{selectedDirectContent.source === 'classroom' ? 'Already in a classroom module — that classroom/module will be used.' : 'Standalone repository item — will be wrapped for direct delivery.'}</div>
                       </div>
                       <button type="button" className="btn small secondary" onClick={() => { setSelectedDirectContent(null); setDirectContentQuery(''); }}>Change</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {assignMode === 'day' && (
+                <div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Classroom</label>
+                      <select className="select" value={form.classroomId}
+                        onChange={e => { setF('classroomId', e.target.value); setDirectDayNo(''); }} required>
+                        <option value="">Select classroom…</option>
+                        {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+                      </select>
+                    </div>
+                    <div className="field" style={{ margin: 0 }}>
+                      <label>Day</label>
+                      <select className="select" value={directDayNo} disabled={!form.classroomId}
+                        onChange={e => setDirectDayNo(e.target.value)} required>
+                        <option value="">{form.classroomId ? (dayGroups.length ? 'Select day…' : 'No modules in this classroom') : 'Select classroom first'}</option>
+                        {dayGroups.map(d => (
+                          <option key={d.dayNo} value={d.dayNo}>
+                            Day {d.dayNo} — {d.moduleCount} module{d.moduleCount === 1 ? '' : 's'}, {d.contentCount} item{d.contentCount === 1 ? '' : 's'}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  {directDayNo && (
+                    <div style={{ marginTop: 10, background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ok)' }}>
+                        ✓ Day {directDayNo} — {dayGroups.find(d => String(d.dayNo) === String(directDayNo))?.moduleCount ?? 0} module(s), everything active will be assigned together
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {(dayGroups.find(d => String(d.dayNo) === String(directDayNo))?.moduleCount ?? 0) > 1
+                          ? 'More than one module that day — will be wrapped for direct delivery as a single assignment.'
+                          : 'Only one module that day — that module will be used directly.'}
+                      </div>
                     </div>
                   )}
                 </div>

@@ -317,17 +317,60 @@ async function enrichIndependentAssignments(assignments, employeeId) {
     const byModule = {};
 
     if (knownIndependent.size) {
-      const contentRows = await prisma.$queryRawUnsafe(
-        `SELECT m.module_id, m.sort_order, m.required, r.*
-         FROM independent_module_content_map m
-         INNER JOIN content_repository_master r ON r.repository_content_id = m.repository_content_id
-         WHERE m.active = 1 AND r.status = 'Active' AND m.module_id IN (${placeholders})
-         ORDER BY m.module_id, m.sort_order ASC`,
+      // "A Specific Day" direct-broadcast mode (ensureIndependentWrapperForDay in
+      // services/independentModules.js) stores real content_master ids in this table's
+      // repository_content_id column using a "CM:<contentId>" marker — content_master rows
+      // are joined separately below instead of via content_repository_master.
+      const mapRows = await prisma.$queryRawUnsafe(
+        `SELECT module_id, sort_order, required, repository_content_id
+         FROM independent_module_content_map
+         WHERE active = 1 AND module_id IN (${placeholders})`,
         ...moduleIds,
       );
-      for (const row of contentRows || []) {
-        if (!byModule[row.module_id]) byModule[row.module_id] = [];
-        byModule[row.module_id].push(mapRepoContent(row));
+      const mapByKey = {};
+      const repoIds = [];
+      const classroomContentIds = [];
+      for (const row of mapRows || []) {
+        mapByKey[row.repository_content_id] = row;
+        const rid = String(row.repository_content_id);
+        if (rid.startsWith('CM:')) classroomContentIds.push(rid.slice(3));
+        else repoIds.push(rid);
+      }
+
+      if (repoIds.length) {
+        const repoPlaceholders = repoIds.map(() => '?').join(',');
+        const repoRows = await prisma.$queryRawUnsafe(
+          `SELECT * FROM content_repository_master WHERE status = 'Active' AND repository_content_id IN (${repoPlaceholders})`,
+          ...repoIds,
+        );
+        for (const row of repoRows || []) {
+          const map = mapByKey[row.repository_content_id];
+          if (!map) continue;
+          if (!byModule[map.module_id]) byModule[map.module_id] = [];
+          byModule[map.module_id].push({ ...mapRepoContent({ ...row, sort_order: map.sort_order, required: map.required }), _sortOrder: map.sort_order });
+        }
+      }
+
+      if (classroomContentIds.length) {
+        const cmPlaceholders = classroomContentIds.map(() => '?').join(',');
+        const cmRows = await prisma.$queryRawUnsafe(
+          `SELECT content_id, module_id, content_type, content_title, description, required,
+                  drive_file_id, drive_url, direct_media_url, local_file_path, player_mode
+             FROM content_master
+            WHERE active = 1 AND content_id IN (${cmPlaceholders})`,
+          ...classroomContentIds,
+        );
+        for (const row of cmRows || []) {
+          const map = mapByKey['CM:' + row.content_id];
+          if (!map) continue;
+          if (!byModule[map.module_id]) byModule[map.module_id] = [];
+          byModule[map.module_id].push({ ...mapClassroomContent(row), _sortOrder: map.sort_order });
+        }
+      }
+
+      for (const key of Object.keys(byModule)) {
+        byModule[key].sort((a, b) => (a._sortOrder ?? 0) - (b._sortOrder ?? 0));
+        byModule[key] = byModule[key].map(({ _sortOrder, ...rest }) => rest);
       }
     }
 

@@ -257,3 +257,63 @@ export async function ensureIndependentWrapperForContent({ repositoryContentId, 
   }
   return moduleId;
 }
+
+export function dayWrapperModuleId(classroomId, dayNo) {
+  return `IND-DAY-${classroomId}-${dayNo}`;
+}
+
+// Get-or-create the wrapper module for "A Specific Day" direct-broadcast mode:
+// every active ModuleMaster row for a classroomId+dayNo, and every active
+// ContentMaster row across those modules, riding along as one AssignedModule
+// row instead of one broadcast per module. Used only when a day has MORE THAN
+// ONE module (resolveBroadcastTarget in controllers/admin.js reuses the real
+// module directly when a day has exactly one, same as the assessment/content
+// direct-assign modes reuse a real module when the picked item already has one).
+//
+// Content rows here point at REAL content_master items, not
+// content_repository_master ones — independent_module_content_map's
+// repository_content_id column is repurposed with a "CM:<contentId>" marker
+// so enrichIndependentAssignments() in routes/traineeStability.js knows to
+// resolve it against content_master instead. That keeps this table's shape
+// (and the assessment/content wrapper functions above) completely unchanged.
+//
+// Re-broadcasting the same classroom+day replaces the map rows each time, so
+// it always reflects that day's CURRENT active modules/content rather than a
+// stale snapshot from whenever it was first broadcast.
+export async function ensureIndependentWrapperForDay({ classroomId, dayNo, dayLabel, contentRows, createdBy = null }) {
+  await ensureIndependentModuleTables();
+  const moduleId = dayWrapperModuleId(classroomId, dayNo);
+  const name = clean(dayLabel) || moduleId;
+  const existing = await prisma.$queryRawUnsafe(
+    'SELECT module_id FROM independent_module_master WHERE module_id = ?',
+    moduleId,
+  );
+  if (!existing?.length) {
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO independent_module_master (id, module_id, module_name, status, created_by, created_at, updated_at)
+       VALUES (?, ?, ?, 'Active', ?, NOW(), NOW())`,
+      generateId('IMM'), moduleId, name, createdBy,
+    );
+  } else {
+    await prisma.$executeRawUnsafe(
+      `UPDATE independent_module_master SET status = 'Active', module_name = ? WHERE module_id = ?`,
+      name, moduleId,
+    );
+  }
+
+  await prisma.$executeRawUnsafe(
+    'DELETE FROM independent_module_content_map WHERE module_id = ?',
+    moduleId,
+  );
+  const rows = Array.isArray(contentRows) ? contentRows : [];
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    if (!row?.contentId) continue;
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO independent_module_content_map (id, module_id, repository_content_id, sort_order, required, active, created_at)
+       VALUES (?, ?, ?, ?, ?, 1, NOW())`,
+      generateId('IMC'), moduleId, `CM:${row.contentId}`, i, row.required === false ? 0 : 1,
+    );
+  }
+  return moduleId;
+}

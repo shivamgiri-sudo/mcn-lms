@@ -6,7 +6,7 @@ import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } f
 import * as cache from '../utils/cache.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
-import { ensureContentRepositoryTable, ensureIndependentWrapperForAssessment, ensureIndependentWrapperForContent } from '../services/independentModules.js';
+import { ensureContentRepositoryTable, ensureIndependentWrapperForAssessment, ensureIndependentWrapperForContent, ensureIndependentWrapperForDay } from '../services/independentModules.js';
 import path from 'path';
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -1181,7 +1181,7 @@ export async function assignModule(req, res) {
 
 // Resolves what a broadcast actually assigns to AssignedModule.moduleId/moduleName.
 //
-// Three mutually-exclusive input shapes, in priority order:
+// Four mutually-exclusive input shapes, in priority order:
 //   1. directAssessmentId  — admin picked "Assign a specific Assessment" (BroadcastTab
 //      direct-assign mode), searched across ALL assessments regardless of classroom.
 //      If that assessment already belongs to a real ModuleMaster row, we reuse that
@@ -1194,13 +1194,25 @@ export async function assignModule(req, res) {
 //      that item. A content_repository_master row has no classroom/module at all, so it
 //      gets the same independent_module_master wrapper treatment, keyed
 //      IND-CONTENT-<repositoryContentId> — see ensureIndependentWrapperForContent.
-//   3. moduleId + moduleName — the existing classroom -> module broadcast flow, untouched.
+//   3. directDayClassroomId + directDayNo — admin picked "A Specific Day": every active
+//      ModuleMaster row for that classroomId+dayNo, and every active ContentMaster row
+//      across them, broadcast as ONE AssignedModule row instead of one broadcast per
+//      module. If the day has exactly one module, that module is reused directly (no
+//      wrapper needed — same "reuse the real module if it already fits" pattern as above).
+//      If it has more than one (the common case), we get-or-create a thin
+//      independent_module_master wrapper keyed IND-DAY-<classroomId>-<dayNo> — see
+//      ensureIndependentWrapperForDay.
+//   4. moduleId + moduleName — the existing classroom -> module broadcast flow, untouched.
 //
 // Either way the trainee side needs zero changes: enrichIndependentAssignments() in
 // routes/traineeStability.js already resolves an AssignedModule.moduleId that points at an
 // independent_module_master row exactly the same way it resolves auto-assigned ones.
 async function resolveBroadcastTarget(body, createdBy) {
-  const { moduleId, moduleName, contentIds, assessmentId, directAssessmentId, directContentId, directContentSource } = body;
+  const {
+    moduleId, moduleName, contentIds, assessmentId,
+    directAssessmentId, directContentId, directContentSource,
+    directDayClassroomId, directDayNo,
+  } = body;
 
   if (directAssessmentId) {
     const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId: directAssessmentId } });
@@ -1233,6 +1245,46 @@ async function resolveBroadcastTarget(body, createdBy) {
     const content = await prisma.contentMaster.findUnique({ where: { contentId: directContentId }, include: { module: true } });
     if (!content) return { error: 'Content item not found.' };
     return { moduleId: content.moduleId, moduleName: content.module?.moduleTitle || moduleName || content.contentTitle, assessmentId: assessmentId || null, contentIds: [directContentId] };
+  }
+
+  if (directDayClassroomId && directDayNo !== undefined && directDayNo !== null && directDayNo !== '') {
+    const dayNo = parseInt(directDayNo, 10);
+    if (!Number.isFinite(dayNo)) return { error: 'Invalid day number.' };
+
+    const dayModules = await prisma.moduleMaster.findMany({
+      where: { classroomId: directDayClassroomId, dayNo, active: true },
+      orderBy: { moduleOrder: 'asc' },
+    });
+    if (!dayModules.length) return { error: 'No active modules found for that classroom/day.' };
+
+    if (dayModules.length === 1) {
+      const mod = dayModules[0];
+      return { moduleId: mod.moduleId, moduleName: mod.moduleTitle, assessmentId: assessmentId || null, contentIds: null };
+    }
+
+    const dayModuleIds = dayModules.map(m => m.moduleId);
+    const moduleOrderIndex = new Map(dayModules.map((m, i) => [m.moduleId, i]));
+    const dayContents = await prisma.contentMaster.findMany({
+      where: { moduleId: { in: dayModuleIds }, active: true },
+      orderBy: { contentOrder: 'asc' },
+    });
+    dayContents.sort((a, b) => {
+      const ai = moduleOrderIndex.get(a.moduleId) ?? 0;
+      const bi = moduleOrderIndex.get(b.moduleId) ?? 0;
+      if (ai !== bi) return ai - bi;
+      return (a.contentOrder || 0) - (b.contentOrder || 0);
+    });
+
+    const classroom = await prisma.classroomMaster.findUnique({ where: { classroomId: directDayClassroomId } });
+    const dayLabel = `${classroom?.classroomName || directDayClassroomId} — Day ${dayNo}`;
+    const wrapperModuleId = await ensureIndependentWrapperForDay({
+      classroomId: directDayClassroomId,
+      dayNo,
+      dayLabel,
+      contentRows: dayContents.map(c => ({ contentId: c.contentId, required: c.required })),
+      createdBy,
+    });
+    return { moduleId: wrapperModuleId, moduleName: dayLabel, assessmentId: assessmentId || null, contentIds: null };
   }
 
   if (!moduleId || !moduleName) return { error: 'moduleId and moduleName are required.' };
