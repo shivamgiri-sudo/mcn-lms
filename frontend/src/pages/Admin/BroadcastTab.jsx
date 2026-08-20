@@ -63,11 +63,15 @@ export default function BroadcastTab() {
 
   // MCQ state
   const [mcqEnabled, setMcqEnabled] = useState(false);
+  const [mcqMode, setMcqMode] = useState('existing'); // 'new' | 'existing'
   const [mcqName, setMcqName] = useState('');
   const [mcqPassPct, setMcqPassPct] = useState(60);
   const [mcqAttempts, setMcqAttempts] = useState(3);
   const [mcqTimeMins, setMcqTimeMins] = useState(30);
   const [questions, setQuestions] = useState([EMPTY_MCQ()]);
+  const [existingAssessments, setExistingAssessments] = useState([]);
+  const [existingAssessmentsLoading, setExistingAssessmentsLoading] = useState(false);
+  const [existingAssessmentId, setExistingAssessmentId] = useState('');
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -81,8 +85,18 @@ export default function BroadcastTab() {
   }, []);
 
   useEffect(() => {
-    if (!form.classroomId) { setModules([]); setContents([]); setF('moduleId', ''); setF('moduleName', ''); return; }
+    if (!form.classroomId) {
+      setModules([]); setContents([]); setF('moduleId', ''); setF('moduleName', '');
+      setExistingAssessments([]); setExistingAssessmentId('');
+      return;
+    }
     api.get(`/admin/classrooms/${form.classroomId}/modules`, 'admin').then(r => r.ok && setModules(r.data));
+    setExistingAssessmentsLoading(true);
+    api.get(`/admin/assessments?classroomId=${form.classroomId}`, 'admin').then(r => {
+      setExistingAssessmentsLoading(false);
+      setExistingAssessmentId('');
+      if (r.ok) setExistingAssessments(r.data || []);
+    });
   }, [form.classroomId]);
 
   useEffect(() => {
@@ -190,19 +204,26 @@ export default function BroadcastTab() {
       if (form.scope === 'specific' && selectedEmployees.length === 0) return setMsg({ type: 'bad', text: 'Add at least one employee.' });
     }
 
-    const mcqWanted = mcqEnabled && mcqName.trim();
-    const validQs = mcqWanted ? questions.filter(q => q.question.trim() && q.optionA.trim() && q.optionB.trim()) : [];
-    if (mcqWanted && validQs.length === 0) {
+    const mcqWantedNew = mcqEnabled && mcqMode === 'new' && mcqName.trim();
+    const mcqWantedExisting = mcqEnabled && mcqMode === 'existing' && existingAssessmentId;
+    const validQs = mcqWantedNew ? questions.filter(q => q.question.trim() && q.optionA.trim() && q.optionB.trim()) : [];
+    if (mcqWantedNew && validQs.length === 0) {
       return setMsg({ type: 'bad', text: 'Add at least one complete question (text + option A + option B) to the attached MCQ.' });
+    }
+    if (mcqEnabled && mcqMode === 'existing' && !existingAssessmentId) {
+      return setMsg({ type: 'bad', text: 'Select an existing assessment to attach, or switch to "Create New".' });
     }
 
     setLoading(true); setMsg(null);
 
-    // Create the MCQ FIRST so its assessmentId can be attached to the broadcast — this is
-    // what makes the test reachable from the trainee's Assigned tab / dashboard, and (for
+    // Resolve the assessmentId to attach — either reuse an already-created assessment as-is
+    // (no re-creation, no duplicate questions), or create a fresh one first. Either way this
+    // is what makes the test reachable from the trainee's Assigned tab / dashboard, and (for
     // audience members with no active classroom) scoreable at all.
     let assessmentId = null;
-    if (mcqWanted) {
+    if (mcqWantedExisting) {
+      assessmentId = existingAssessmentId;
+    } else if (mcqWantedNew) {
       const aRes = await api.post('/admin/assessments', {
         classroomId: form.classroomId, moduleId: form.moduleId,
         assessmentName: mcqName.trim(), passingPct: mcqPassPct,
@@ -262,11 +283,12 @@ export default function BroadcastTab() {
     if (res.ok) {
       const scopeLabel = SCOPE_OPTIONS.find(s => s.value === form.scope)?.label;
       let successText = res.message || `Module "${form.moduleName}" assigned to ${scopeLabel}.`;
-      if (mcqEnabled && mcqName.trim()) successText += ' + MCQ created.';
+      if (mcqWantedExisting) successText += ' + existing MCQ attached.';
+      else if (mcqWantedNew) successText += ' + MCQ created.';
       setMsg({ type: 'ok', text: successText });
       setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', scopeValues: [], message: '', dueDate: '', selectedContentIds: [] }));
       setSelectedEmployees([]); setPasteText(''); setPasteResult(null); setDesignationFilter('');
-      setQuestions([EMPTY_MCQ()]); setMcqEnabled(false); setMcqName('');
+      setQuestions([EMPTY_MCQ()]); setMcqEnabled(false); setMcqName(''); setMcqMode('existing'); setExistingAssessmentId('');
     } else {
       setMsg({ type: 'bad', text: res.message || 'Broadcast failed.' });
     }
@@ -611,12 +633,55 @@ export default function BroadcastTab() {
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>Attach MCQ Assessment (optional)</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Create a new MCQ for this broadcast using the same format as existing assessments.</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Reuse an assessment you already built, or create a new one for this broadcast.</div>
                 </div>
               </div>
 
               {mcqEnabled && (
                 <div style={{ padding: '16px 18px', borderTop: '1px solid var(--line)' }}>
+                  {/* New vs Existing toggle */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+                    {[['existing', 'Use Existing Assessment'], ['new', 'Create New']].map(([val, label]) => (
+                      <div key={val} onClick={() => setMcqMode(val)} style={{
+                        flex: 1, textAlign: 'center', padding: '8px 10px', borderRadius: 8, cursor: 'pointer',
+                        fontSize: 12, fontWeight: 700,
+                        border: `1.5px solid ${mcqMode === val ? 'var(--brand)' : 'var(--line)'}`,
+                        background: mcqMode === val ? 'rgba(29,78,216,.08)' : 'var(--card)',
+                        color: mcqMode === val ? 'var(--brand)' : 'var(--muted)',
+                      }}>{label}</div>
+                    ))}
+                  </div>
+
+                  {mcqMode === 'existing' ? (
+                    <div className="field" style={{ margin: 0 }}>
+                      <label style={{ fontSize: 11 }}>
+                        Existing Assessment {form.classroomId ? '(from the selected classroom)' : ''}
+                      </label>
+                      {!form.classroomId ? (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>Select a classroom + module above first.</div>
+                      ) : existingAssessmentsLoading ? (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>Loading assessments…</div>
+                      ) : existingAssessments.length === 0 ? (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>No assessments exist yet for this classroom — switch to "Create New".</div>
+                      ) : (
+                        <select className="select" value={existingAssessmentId} onChange={e => setExistingAssessmentId(e.target.value)}>
+                          <option value="">Select an assessment…</option>
+                          {existingAssessments.map(a => (
+                            <option key={a.assessmentId} value={a.assessmentId}>
+                              {a.assessmentName} — {a._count?.questions ?? 0} question{a._count?.questions === 1 ? '' : 's'}, pass {a.passingPct}%
+                              {a.moduleId && a.moduleId !== form.moduleId ? ' (different module)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                      {existingAssessmentId && (
+                        <div style={{ fontSize: 11, color: 'var(--ok)', marginTop: 8 }}>
+                          ✓ This exact assessment (with its existing questions) will be attached — nothing will be recreated or duplicated.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                  <>
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr', gap: 10, marginBottom: 14 }}>
                     <div className="field" style={{ margin: 0 }}>
                       <label style={{ fontSize: 11 }}>Assessment Name</label>
@@ -672,6 +737,8 @@ export default function BroadcastTab() {
                     </div>
                   ))}
                   <button type="button" className="btn small secondary" onClick={addQuestion}>+ Add Question</button>
+                  </>
+                  )}
                 </div>
               )}
             </div>
