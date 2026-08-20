@@ -3,6 +3,7 @@ import { hashPassword, generateSalt, generateId, hashCredential } from '../utils
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
+import * as cache from '../utils/cache.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import path from 'path';
@@ -1081,6 +1082,12 @@ export async function broadcastModule(req, res) {
     }
     const assignment = await prisma.assignedModule.create({ data });
 
+    // Invalidate the recipient(s)' dashboard cache immediately — without this, a trainee
+    // whose dashboard was already cached in the last 60s (see utils/cache.js) would not see
+    // the new assignment/PKT until the cache naturally expired, even after a hard refresh.
+    if (scope === 'individual') cache.del(`dashboard:${data.assignedTo}`);
+    else cache.delPrefix('dashboard:'); // company-wide broadcast — cheap in-memory map, clear it all
+
     // Notify recipients that a PKT/test was attached — fire-and-forget, gated by
     // notificationConfig. Only fires when an assessment is actually attached; a plain
     // (no-MCQ) broadcast on this single-scope endpoint sends no email either way, matching
@@ -1166,6 +1173,9 @@ export async function broadcastModuleBulk(req, res) {
     }));
 
     await prisma.assignedModule.createMany({ data: records, skipDuplicates: true });
+
+    // Invalidate every recipient's dashboard cache immediately — see broadcastModule for why.
+    for (const t of unique) cache.del(`dashboard:${t.employeeId}`);
 
     await audit({
       userIdentity: req.userId,
