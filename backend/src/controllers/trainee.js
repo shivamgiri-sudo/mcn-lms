@@ -681,7 +681,7 @@ export async function getAssignedModules(req, res) {
 // AssessmentMaster row + this trainee's best result — same shallow shape already used for
 // classroom assessments (assessment + result, no question payload; AssessmentModal fetches
 // the actual question set on open via the assessment-intelligence engine).
-async function attachAssessmentsToAssignments(assignments, employeeId) {
+export async function attachAssessmentsToAssignments(assignments, employeeId) {
   const assessmentIds = [...new Set(assignments.map(a => a.assessmentId).filter(Boolean))];
   if (assessmentIds.length === 0) return assignments;
 

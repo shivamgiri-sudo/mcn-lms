@@ -5,7 +5,6 @@ import LearningJourneyTab from './LearningJourneyTab.jsx';
 import SkillsPathsTab from './SkillsPathsTab.jsx';
 import LearningTab from './LearningTab.jsx';
 import QATab from './QATab.jsx';
-import AssignedTab from './AssignedTab.jsx';
 import ProfileTab from './ProfileTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
 import IJPTab from './IJPTab.jsx';
@@ -34,7 +33,6 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
     { id: 'voice-accent', label: '🎙️ Voice & Accent' },
-    { id: 'assigned', label: '📎 Assigned' },
     { id: 'profile', label: '👤 Profile' },
   ];
 
@@ -143,12 +141,11 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
       {activeTab === 'talent' && <SkillsPathsTab />}
       {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
-      {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
+      {activeTab === 'learning' && <LearningTab days={d.days || []} assignments={d.directAssignments || []} onRefresh={onRefresh} />}
       {activeTab === 'qa' && <QATab />}
       {activeTab === 'leaderboard' && <LeaderboardTab />}
       {activeTab === 'ijp' && <IJPTab />}
       {activeTab === 'voice-accent' && <VoiceAccentTab />}
-      {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} />}
       {activeTab === 'profile' && <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />}
 
       <style>{`

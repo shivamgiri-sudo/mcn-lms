@@ -3,6 +3,7 @@ import { api, fetchAuthenticatedBlobUrl } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
 import ScormLauncher from './ScormLauncher.jsx';
+import AssignedTab from './AssignedTab.jsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
 
@@ -26,7 +27,7 @@ function protectedLocalUrl(value) {
   return '';
 }
 
-export default function LearningTab({ days, onRefresh }) {
+export default function LearningTab({ days, assignments, onRefresh }) {
   const [openDays, setOpenDays] = useState({ 0: true });
   const [viewingContent, setViewingContent] = useState(null);
   const [assessmentId, setAssessmentId] = useState(null);
@@ -214,6 +215,15 @@ export default function LearningTab({ days, onRefresh }) {
 
   return (
     <div>
+      {/* Broadcast/refresher modules and any attached PKT — surfaced here too so a trainee
+          doesn't have to hunt in a separate tab for anything an admin/coordinator assigned. */}
+      {assignments && assignments.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <h3 className="section-title" style={{ margin: '0 0 6px' }}>Broadcast &amp; Refresher Assignments</h3>
+          <AssignedTab assignments={assignments} onRefresh={onRefresh} />
+        </div>
+      )}
+
       <div className="row between" style={{ margin: '14px 0 10px' }}>
         <h3 className="section-title" style={{ margin: 0 }}>Day-wise Learning Path</h3>
         {totalContents > 0 && <span className="pill info">{doneContents}/{totalContents} completed</span>}

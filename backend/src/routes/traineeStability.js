@@ -3,6 +3,8 @@ import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
+import { attachAssessmentsToAssignments } from '../controllers/trainee.js';
+import { awardContentCompletion, awardAttendanceStreak } from '../utils/leaderboardEngine.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('trainee')];
@@ -244,6 +246,13 @@ async function syncDailyActivity(employeeId, trainee, flags = {}) {
     },
     update: activityData,
   });
+
+  // Leaderboard: award any attendance-streak milestone reached today. Fire-and-forget so
+  // a leaderboard failure never breaks attendance tracking. Only meaningful once the day
+  // actually qualifies as Present.
+  if (qualified) {
+    awardAttendanceStreak(employeeId, trainee.batchNo).catch(err => console.error('[Leaderboard] attendance streak award failed:', err.message));
+  }
 }
 
 function acceptedElapsedDelta(progress, requested, max = 30) {
@@ -289,7 +298,12 @@ async function getDirectAssignments(trainee, employeeId) {
   });
 }
 
-async function enrichIndependentAssignments(assignments) {
+// NOTE: this router is mounted BEFORE routes/trainee.js at the same /api/trainee prefix
+// (see server.js), so its handlers shadow trainee.js's — trainee.js's own
+// getLearnerDashboard/logContentHeartbeat/logContentClose never actually run in production.
+// Anything added to the trainee dashboard/content pipeline (PKT attachment, leaderboard
+// hooks, etc.) must be wired in HERE, not just in trainee.js, or it silently does nothing.
+async function enrichIndependentAssignments(assignments, employeeId) {
   if (!assignments?.length) return [];
   const moduleIds = [...new Set(assignments.map(assignment => assignment.moduleId).filter(Boolean))];
   if (!moduleIds.length) return assignments;
@@ -335,11 +349,12 @@ async function enrichIndependentAssignments(assignments) {
         byModule[row.module_id].push(mapClassroomContent(row));
       }
     }
-    return assignments.map(assignment => ({
+    const withContent = assignments.map(assignment => ({
       ...assignment,
       independentModule: knownIndependent.has(assignment.moduleId),
       contents: byModule[assignment.moduleId] || [],
     }));
+    return employeeId ? attachAssessmentsToAssignments(withContent, employeeId) : withContent;
   } catch (err) {
     console.error('[traineeStability] enrichIndependentAssignments failed:', err.message);
     return assignments;
@@ -407,7 +422,7 @@ router.get('/dashboard', ...auth, async (req, res) => {
     ]);
     if (!user || !trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
 
-    const directAssignments = await enrichIndependentAssignments(await getDirectAssignments(trainee, employeeId));
+    const directAssignments = await enrichIndependentAssignments(await getDirectAssignments(trainee, employeeId), employeeId);
     const { primary: classroomId, ids: classroomIds } = await resolveLearnerClassrooms(employeeId, trainee, user);
     const multiClassroom = classroomIds.length > 1;
     if (!classroomIds.length) {
@@ -605,7 +620,12 @@ router.post('/content/:contentId/heartbeat', ...auth, async (req, res) => {
         data: { employeeId, batchNo: trainee.batchNo || null, classroomId, dayNo: content.module.dayNo || 0, moduleId: content.moduleId, contentId: content.contentId, event: 'HEARTBEAT', secondsDelta: acceptedDelta, positionSeconds, durationSeconds, completionPct, playerMode: content.playerMode || 'Auto' },
       });
     }
-    if (completed && !isComplete(progress)) await syncCourseAndTraineeStats(employeeId, classroomId);
+    if (completed && !isComplete(progress)) {
+      await syncCourseAndTraineeStats(employeeId, classroomId);
+      // Leaderboard: award points for a fresh content completion. Fire-and-forget so a
+      // leaderboard failure never breaks content playback.
+      awardContentCompletion(employeeId, content.contentId).catch(err => console.error('[Leaderboard] content completion award failed:', err.message));
+    }
     await syncDailyActivity(employeeId, trainee, { courseActivity: true });
     return res.json({ ok: true, acceptedSeconds: acceptedDelta, completionPct, completed });
   } catch (error) {
@@ -652,6 +672,10 @@ router.post('/content/:contentId/close', ...auth, async (req, res) => {
     await prisma.videoWatchLog.create({
       data: { employeeId, batchNo: trainee.batchNo || null, classroomId, dayNo: content.module.dayNo || 0, moduleId: content.moduleId, contentId: content.contentId, event: completed ? 'COMPLETE' : 'CLOSE', secondsDelta: acceptedDelta, positionSeconds, durationSeconds, completionPct, playerMode: content.playerMode || 'Auto', details: completed ? 'Server-validated completion' : null },
     });
+    if (completed && !isComplete(progress)) {
+      // Leaderboard: award points for a fresh content completion.
+      awardContentCompletion(employeeId, content.contentId).catch(err => console.error('[Leaderboard] content completion award failed:', err.message));
+    }
     await syncCourseAndTraineeStats(employeeId, classroomId);
     await syncDailyActivity(employeeId, trainee, { courseActivity: true });
     return res.json({ ok: true, acceptedSeconds: acceptedDelta, completionPct, completed });
