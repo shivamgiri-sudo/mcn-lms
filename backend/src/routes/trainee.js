@@ -11,6 +11,7 @@ import {
   updateProfile,
 } from '../controllers/trainee.js';
 import { getLearningJourney } from '../controllers/traineeJourney.js';
+import { getMyLeaderboard } from '../controllers/leaderboard.js';
 
 const auth = [requireSession, requireRole('trainee')];
 const router = Router();
@@ -29,5 +30,7 @@ router.get('/questions', ...auth, getMyQuestions);
 router.post('/questions', ...auth, validate(querySchema), raiseQuestion);
 router.get('/assigned-modules', ...auth, getAssignedModules);
 router.patch('/profile', ...auth, updateProfile);
+
+router.get('/leaderboard/me', ...auth, getMyLeaderboard);
 
 export default router;

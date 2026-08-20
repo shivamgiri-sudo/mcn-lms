@@ -7,6 +7,7 @@ import LearningTab from './LearningTab.jsx';
 import QATab from './QATab.jsx';
 import AssignedTab from './AssignedTab.jsx';
 import ProfileTab from './ProfileTab.jsx';
+import LeaderboardTab from './LeaderboardTab.jsx';
 import PasswordResetBox from './PasswordResetBox.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
@@ -28,6 +29,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { id: 'live-training', label: '🗓️ Live Training' },
     { id: 'learning', label: '📚 My Learning' },
     { id: 'qa', label: '💬 Q&A' },
+    { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'assigned', label: '📎 Assigned' },
     { id: 'profile', label: '👤 Profile' },
   ];
@@ -139,6 +141,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
       {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
       {activeTab === 'qa' && <QATab />}
+      {activeTab === 'leaderboard' && <LeaderboardTab />}
       {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} />}
       {activeTab === 'profile' && <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />}
 

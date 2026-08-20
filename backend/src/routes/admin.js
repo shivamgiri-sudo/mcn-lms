@@ -45,6 +45,7 @@ import { getNotifConfig, saveNotifConfig } from '../controllers/notifConfig.js';
 import { contentUpload } from '../utils/upload.js';
 import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, syncEmployees, detectHRMSTables, hrmsStatus } from '../controllers/hrmsSeed.js';
 import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigController.js';
+import { getLeaderboardAdmin } from '../controllers/leaderboard.js';
 
 const auth = [requireSession, requireRole('admin')];
 const superAuth = [requireSession, requireRole('admin'), requireSuperAdmin];
@@ -196,6 +197,8 @@ router.post('/comm-config/test-sms', ...superElevatedAuth, testSmsConfig);
 router.post('/comm-config/test-whatsapp', ...superElevatedAuth, testWhatsAppConfig);
 router.get('/audit-logs', ...superAuth, listAuditLogs);
 router.get('/audit-logs/:id', ...superAuth, getAuditLogDetail);
+
+router.get('/leaderboard', ...auth, getLeaderboardAdmin);
 
 router.get('/certificates/:employeeId/generate', ...auth, generateCertificate);
 router.post('/trainees/import/preview', ...auth, bulkImportPreview);

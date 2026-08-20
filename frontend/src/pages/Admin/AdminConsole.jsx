@@ -32,6 +32,7 @@ import SystemHealthTab from './SystemHealthTab.jsx';
 import RuntimeOperationsTab from './RuntimeOperationsTab.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
+import LeaderboardTab from './LeaderboardTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health', 'runtime-operations']);
@@ -57,7 +58,10 @@ const NAV = [
     { id: 'coordinators', label: 'Coordinators', icon: '🧑‍💼' },
     { id: 'users', label: 'Portal Users', icon: '🔑' },
   ]},
-  { section: 'Reports', items: [{ id: 'reports', label: 'Reports & Exports', icon: '📥' }] },
+  { section: 'Reports', items: [
+    { id: 'reports', label: 'Reports & Exports', icon: '📥' },
+    { id: 'leaderboard', label: 'Leaderboard', icon: '🏆' },
+  ]},
   { section: 'Compliance', items: [
     { id: 'compliance-audit', label: 'Compliance Audit', icon: '🔒' },
     { id: 'audit-logs', label: 'Audit Logs', icon: '📋' },
@@ -157,6 +161,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'accounts' && <AccountsTab />}
           {activeId === 'coordinators' && <CoordinatorsPage navigate={navigate} />}
           {activeId === 'reports' && <ReportsTab />}
+          {activeId === 'leaderboard' && <LeaderboardTab />}
           {activeId === 'compliance-audit' && <ComplianceExport />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}

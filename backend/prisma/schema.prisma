@@ -938,3 +938,49 @@ model ScormSession {
   @@unique([packageId, employeeId])
   @@map("scorm_sessions")
 }
+
+// ─── LEADERBOARD / GAMIFICATION ────────────────────────────────────────────────
+// v1: points + badges for trainee engagement, computed from existing
+// completion/pass/attendance/certification signals. See utils/leaderboardEngine.js
+// for the hardcoded point/badge catalog. No admin UI to author new rules yet.
+
+model TraineeLeaderboardScore {
+  id                  String   @id @default(uuid())
+  employeeId          String   @unique @map("employee_id")
+  traineeName         String?  @map("trainee_name")
+  batchNo             String?  @map("batch_no")
+  branch              String?
+  process             String?
+  lob                 String?
+  totalPoints         Int      @default(0) @map("total_points")
+  coursePoints        Int      @default(0) @map("course_points")
+  assessmentPoints    Int      @default(0) @map("assessment_points")
+  attendancePoints    Int      @default(0) @map("attendance_points")
+  certificationPoints Int      @default(0) @map("certification_points")
+  badgesJson          Json?    @map("badges_json")
+  lastUpdatedAt       DateTime @updatedAt @map("last_updated_at")
+  createdAt           DateTime @default(now()) @map("created_at")
+
+  @@index([batchNo, totalPoints])
+  @@index([branch, totalPoints])
+  @@index([process, totalPoints])
+  @@map("trainee_leaderboard_score")
+}
+
+// Idempotent point ledger — one row per (employeeId, eventType, refId). Re-firing
+// the same underlying event (a retried heartbeat, a re-submit) upserts the same
+// key instead of double-counting, and totals are always re-derived by summing
+// this table rather than incrementing a counter blindly.
+model TraineeLeaderboardEvent {
+  id         String   @id @default(uuid())
+  employeeId String   @map("employee_id")
+  eventType  String   @map("event_type") // CONTENT_COMPLETE | ASSESSMENT_PASS | ATTENDANCE_STREAK | CERTIFICATION
+  refId      String   @map("ref_id")     // contentId / assessmentId / streak milestone / 'CERTIFICATION'
+  points     Int
+  meta       Json?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@unique([employeeId, eventType, refId])
+  @@index([employeeId])
+  @@map("trainee_leaderboard_event")
+}

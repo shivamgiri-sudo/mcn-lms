@@ -12,10 +12,10 @@ test('assessment intelligence migration is additive governed and registered', ()
   const expected = read('deploy/migrations.expected').trim().split(/\r?\n/);
 
   assert.ok(expected.includes('20260727120000_assessment_intelligence'));
-  assert.equal(expected.at(-6), '20260727120000_assessment_intelligence');
-  assert.equal(expected.at(-5), '20260729100000_secure_browser_sessions');
-  assert.equal(expected.at(-4), '20260729140000_mobile_accessibility_offline');
-  assert.equal(expected.length, 21);
+  assert.equal(expected.at(-7), '20260727120000_assessment_intelligence');
+  assert.equal(expected.at(-6), '20260729100000_secure_browser_sessions');
+  assert.equal(expected.at(-5), '20260729140000_mobile_accessibility_offline');
+  assert.equal(expected.length, 22);
   for (const table of [
     'assessment_blueprint',
     'assessment_blueprint_rule',

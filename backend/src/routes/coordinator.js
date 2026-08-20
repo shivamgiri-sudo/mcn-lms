@@ -12,6 +12,7 @@ import {
   coordExportTrainees, coordExportAtRisk, coordExportQAActivity,
   coordMapEmpId,
 } from '../controllers/coordinator.js';
+import { getLeaderboardCoordinator } from '../controllers/leaderboard.js';
 
 const auth = [requireSession, requireRole('coordinator')];
 
@@ -52,6 +53,8 @@ router.get('/certificates/:employeeId/generate', ...auth, async (req, res) => {
   const { generateCertificate } = await import('../controllers/admin.js');
   return generateCertificate(req, res);
 });
+
+router.get('/leaderboard', ...auth, getLeaderboardCoordinator);
 
 // Reports (coordinator-scoped)
 router.get('/reports/trainee-progress', ...auth, coordExportTrainees);

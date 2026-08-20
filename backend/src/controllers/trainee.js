@@ -2,6 +2,7 @@ import { prisma } from '../utils/db.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as cache from '../utils/cache.js';
+import { awardContentCompletion, awardAssessmentPass, awardAttendanceStreak } from '../utils/leaderboardEngine.js';
 
 // ── Learner Dashboard ─────────────────────────────────────────────────────────
 export async function getLearnerDashboard(req, res) {
@@ -297,6 +298,10 @@ export async function logContentHeartbeat(req, res) {
     // FIX 2: Sync TraineeMaster stats
     await syncTraineeMasterStats(empId, progress.classroomId);
 
+    // Leaderboard: award points for a fresh content completion. Fire-and-forget
+    // so a leaderboard failure never breaks content playback.
+    if (isCompleted) awardContentCompletion(empId, contentId).catch(err => console.error('[Leaderboard] content completion award failed:', err.message));
+
     res.json({ ok: true, completionPct });
   } catch (err) {
     console.error(err);
@@ -340,6 +345,8 @@ export async function logContentClose(req, res) {
       if (isCompleted) {
         await updateCourseReport(empId, progress.classroomId);
         await syncTraineeMasterStats(empId, progress.classroomId);
+        // Leaderboard: award points for a fresh content completion.
+        awardContentCompletion(empId, contentId).catch(err => console.error('[Leaderboard] content completion award failed:', err.message));
       }
     }
 
@@ -509,6 +516,13 @@ export async function submitAssessment(req, res) {
 
     // syncTraineeMasterStats is the sole authority for assessmentPassPct / assessmentAttemptPct
     await syncTraineeMasterStats(empId, assessment.classroomId);
+
+    // Leaderboard: award points for a pass, scaled by score. Fire-and-forget
+    // so a leaderboard failure never breaks assessment submission.
+    if (result === 'Pass') {
+      awardAssessmentPass(empId, assessmentId, percentage, attempt.attemptId)
+        .catch(err => console.error('[Leaderboard] assessment pass award failed:', err.message));
+    }
 
     cache.del('dashboard:' + empId);
 
@@ -729,6 +743,10 @@ async function syncAttendance(employeeId, trainee) {
     where: { employeeId },
     data: { attendancePct },
   });
+
+  // Leaderboard: award any attendance-streak milestone reached today.
+  // Fire-and-forget so a leaderboard failure never breaks attendance sync.
+  awardAttendanceStreak(employeeId, trainee.batchNo).catch(err => console.error('[Leaderboard] attendance streak award failed:', err.message));
 }
 
 // FIX 2: Helper to sync TraineeMaster stats after heartbeat / assessment submit

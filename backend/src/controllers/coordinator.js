@@ -3,6 +3,7 @@ import { generateBatchNo } from '../utils/batchNaming.js';
 import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
+import { awardCertification } from '../utils/leaderboardEngine.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { notifyCertification, notifyBatchAssignment, notifyOnboarding } from '../utils/notify.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -730,6 +731,10 @@ export async function certifyTrainee(req, res) {
       process: batch.process,
       lob: batch.lob,
     }).catch(err => console.error(`[NOTIFY] Cert notification failed for ${employeeId}:`, err.message));
+
+    // Leaderboard: award certification points. Fire-and-forget so a
+    // leaderboard failure never breaks certification.
+    awardCertification(employeeId).catch(err => console.error(`[Leaderboard] certification award failed for ${employeeId}:`, err.message));
 
     res.json({ ok: true, message: `${employeeId} certified.` });
   } catch (err) {
