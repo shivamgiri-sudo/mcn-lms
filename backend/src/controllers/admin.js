@@ -601,7 +601,7 @@ export async function createAssessment(req, res) {
 export async function attachAssessmentToClassroom(req, res) {
   try {
     const { assessmentId } = req.params;
-    const { classroomId, moduleId } = req.body;
+    const { classroomId, moduleId, dayNo } = req.body;
     if (!classroomId) return res.status(400).json({ ok: false, message: 'classroomId is required.' });
 
     const assessment = await prisma.assessmentMaster.findUnique({ where: { assessmentId } });
@@ -616,16 +616,20 @@ export async function attachAssessmentToClassroom(req, res) {
         return res.status(400).json({ ok: false, message: 'That module does not belong to the selected classroom.' });
       }
     }
+    // Day-only linking (no specific module) — used when an assessment covers a whole day's
+    // material rather than one module. Mutually exclusive with moduleId; if both are somehow
+    // sent, the module wins and dayNo is cleared since the module already implies its day.
+    const resolvedDayNo = moduleId ? null : (dayNo ? parseInt(dayNo, 10) : null);
 
     const updated = await prisma.assessmentMaster.update({
       where: { assessmentId },
-      data: { classroomId, moduleId: moduleId || null },
+      data: { classroomId, moduleId: moduleId || null, dayNo: resolvedDayNo },
     });
 
     await audit({
       userIdentity: req.userId, userRole: 'Admin', action: 'ATTACH_ASSESSMENT_TO_CLASSROOM',
       module: 'Assessment', referenceId: assessmentId,
-      newValue: { classroomId, moduleId: moduleId || null },
+      newValue: { classroomId, moduleId: moduleId || null, dayNo: resolvedDayNo },
     });
 
     res.json({ ok: true, data: updated });

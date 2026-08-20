@@ -215,8 +215,15 @@ export default function QuestionsTab() {
               </select>
             </div>
             <div>
+              <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Link to Day <span style={{fontWeight:400,color:'var(--muted)'}}>(whole day, no specific module)</span></label>
+              <select className="input" value={aForm.dayNo} onChange={e => setAForm(f => ({...f,dayNo:e.target.value,moduleId:''}))} disabled={!aForm.classroomId}>
+                <option value="">-- No day link --</option>
+                {[...new Set(classroomModules.map(m => m.dayNo))].sort((a,b) => a-b).map(d => <option key={d} value={d}>Day {d}</option>)}
+              </select>
+            </div>
+            <div>
               <label style={{display:'block',fontSize:'12px',fontWeight:'600',marginBottom:'4px'}}>Link to Module <span style={{fontWeight:400,color:'var(--muted)'}}>(shows in learner view)</span></label>
-              <select className="input" value={aForm.moduleId} onChange={e => setAForm(f => ({...f,moduleId:e.target.value}))} disabled={!aForm.classroomId}>
+              <select className="input" value={aForm.moduleId} onChange={e => setAForm(f => ({...f,moduleId:e.target.value,dayNo:''}))} disabled={!aForm.classroomId}>
                 <option value="">-- No module link --</option>
                 {classroomModules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} · {m.moduleTitle}</option>)}
               </select>
@@ -794,6 +801,7 @@ function AttachToClassroomPanel({ assessmentId, classrooms, onAttached }) {
   const [show, setShow] = useState(false);
   const [classroomId, setClassroomId] = useState('');
   const [moduleId, setModuleId] = useState('');
+  const [dayNo, setDayNo] = useState('');
   const [modules, setModules] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -801,13 +809,15 @@ function AttachToClassroomPanel({ assessmentId, classrooms, onAttached }) {
   useEffect(() => {
     if (classroomId) api.get(`/admin/classrooms/${classroomId}/modules`, 'admin').then(r => r.ok && setModules(r.data || []));
     else setModules([]);
-    setModuleId('');
+    setModuleId(''); setDayNo('');
   }, [classroomId]);
+
+  const dayOptions = [...new Set(modules.map(m => m.dayNo))].sort((a, b) => a - b);
 
   async function attach() {
     if (!classroomId) return;
     setSaving(true); setError('');
-    const res = await api.put(`/admin/assessments/${assessmentId}/attach-classroom`, { classroomId, moduleId: moduleId || undefined }, 'admin');
+    const res = await api.put(`/admin/assessments/${assessmentId}/attach-classroom`, { classroomId, moduleId: moduleId || undefined, dayNo: dayNo || undefined }, 'admin');
     setSaving(false);
     if (res.ok) onAttached(res.data);
     else setError(res.message || 'Could not attach classroom.');
@@ -834,8 +844,15 @@ function AttachToClassroomPanel({ assessmentId, classrooms, onAttached }) {
           </select>
         </div>
         <div style={{flex:1,minWidth:160}}>
+          <label style={{display:'block',fontSize:'11px',fontWeight:'600',marginBottom:'4px'}}>Day <span style={{fontWeight:400,color:'var(--muted)'}}>(whole day, optional)</span></label>
+          <select className="input" value={dayNo} disabled={!classroomId} onChange={e => { setDayNo(e.target.value); setModuleId(''); }}>
+            <option value="">-- No day link --</option>
+            {dayOptions.map(d => <option key={d} value={d}>Day {d}</option>)}
+          </select>
+        </div>
+        <div style={{flex:1,minWidth:160}}>
           <label style={{display:'block',fontSize:'11px',fontWeight:'600',marginBottom:'4px'}}>Module <span style={{fontWeight:400,color:'var(--muted)'}}>(optional)</span></label>
-          <select className="input" value={moduleId} disabled={!classroomId} onChange={e => setModuleId(e.target.value)}>
+          <select className="input" value={moduleId} disabled={!classroomId} onChange={e => { setModuleId(e.target.value); setDayNo(''); }}>
             <option value="">-- No module link --</option>
             {modules.map(m => <option key={m.moduleId} value={m.moduleId}>Day {m.dayNo} · {m.moduleTitle}</option>)}
           </select>
