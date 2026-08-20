@@ -289,6 +289,143 @@ router.patch(
 );
 
 router.get(
+  '/admin/skill-matrix',
+  ...adminAuth,
+  requirePermission('talent.skills.view'),
+  async (req, res) => {
+    try {
+      const page = Math.max(1, Math.round(positiveNumber(req.query?.page, 1, 100000)));
+      const pageSize = Math.min(100, Math.max(5, Math.round(positiveNumber(req.query?.pageSize, 25, 100))));
+      const branchFilter = text(req.query?.branch, 120);
+      const processFilter = text(req.query?.process, 120);
+      const lobFilter = text(req.query?.lob, 120);
+      const batchFilter = text(req.query?.batchNo, 120);
+      const designationFilter = text(req.query?.designation, 120);
+      const categoryFilter = text(req.query?.category, 100);
+      const search = text(req.query?.search, 120);
+      const requiredOnly = bool(req.query?.requiredOnly);
+
+      const scope = scopeFor(req);
+      const restrictBranch = scope !== 'company' && req.userBranch ? String(req.userBranch) : '';
+      if (restrictBranch && branchFilter && branchFilter !== restrictBranch) {
+        return res.json({
+          ok: true,
+          data: {
+            employees: [], skills: [], cells: {},
+            pagination: { page, pageSize, total: 0 },
+            summary: { employeeCount: 0, skillCount: 0, belowTargetEmployees: 0, belowTargetPairs: 0 },
+          },
+        });
+      }
+
+      const where = { status: 'Active' };
+      if (restrictBranch || branchFilter) where.branch = restrictBranch || branchFilter;
+      if (processFilter) where.process = processFilter;
+      if (lobFilter) where.lob = lobFilter;
+      if (batchFilter) where.batchNo = batchFilter;
+      if (designationFilter) where.designation = designationFilter;
+      if (search) where.OR = [{ employeeId: { contains: search } }, { traineeName: { contains: search } }];
+
+      const [total, employees] = await Promise.all([
+        prisma.traineeMaster.count({ where }),
+        prisma.traineeMaster.findMany({
+          where,
+          select: { employeeId: true, traineeName: true, branch: true, process: true, lob: true, batchNo: true, designation: true, status: true },
+          orderBy: { traineeName: 'asc' },
+          skip: (page - 1) * pageSize,
+          take: pageSize,
+        }),
+      ]);
+      const employeeIds = employees.map(employee => employee.employeeId);
+
+      let skillRows = [];
+      if (employeeIds.length && requiredOnly) {
+        skillRows = await prisma.$queryRawUnsafe(
+          `SELECT DISTINCT sm.skill_id AS skillId, sm.skill_code AS skillCode,
+                  sm.skill_name AS skillName, sm.category, sm.level_scale AS levelScale
+             FROM role_skill_requirement rsr
+             INNER JOIN skill_master sm ON sm.skill_id = rsr.skill_id AND sm.active = 1
+            WHERE rsr.active = 1
+              AND rsr.department = ''
+              AND (rsr.designation = '' OR rsr.designation = ?)
+              AND (rsr.process_name = '' OR rsr.process_name = ?)
+              AND (rsr.lob_name = '' OR rsr.lob_name = ?)
+              AND (? = '' OR sm.category = ?)
+            ORDER BY sm.category, sm.skill_name
+            LIMIT 100`,
+          designationFilter, processFilter, lobFilter, categoryFilter, categoryFilter,
+        );
+      } else if (employeeIds.length) {
+        skillRows = await prisma.$queryRawUnsafe(
+          `SELECT skill_id AS skillId, skill_code AS skillCode, skill_name AS skillName,
+                  category, level_scale AS levelScale
+             FROM skill_master
+            WHERE active = 1
+              AND (? = '' OR category = ?)
+            ORDER BY category, skill_name
+            LIMIT 100`,
+          categoryFilter, categoryFilter,
+        );
+      }
+      const skillIds = skillRows.map(skill => skill.skillId);
+
+      let profileRows = [];
+      if (employeeIds.length && skillIds.length) {
+        const employeePlaceholders = employeeIds.map(() => '?').join(',');
+        const skillPlaceholders = skillIds.map(() => '?').join(',');
+        profileRows = await prisma.$queryRawUnsafe(
+          `SELECT employee_id AS employeeId, skill_id AS skillId,
+                  current_level AS currentLevel, target_level AS targetLevel,
+                  status, confidence_score AS confidenceScore,
+                  last_evidence_at AS lastEvidenceAt
+             FROM employee_skill_profile
+            WHERE employee_id IN (${employeePlaceholders}) AND skill_id IN (${skillPlaceholders})`,
+          ...employeeIds, ...skillIds,
+        );
+      }
+
+      const cells = {};
+      const employeesWithGap = new Set();
+      let belowTargetPairs = 0;
+      for (const row of profileRows) {
+        if (!cells[row.employeeId]) cells[row.employeeId] = {};
+        const isBelowTarget = row.status === 'GAP' || Number(row.currentLevel) < Number(row.targetLevel);
+        cells[row.employeeId][row.skillId] = {
+          currentLevel: row.currentLevel,
+          targetLevel: row.targetLevel,
+          status: row.status,
+          confidenceScore: row.confidenceScore,
+          lastEvidenceAt: row.lastEvidenceAt,
+        };
+        if (isBelowTarget) {
+          belowTargetPairs += 1;
+          employeesWithGap.add(row.employeeId);
+        }
+      }
+
+      return res.json({
+        ok: true,
+        data: {
+          employees,
+          skills: skillRows,
+          cells,
+          pagination: { page, pageSize, total },
+          summary: {
+            employeeCount: employees.length,
+            skillCount: skillRows.length,
+            belowTargetEmployees: employeesWithGap.size,
+            belowTargetPairs,
+          },
+        },
+      });
+    } catch (error) {
+      console.error('[TALENT] skill matrix failed:', error.message);
+      return res.status(500).json({ ok: false, message: 'Could not load the cross-employee skill matrix.' });
+    }
+  },
+);
+
+router.get(
   '/admin/requirements',
   ...adminAuth,
   requirePermission('talent.skills.view'),

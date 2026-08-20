@@ -31,6 +31,16 @@ function FormField({ label, children, hint }) {
   return <label className="talent-admin-field"><span>{label}</span>{children}{hint ? <small>{hint}</small> : null}</label>;
 }
 
+const EMPTY_MATRIX_FILTERS = { branch: '', process: '', lob: '', batchNo: '', designation: '', category: '', search: '', requiredOnly: false, page: 1 };
+
+function statusClass(status) {
+  const value = String(status || '').toUpperCase();
+  if (value === 'READY') return 'talent-matrix-ready';
+  if (value === 'GAP') return 'talent-matrix-gap';
+  if (value === 'DEVELOPING') return 'talent-matrix-developing';
+  return 'talent-matrix-unassessed';
+}
+
 export default function TalentArchitectureTab() {
   const [view, setView] = useState('skills');
   const [permissions, setPermissions] = useState([]);
@@ -38,6 +48,10 @@ export default function TalentArchitectureTab() {
   const [requirements, setRequirements] = useState([]);
   const [paths, setPaths] = useState([]);
   const [matrix, setMatrix] = useState(null);
+  const [skillMatrixFilters, setSkillMatrixFilters] = useState(EMPTY_MATRIX_FILTERS);
+  const [skillMatrix, setSkillMatrix] = useState(null);
+  const [skillMatrixLoading, setSkillMatrixLoading] = useState(false);
+  const [skillMatrixError, setSkillMatrixError] = useState('');
   const [selectedPath, setSelectedPath] = useState(null);
   const [steps, setSteps] = useState([]);
   const [skillForm, setSkillForm] = useState(EMPTY_SKILL);
@@ -87,6 +101,43 @@ export default function TalentArchitectureTab() {
   }
 
   useEffect(() => { loadAll(); }, []);
+
+  async function loadSkillMatrix(filters = skillMatrixFilters) {
+    setSkillMatrixLoading(true);
+    setSkillMatrixError('');
+    const params = new URLSearchParams();
+    if (filters.branch) params.set('branch', filters.branch);
+    if (filters.process) params.set('process', filters.process);
+    if (filters.lob) params.set('lob', filters.lob);
+    if (filters.batchNo) params.set('batchNo', filters.batchNo);
+    if (filters.designation) params.set('designation', filters.designation);
+    if (filters.category) params.set('category', filters.category);
+    if (filters.search) params.set('search', filters.search);
+    if (filters.requiredOnly) params.set('requiredOnly', '1');
+    params.set('page', String(filters.page || 1));
+    params.set('pageSize', '25');
+    const result = await api.get(`/talent/admin/skill-matrix?${params.toString()}`, 'admin');
+    setSkillMatrixLoading(false);
+    if (!result.ok) return setSkillMatrixError(result.message || 'Could not load the skill matrix.');
+    setSkillMatrix(result.data);
+  }
+
+  useEffect(() => { if (view === 'skill-matrix' && !skillMatrix && !skillMatrixLoading) loadSkillMatrix(); }, [view]);
+
+  function updateMatrixFilter(key, next) {
+    setSkillMatrixFilters(form => ({ ...form, [key]: next, page: key === 'page' ? next : 1 }));
+  }
+
+  function submitMatrixFilters(event) {
+    event.preventDefault();
+    loadSkillMatrix({ ...skillMatrixFilters, page: 1 });
+  }
+
+  function changeMatrixPage(nextPage) {
+    const updated = { ...skillMatrixFilters, page: nextPage };
+    setSkillMatrixFilters(updated);
+    loadSkillMatrix(updated);
+  }
 
   function notify(textValue, bad = false) {
     bad ? setError(textValue) : setMessage(textValue);
@@ -245,6 +296,7 @@ export default function TalentArchitectureTab() {
         {[
           ['skills', 'Skill catalog'],
           ['requirements', 'Role requirements'],
+          ['skill-matrix', 'Skill matrix'],
           ['paths', 'Learning paths'],
           ...(can('access.permissions.manage') ? [['access', 'Access control']] : []),
         ].map(([id, label]) => <button key={id} className={view === id ? 'active' : ''} onClick={() => setView(id)}>{label}</button>)}
@@ -317,6 +369,88 @@ export default function TalentArchitectureTab() {
               <label className="talent-admin-check"><input type="checkbox" name="critical" checked={requirementForm.critical} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /><span>Critical skill for readiness</span></label>
               <button className="btn" disabled={saving === 'requirement'}>{saving === 'requirement' ? 'Saving…' : 'Save requirement'}</button>
             </form>
+          )}
+        </div>
+      )}
+
+      {view === 'skill-matrix' && (
+        <div className="talent-matrix-shell">
+          <form className="talent-matrix-filters" onSubmit={submitMatrixFilters}>
+            <FormField label="Branch"><input value={skillMatrixFilters.branch} onChange={event => updateMatrixFilter('branch', event.target.value)} placeholder="All branches" /></FormField>
+            <FormField label="Process"><input value={skillMatrixFilters.process} onChange={event => updateMatrixFilter('process', event.target.value)} placeholder="All processes" /></FormField>
+            <FormField label="LOB"><input value={skillMatrixFilters.lob} onChange={event => updateMatrixFilter('lob', event.target.value)} placeholder="All LOBs" /></FormField>
+            <FormField label="Batch"><input value={skillMatrixFilters.batchNo} onChange={event => updateMatrixFilter('batchNo', event.target.value)} placeholder="All batches" /></FormField>
+            <FormField label="Designation"><input value={skillMatrixFilters.designation} onChange={event => updateMatrixFilter('designation', event.target.value)} placeholder="All designations" /></FormField>
+            <FormField label="Skill category"><input value={skillMatrixFilters.category} onChange={event => updateMatrixFilter('category', event.target.value)} placeholder="All categories" /></FormField>
+            <FormField label="Search employee"><input value={skillMatrixFilters.search} onChange={event => updateMatrixFilter('search', event.target.value)} placeholder="Name or employee ID" /></FormField>
+            <label className="talent-admin-check talent-matrix-toggle"><input type="checkbox" checked={skillMatrixFilters.requiredOnly} onChange={event => updateMatrixFilter('requiredOnly', event.target.checked)} /><span>Required skills only (uses process/LOB/designation)</span></label>
+            <button className="btn small" disabled={skillMatrixLoading}>{skillMatrixLoading ? 'Loading…' : 'Apply filters'}</button>
+          </form>
+
+          {skillMatrixError && <div className="toast bad talent-admin-toast">{skillMatrixError}</div>}
+
+          {skillMatrix && (
+            <>
+              <div className="talent-admin-stats talent-matrix-summary">
+                <Stat label="Employees in view" value={skillMatrix.summary.employeeCount} note={`of ${skillMatrix.pagination.total} matching`} />
+                <Stat label="Skill columns" value={skillMatrix.summary.skillCount} />
+                <Stat label="Below target" value={skillMatrix.summary.belowTargetEmployees} note="employees with at least one gap" />
+                <Stat label="Gap cells" value={skillMatrix.summary.belowTargetPairs} note="employee × skill pairs below target" />
+              </div>
+
+              <div className="talent-admin-panel grow talent-matrix-panel">
+                <div className="talent-admin-panel-head">
+                  <div><h3>Cross-training coverage</h3><p>Missing cells mean no evidence has been recorded yet — not a zero score.</p></div>
+                  <div className="talent-matrix-legend">
+                    <span className="talent-matrix-swatch talent-matrix-ready">Ready</span>
+                    <span className="talent-matrix-swatch talent-matrix-developing">Developing</span>
+                    <span className="talent-matrix-swatch talent-matrix-gap">Gap</span>
+                    <span className="talent-matrix-swatch talent-matrix-unassessed">No data</span>
+                  </div>
+                </div>
+                {!skillMatrix.employees.length || !skillMatrix.skills.length ? (
+                  <div className="talent-admin-empty compact"><b>No matching data</b><p>Widen the filters, or add role requirements / skill profiles for this scope.</p></div>
+                ) : (
+                  <div className="talent-matrix-table-wrap">
+                    <table className="talent-matrix-table">
+                      <thead>
+                        <tr>
+                          <th className="talent-matrix-sticky-col">Employee</th>
+                          {skillMatrix.skills.map(skill => (
+                            <th key={skill.skillId} title={skill.category}><span>{skill.skillName}</span><small>{skill.category}</small></th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {skillMatrix.employees.map(employee => (
+                          <tr key={employee.employeeId}>
+                            <td className="talent-matrix-sticky-col"><b>{employee.traineeName || employee.employeeId}</b><small>{employee.employeeId} · {[employee.branch, employee.process, employee.lob].filter(Boolean).join(' · ')}</small></td>
+                            {skillMatrix.skills.map(skill => {
+                              const cell = skillMatrix.cells?.[employee.employeeId]?.[skill.skillId];
+                              return (
+                                <td key={skill.skillId} className={`talent-matrix-cell ${statusClass(cell?.status)}`}>
+                                  {cell ? (
+                                    <>
+                                      <b>{cell.currentLevel}{cell.targetLevel ? ` / ${cell.targetLevel}` : ''}</b>
+                                      <small>{cell.status || 'UNASSESSED'}</small>
+                                    </>
+                                  ) : <span className="talent-matrix-empty-cell">—</span>}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+                <div className="talent-matrix-pagination">
+                  <button type="button" className="btn small secondary" disabled={skillMatrixLoading || skillMatrixFilters.page <= 1} onClick={() => changeMatrixPage(Math.max(1, skillMatrixFilters.page - 1))}>← Previous</button>
+                  <span>Page {skillMatrixFilters.page} · {skillMatrix.pagination.total} employee(s) in scope</span>
+                  <button type="button" className="btn small secondary" disabled={skillMatrixLoading || skillMatrixFilters.page * skillMatrix.pagination.pageSize >= skillMatrix.pagination.total} onClick={() => changeMatrixPage(skillMatrixFilters.page + 1)}>Next →</button>
+                </div>
+              </div>
+            </>
           )}
         </div>
       )}

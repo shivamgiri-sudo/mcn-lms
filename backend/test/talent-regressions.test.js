@@ -95,6 +95,21 @@ test('admin talent workspaces provide actual creation, mapping and verification 
   assert.match(consolePage, /Evidence & Verification/);
 });
 
+test('cross-employee skill matrix reuses existing skill tables with no fabricated cells', async () => {
+  const routes = await source('src/routes/talent.js');
+  const architecture = await source('frontend/src/pages/Admin/TalentArchitectureTab.jsx', repoRoot);
+  assert.match(routes, /router\.get\(\s*\n\s*'\/admin\/skill-matrix'/);
+  assert.match(routes, /requirePermission\('talent\.skills\.view'\)/);
+  assert.match(routes, /prisma\.traineeMaster\.findMany/);
+  assert.match(routes, /FROM employee_skill_profile/);
+  assert.match(routes, /FROM role_skill_requirement/);
+  assert.match(routes, /belowTargetEmployees/);
+  assert.match(routes, /belowTargetPairs/);
+  assert.match(architecture, /\/talent\/admin\/skill-matrix/);
+  assert.match(architecture, /requiredOnly/);
+  assert.match(architecture, /Missing cells mean no evidence has been recorded yet/);
+});
+
 test('talent evidence routes are mounted before the main talent router', async () => {
   const server = await source('src/server.js');
   const evidenceIndex = server.indexOf("app.use('/api/talent', talentEvidenceRoutes)");
