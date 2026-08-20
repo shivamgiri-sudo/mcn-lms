@@ -34,6 +34,7 @@ import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
 import MentorPairingTab from '../Coordinator/MentorPairingTab.jsx';
+import IJPManageTab from '../Coordinator/IJPManageTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health', 'runtime-operations']);
@@ -59,6 +60,7 @@ const NAV = [
     { id: 'coordinators', label: 'Coordinators', icon: '🧑‍💼' },
     { id: 'users', label: 'Portal Users', icon: '🔑' },
     { id: 'mentor-pairing', label: 'Buddy / Mentor Pairing', icon: '🤝' },
+    { id: 'ijp', label: 'Internal Job Postings', icon: '🚀' },
   ]},
   { section: 'Reports', items: [
     { id: 'reports', label: 'Reports & Exports', icon: '📥' },
@@ -165,6 +167,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'reports' && <ReportsTab />}
           {activeId === 'leaderboard' && <LeaderboardTab />}
           {activeId === 'mentor-pairing' && <MentorPairingTab portalType="admin" />}
+          {activeId === 'ijp' && <IJPManageTab portalType="admin" />}
           {activeId === 'compliance-audit' && <ComplianceExport />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}

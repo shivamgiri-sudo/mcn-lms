@@ -1036,3 +1036,61 @@ model MentorPairingCheckin {
   @@index([pairingId])
   @@map("mentor_pairing_checkin")
 }
+
+// ─── INTERNAL JOB POSTING (IJP) / PROMOTION TRACKER ────────────────────────────
+// v1: Admin/Coordinator post an open internal role (a process/branch/level
+// opening); trainees/employees apply; Admin/Coordinator review and mark an
+// outcome. targetBranch/targetProcess/targetLob nullable = open to all.
+// minTenureMonths is a simple, optional eligibility rule evaluated against
+// TraineeMaster.doj at listing time — no FK, same loosely-coupled string-ref
+// convention as TraineeLeaderboardScore/MentorPairing on this branch.
+
+model InternalJobPosting {
+  id                String    @id @default(uuid())
+  title             String
+  description       String?   @db.Text
+  targetBranch      String?   @map("target_branch")
+  targetProcess     String?   @map("target_process")
+  targetLob         String?   @map("target_lob")
+  targetDesignation String?   @map("target_designation")
+  minTenureMonths   Int?      @map("min_tenure_months")
+  status            String    @default("OPEN") // OPEN | CLOSED | FILLED
+  postedBy          String?   @map("posted_by")
+  postedAt          DateTime  @default(now()) @map("posted_at")
+  closesAt          DateTime? @map("closes_at")
+  filledBy          String?   @map("filled_by")
+  filledAt          DateTime? @map("filled_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([targetBranch])
+  @@index([targetProcess])
+  @@map("internal_job_posting")
+}
+
+// Denormalizes the applicant's designation/branch/process off TraineeMaster
+// at apply time so review lists never need a join and keep the applicant's
+// state as of the application even if their live profile later changes.
+// Unique on (postingId, applicantEmployeeId) — one application per posting.
+model InternalJobApplication {
+  id                 String    @id @default(uuid())
+  postingId          String    @map("posting_id")
+  applicantEmployeeId String   @map("applicant_employee_id")
+  applicantName      String?   @map("applicant_name")
+  currentDesignation String?   @map("current_designation")
+  currentBranch      String?   @map("current_branch")
+  currentProcess     String?   @map("current_process")
+  status             String    @default("APPLIED") // APPLIED | SHORTLISTED | SELECTED | REJECTED | WITHDRAWN
+  appliedAt          DateTime  @default(now()) @map("applied_at")
+  reviewedBy         String?   @map("reviewed_by")
+  reviewedAt         DateTime? @map("reviewed_at")
+  reviewNotes        String?   @db.Text @map("review_notes")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@unique([postingId, applicantEmployeeId])
+  @@index([applicantEmployeeId])
+  @@index([postingId, status])
+  @@map("internal_job_application")
+}
