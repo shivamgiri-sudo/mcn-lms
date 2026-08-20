@@ -44,6 +44,7 @@ import developmentRoutes from './routes/development.js';
 import iltRoutes from './routes/ilt.js';
 import mentorPairingRoutes from './routes/mentorPairing.js';
 import ijpRoutes from './routes/ijp.js';
+import voiceAccentRoutes from './routes/voiceAccent.js';
 
 validateSessionSecurityConfig(process.env);
 
@@ -191,6 +192,7 @@ app.use('/api/ilt', normalizeIltAttendanceRequest);
 app.use('/api/ilt', iltRoutes);
 app.use('/api/mentor-pairing', mentorPairingRoutes);
 app.use('/api/ijp', ijpRoutes);
+app.use('/api/voice-accent', voiceAccentRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));

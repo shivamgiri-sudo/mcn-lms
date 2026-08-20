@@ -1094,3 +1094,64 @@ model InternalJobApplication {
   @@index([postingId, status])
   @@map("internal_job_application")
 }
+
+// ─── VOICE & ACCENT ASSESSMENT ─────────────────────────────────────────────
+// v1: a BPO-specific speaking assessment. Trainees record themselves reading
+// a script/passage or answering a scenario prompt; a trainer/coordinator/QA
+// evaluator scores the recording against a flexible rubric. category/level
+// are free-text and nullable — kept simple for v1, no separate lookup table.
+model VoiceAccentPrompt {
+  id         String   @id @default(uuid())
+  title      String
+  promptText String   @db.Text @map("prompt_text")
+  promptType String   @default("SCRIPT_READING") @map("prompt_type") // SCRIPT_READING | SCENARIO_ROLEPLAY
+  category   String?
+  level      String?
+  active     Boolean  @default(true)
+  createdBy  String?  @map("created_by")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([active])
+  @@map("voice_accent_prompt")
+}
+
+// One trainee recording against one prompt. promptId is a loosely-coupled
+// string ref to VoiceAccentPrompt.id (no FK, same convention as
+// MentorPairing/TraineeLeaderboardScore on this branch). audioFilePath is
+// server-relative (never a public URL) and is only ever served through the
+// protected /api/voice-accent/audio/:id route, which checks ownership or
+// reviewer scope (batchNo/branch/process, denormalized here at submission
+// time so review-queue queries never need a join). rubricScores is a
+// flexible JSON map of dimension -> score so v1 does not lock in a fixed
+// rubric shape.
+model VoiceAccentSubmission {
+  id               String    @id @default(uuid())
+  promptId         String    @map("prompt_id")
+  employeeId       String    @map("employee_id")
+  employeeName     String?   @map("employee_name")
+  batchNo          String?   @map("batch_no")
+  branch           String?
+  process          String?
+  audioFilePath    String    @map("audio_file_path")
+  originalFilename String?   @map("original_filename")
+  mimeType         String?   @map("mime_type")
+  fileSize         Int?      @map("file_size")
+  durationSeconds  Int?      @map("duration_seconds")
+  submittedAt      DateTime  @default(now()) @map("submitted_at")
+  status           String    @default("SUBMITTED") // SUBMITTED | SCORED
+  scoredBy         String?   @map("scored_by")
+  scoredAt         DateTime? @map("scored_at")
+  overallScore     Int?      @map("overall_score")
+  rubricScores     Json?     @map("rubric_scores")
+  feedbackNotes    String?   @db.Text @map("feedback_notes")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([employeeId, status])
+  @@index([promptId])
+  @@index([batchNo])
+  @@index([branch])
+  @@index([status])
+  @@map("voice_accent_submission")
+}

@@ -90,3 +90,40 @@ export const scormUpload = multer({
     cb(ok ? null : new Error('A valid ZIP file is required for a SCORM package.'), ok);
   },
 });
+
+// Voice & Accent Assessment recordings — short trainee-identifiable voice
+// clips, never publicly served (see routes/voiceAccent.js). Deliberately a
+// much smaller cap than contentUpload's 200MB — a few minutes of compressed
+// audio never needs it, and a low cap limits abuse of the upload endpoint.
+const voiceStorage = multer.diskStorage({
+  destination(_req, _file, cb) {
+    const dir = path.join(UPLOAD_DIR, 'voice');
+    ensureDir(dir);
+    cb(null, dir);
+  },
+  filename(_req, file, cb) {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    cb(null, `${Date.now()}-${randomUUID()}${ext}`);
+  },
+});
+
+const VOICE_MIME_BY_EXTENSION = new Map([
+  ['.webm', new Set(['audio/webm', 'video/webm'])],
+  ['.mp3', new Set(['audio/mpeg', 'audio/mp3'])],
+  ['.wav', new Set(['audio/wav', 'audio/x-wav', 'audio/wave'])],
+  ['.m4a', new Set(['audio/mp4', 'audio/x-m4a', 'audio/m4a'])],
+  ['.ogg', new Set(['audio/ogg'])],
+]);
+
+const VOICE_MAX_MB = Number.parseInt(process.env.VOICE_MAX_FILE_SIZE_MB || '15', 10);
+
+export const voiceUpload = multer({
+  storage: voiceStorage,
+  limits: { fileSize: VOICE_MAX_MB * 1024 * 1024, files: 1 },
+  fileFilter(_req, file, cb) {
+    const ext = path.extname(file.originalname || '').toLowerCase();
+    const allowedMimes = VOICE_MIME_BY_EXTENSION.get(ext);
+    const ok = Boolean(allowedMimes?.has(String(file.mimetype || '').toLowerCase()));
+    cb(ok ? null : new Error(`Voice recording must be webm, mp3, wav, m4a or ogg: got ${file.mimetype} (${ext || 'no extension'})`), ok);
+  },
+});

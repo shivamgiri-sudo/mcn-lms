@@ -9,6 +9,7 @@ import CoordReportsTab from './CoordReportsTab.jsx';
 import CompetencyGapsTab from './CompetencyGapsTab.jsx';
 import MentorPairingTab from './MentorPairingTab.jsx';
 import IJPManageTab from './IJPManageTab.jsx';
+import VoiceAccentTab from './VoiceAccentTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 export default function CoordDashboard({ user, onLogout }) {
@@ -30,6 +31,7 @@ export default function CoordDashboard({ user, onLogout }) {
     { id: 'competencies', label: '🎯 Competency Gaps' },
     { id: 'mentor-pairing', label: '🤝 Buddy / Mentor' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
+    { id: 'voice-accent', label: '🎙️ Voice & Accent' },
     { id: 'pending', label: '⏳ Pending Activities' },
     { id: 'queries', label: '💬 Trainee Q&A' },
     { id: 'reports', label: '📥 Reports' },
@@ -81,6 +83,7 @@ export default function CoordDashboard({ user, onLogout }) {
           {activeTab === 'competencies' && <CompetencyGapsTab />}
           {activeTab === 'mentor-pairing' && <MentorPairingTab />}
           {activeTab === 'ijp' && <IJPManageTab portalType="coordinator" />}
+          {activeTab === 'voice-accent' && <VoiceAccentTab portalType="coordinator" />}
           {activeTab === 'pending' && <PendingActivities />}
           {activeTab === 'queries' && <QueryLog />}
           {activeTab === 'reports' && <CoordReportsTab />}

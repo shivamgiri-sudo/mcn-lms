@@ -3,7 +3,7 @@
   "commit": "REPLACE_WITH_FULL_40_CHARACTER_GIT_SHA",
   "image": "ghcr.io/shivamgiri-sudo/mcn-lms@sha256:REPLACE_WITH_64_HEX_DIGEST",
   "createdAt": "2026-07-29T00:00:00Z",
-  "migrationCount": 24,
+  "migrationCount": 25,
   "migrationCompatibility": "backward-compatible",
   "databaseRollbackSupported": false,
   "applicationRollbackSupported": true,
