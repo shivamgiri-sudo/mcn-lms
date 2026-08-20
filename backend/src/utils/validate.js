@@ -59,13 +59,18 @@ const formNumber = value => {
   return value;
 };
 
+// Same idea as formNumber, but for optional strings — a "-- No classroom (standalone) --"
+// select posts '' rather than omitting the field entirely, which would otherwise fail a
+// .min(1) on an "optional" string (optional only means undefined/missing is allowed, not '').
+const formOptionalString = value => (value === '' ? undefined : value);
+
 export const assessmentSchema = z.object({
   assessmentName: z.string().min(1, 'Assessment name required'),
   // Optional — a standalone assessment (no classroom yet) has this omitted/null
   // and can be attached to a classroom later via attach-classroom.
-  classroomId: z.string().min(1).optional().nullable(),
+  classroomId: z.preprocess(formOptionalString, z.string().min(1).optional().nullable()),
   dayNo: z.preprocess(formNumber, z.number().int().optional().nullable()),
-  moduleId: z.string().optional().nullable(),
+  moduleId: z.preprocess(formOptionalString, z.string().optional().nullable()),
   sortOrder: z.preprocess(formNumber, z.number().int().optional().default(0)),
   passingPct: z.preprocess(formNumber, z.number().min(0).max(100).optional().default(60)),
   attemptLimit: z.preprocess(formNumber, z.number().int().min(1).optional().default(3)),
