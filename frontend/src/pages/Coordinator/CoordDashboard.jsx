@@ -7,6 +7,7 @@ import PendingActivities from './PendingActivities.jsx';
 import QueryLog from './QueryLog.jsx';
 import CoordReportsTab from './CoordReportsTab.jsx';
 import CompetencyGapsTab from './CompetencyGapsTab.jsx';
+import MentorPairingTab from './MentorPairingTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 export default function CoordDashboard({ user, onLogout }) {
@@ -26,6 +27,7 @@ export default function CoordDashboard({ user, onLogout }) {
     { id: 'batches', label: '📋 Batches' },
     { id: 'live-training', label: '🗓️ Live Training' },
     { id: 'competencies', label: '🎯 Competency Gaps' },
+    { id: 'mentor-pairing', label: '🤝 Buddy / Mentor' },
     { id: 'pending', label: '⏳ Pending Activities' },
     { id: 'queries', label: '💬 Trainee Q&A' },
     { id: 'reports', label: '📥 Reports' },
@@ -75,6 +77,7 @@ export default function CoordDashboard({ user, onLogout }) {
           {activeTab === 'batches' && <BatchList onSelectBatch={setSelectedBatch} user={user} />}
           {activeTab === 'live-training' && <TrainingCalendarEntryCard role="coordinator" />}
           {activeTab === 'competencies' && <CompetencyGapsTab />}
+          {activeTab === 'mentor-pairing' && <MentorPairingTab />}
           {activeTab === 'pending' && <PendingActivities />}
           {activeTab === 'queries' && <QueryLog />}
           {activeTab === 'reports' && <CoordReportsTab />}

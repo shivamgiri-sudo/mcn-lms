@@ -134,10 +134,10 @@ test('release and rollback scripts preserve environment and forward-only databas
 });
 
 test('release manifests and environment contracts are machine readable and complete', () => {
-  assert.equal(manifest.migrationCount, 22);
-  assert.equal(migrations.length, 22);
+  assert.equal(manifest.migrationCount, 23);
+  assert.equal(migrations.length, 23);
   assert.equal(migrations[0], '20260630053213_init');
-  assert.equal(migrations.at(-1), '20260820090000_trainee_leaderboard');
+  assert.equal(migrations.at(-1), '20260820120000_mentor_pairing');
   assert.equal(manifest.databaseRollbackSupported, false);
   assert.equal(manifest.applicationRollbackSupported, true);
   assert.equal(manifest.healthEndpoints.liveness, '/api/runtime/health/live');

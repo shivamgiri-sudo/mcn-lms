@@ -984,3 +984,55 @@ model TraineeLeaderboardEvent {
   @@index([employeeId])
   @@map("trainee_leaderboard_event")
 }
+
+// ─── BUDDY / MENTOR PAIRING ───────────────────────────────────────────────────
+// v1: pairs a new hire (trainee) with a senior trainee or coordinator during
+// onboarding. mentorId is a loosely-coupled string matched against either
+// TraineeMaster.employeeId (mentorType TRAINEE) or RoleAccessMatrix.loginId
+// (mentorType COORDINATOR) — no FK, same pattern as AssignedModule/leaderboard.
+// mentorName/batchNo/branch/process are denormalized at pairing time so list
+// queries never need a join.
+
+model MentorPairing {
+  id                String    @id @default(uuid())
+  menteeEmployeeId  String    @map("mentee_employee_id")
+  menteeName        String?   @map("mentee_name")
+  mentorId          String    @map("mentor_id")
+  mentorType        String    @default("TRAINEE") @map("mentor_type") // TRAINEE | COORDINATOR
+  mentorName        String?   @map("mentor_name")
+  batchNo           String?   @map("batch_no")
+  branch            String?
+  process           String?
+  status            String    @default("ACTIVE") // ACTIVE | COMPLETED | CANCELLED
+  pairedBy          String?   @map("paired_by")
+  pairedAt          DateTime  @default(now()) @map("paired_at")
+  targetEndDate     DateTime? @map("target_end_date")
+  endedAt           DateTime? @map("ended_at")
+  endedReason       String?   @db.Text @map("ended_reason")
+  notes             String?   @db.Text
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([menteeEmployeeId, status])
+  @@index([mentorId, status])
+  @@index([batchNo])
+  @@index([branch])
+  @@map("mentor_pairing")
+}
+
+// Lightweight check-in log — not a full 1:1-notes app. One row per touchpoint,
+// loosely referencing MentorPairing.id (no FK, matches learning-path/leaderboard
+// convention of string refs for this branch's trainee-adjacent tables).
+model MentorPairingCheckin {
+  id           String   @id @default(uuid())
+  pairingId    String   @map("pairing_id")
+  checkinDate  DateTime @default(now()) @map("checkin_date")
+  loggedBy     String?  @map("logged_by")
+  loggedByType String?  @map("logged_by_type") // MENTOR | MENTEE | COORDINATOR | ADMIN
+  rating       String   @default("GOOD") // GOOD | NEEDS_ATTENTION | CONCERN
+  remarks      String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([pairingId])
+  @@map("mentor_pairing_checkin")
+}
