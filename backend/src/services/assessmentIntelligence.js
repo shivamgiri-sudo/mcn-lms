@@ -1,5 +1,6 @@
 import { createHmac, randomInt, randomUUID } from 'crypto';
 import { prisma } from '../utils/db.js';
+import { awardAssessmentPass } from '../utils/leaderboardEngine.js';
 
 const DISPLAY_KEYS = ['A', 'B', 'C', 'D'];
 const VALID_ANSWERS = new Set(DISPLAY_KEYS);
@@ -910,6 +911,15 @@ export async function submitLearnerAssessment(employeeId, assessmentId, payload 
         WHERE question_id IN (${placeholders})`,
       ...questionIds,
     );
+  }
+
+  // Leaderboard: award points for a pass, scaled by score. This is the actual live
+  // assessment-submit path (the trainee UI calls here, not trainee.js's submitAssessment
+  // which is unmounted from any frontend call) — fire-and-forget so a leaderboard
+  // failure never breaks assessment submission or its result.
+  if (result === 'Pass') {
+    awardAssessmentPass(employeeId, assessmentId, scored.percentage, attemptId)
+      .catch(error => console.error('[Leaderboard] assessment pass award failed:', error.message));
   }
 
   const [attemptsUsed, grantsAggSubmit, recommendations] = await Promise.all([
