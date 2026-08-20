@@ -3618,8 +3618,16 @@ export async function bulkImportExecute(req, res) {
 // broadcast be reviewed and withdrawn as a single unit.
 export async function listBroadcastAssignments(req, res) {
   try {
+    // Bulk broadcasts (broadcastModuleBulk) share an id prefix `bk-<timestamp>` across every
+    // recipient row, so grouping on that prefix collapses them into one "sent broadcast" —
+    // that's what SUBSTRING_INDEX(id, '-', 2) was for. But a single-scope broadcast
+    // (broadcastModule — individual/company) creates exactly ONE row with a plain UUID id
+    // (e.g. c89ff1da-6922-4620-...), and SUBSTRING_INDEX would truncate it to just the first
+    // two UUID segments — a batchKey that doesn't actually identify the row and, worse, isn't
+    // even in the `bk-<digits>` shape withdrawBroadcastAssignment requires. Use the full id as
+    // the batchKey for anything that isn't a bulk row.
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT SUBSTRING_INDEX(id, '-', 2) AS batchKey,
+      `SELECT (CASE WHEN id LIKE 'bk-%' THEN SUBSTRING_INDEX(id, '-', 2) ELSE id END) AS batchKey,
               module_id AS moduleId, module_name AS moduleName,
               broadcast_title AS broadcastTitle, assignment_type AS assignmentType,
               assigned_by AS assignedBy, assigned_to_type AS assignedToType,
@@ -3646,14 +3654,22 @@ export async function listBroadcastAssignments(req, res) {
 export async function withdrawBroadcastAssignment(req, res) {
   try {
     const batchKey = String(req.params.batchKey || '').trim();
-    // Only ever match a whole broadcast key, never an arbitrary LIKE pattern.
-    if (!/^bk-[0-9]+$/.test(batchKey)) {
+    const isBulkKey = /^bk-[0-9]+$/.test(batchKey);
+    // A single-scope broadcast's batchKey (see listBroadcastAssignments) is the exact row id —
+    // must be a plain UUID, never something that could turn into a LIKE wildcard pattern.
+    const isSingleRowId = /^[0-9a-f-]{8,64}$/i.test(batchKey) && !batchKey.includes('%') && !batchKey.includes('_');
+    if (!isBulkKey && !isSingleRowId) {
       return res.status(400).json({ ok: false, message: 'That broadcast reference is not valid.' });
     }
-    const withdrawn = await prisma.$executeRawUnsafe(
-      'UPDATE assigned_modules SET active = 0 WHERE active = 1 AND id LIKE ?',
-      batchKey + '-%',
-    );
+    const withdrawn = isBulkKey
+      ? await prisma.$executeRawUnsafe(
+          'UPDATE assigned_modules SET active = 0 WHERE active = 1 AND id LIKE ?',
+          batchKey + '-%',
+        )
+      : await prisma.$executeRawUnsafe(
+          'UPDATE assigned_modules SET active = 0 WHERE active = 1 AND id = ?',
+          batchKey,
+        );
     if (!Number(withdrawn)) {
       return res.status(404).json({ ok: false, message: 'That broadcast is already withdrawn or no longer exists.' });
     }
