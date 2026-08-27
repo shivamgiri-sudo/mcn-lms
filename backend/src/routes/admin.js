@@ -111,7 +111,7 @@ router.get('/reports/attendance-log', ...auth, exportAttendanceLog);
 router.get('/reports/certification-evidence', ...auth, exportCertificationEvidence);
 router.get('/reports/broadcast-assignments', ...auth, exportBroadcastAssignments);
 router.get('/reports/qa-activity', ...auth, exportQAActivity);
-router.post('/trainees/:employeeId/reset-password', ...superElevatedAuth, resetTraineePassword);
+router.post('/trainees/:employeeId/reset-password', ...auth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);
 router.delete('/trainees/:employeeId', ...superElevatedAuth, deleteTraineeAccount);
 router.get('/trainees/:empId/detail', ...auth, getTraineeDetail);

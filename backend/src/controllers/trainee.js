@@ -38,7 +38,7 @@ export async function getLearnerDashboard(req, res) {
       const payload = {
         ok: true,
         dashboard: {
-          trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob },
+          trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob, email: trainee.email, mobile: trainee.mobile },
           classroom: null,
           days: [],
           summary: {},
@@ -127,7 +127,7 @@ export async function getLearnerDashboard(req, res) {
     const payload = {
       ok: true,
       dashboard: {
-        trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob, lastLogin: user.lastLogin },
+        trainee: { employeeId: trainee.employeeId, name: trainee.traineeName, batchNo: trainee.batchNo, branch: trainee.branch, process: trainee.process, lob: trainee.lob, lastLogin: user.lastLogin, email: trainee.email, mobile: trainee.mobile },
         classroom: { classroomId, classroomName: classroom?.classroomName, process: classroom?.process, lob: classroom?.lob },
         days,
         summary: { totalDays, totalModules, totalContents, openedContents, completedContents, completionPercent, totalSecondsSpent, totalAssessments, attemptedAssessments, passedAssessments, mcqCompletionPercent, bestMcqScore, overallTrainingProgress, riskStatus: trainee.riskStatus || null, courseCompletionPct: trainee.courseCompletionPct || 0, attendancePct: trainee.attendancePct || 0 },
@@ -645,6 +645,7 @@ export async function updateProfile(req, res) {
       where: { employeeId: empId },
       data: { traineeName, email, mobile },
     });
+    cache.del('dashboard:' + empId);
     res.json({ ok: true, message: 'Profile updated.' });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Update failed.' });
