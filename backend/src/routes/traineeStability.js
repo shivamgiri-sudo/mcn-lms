@@ -40,17 +40,38 @@ function secureShuffle(items) {
   return copy;
 }
 
+// A stored /uploads/content/<file> path is NOT served in production - nginx's
+// try_files hands it to the SPA, which renders a blank page in the new tab. Any
+// local upload has to go through the authenticated content route instead. The
+// ?role hint is read by utils/session.js because a link opened in a new tab
+// cannot send the X-LMS-Role header.
+function uploadFilename(...candidates) {
+  for (const candidate of candidates) {
+    const value = String(candidate || '');
+    if (!value || /^https?:\/\//i.test(value)) continue;
+    // multer records a POSIX path in production but a Windows one locally.
+    const normalised = value.split(String.fromCharCode(92)).join('/');
+    if (!normalised.includes('uploads/content/')) continue;
+    const name = normalised.split('/').pop();
+    if (name) return name;
+  }
+  return '';
+}
+
+function buildOpenUrl({ directMediaUrl, driveFileId, localFilePath }) {
+  const name = uploadFilename(directMediaUrl, localFilePath);
+  if (name) return '/api/content/files/' + encodeURIComponent(name) + '?role=trainee';
+  if (directMediaUrl) return directMediaUrl;
+  if (driveFileId) return '/api/drive/proxy/' + encodeURIComponent(driveFileId) + '?role=trainee';
+  return '';
+}
+
 // Content that lives inside a classroom module. openUrl points at the
 // authenticated route so a learner can open it without needing Google access.
 function mapClassroomContent(row) {
   const driveFileId = row.drive_file_id || '';
   const localPath = row.local_file_path || '';
-  let openUrl = row.direct_media_url || '';
-  if (!openUrl && driveFileId) openUrl = '/api/drive/proxy/' + encodeURIComponent(driveFileId) + '?role=trainee';
-  if (!openUrl && localPath) {
-    const filename = String(localPath).split('/').pop();
-    if (filename) openUrl = '/api/content/files/' + encodeURIComponent(filename) + '?role=trainee';
-  }
+  const openUrl = buildOpenUrl({ directMediaUrl: row.direct_media_url, driveFileId, localFilePath: localPath });
   return {
     contentId: row.content_id,
     repositoryContentId: row.content_id,
@@ -91,6 +112,13 @@ function mapRepoContent(row) {
     versionNo: row.version_no,
     sortOrder: row.sort_order || 0,
     required: Boolean(row.required),
+    // Was missing entirely, so AssignedTab fell back to directMediaUrl and opened
+    // /uploads/content/<file> - a path nginx answers with the SPA shell.
+    openUrl: buildOpenUrl({
+      directMediaUrl: row.direct_media_url,
+      driveFileId: row.drive_file_id,
+      localFilePath: row.local_file_path,
+    }),
   };
 }
 

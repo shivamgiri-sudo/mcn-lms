@@ -597,10 +597,24 @@ function QueryCard({ query: q, onAction }) {
   );
 }
 
+// The certification endpoint returns { ...trainee, evidence, eligibility }. The table
+// read t.eligible, which is always undefined, so every trainee showed "Not Yet" and
+// "Certify All Eligible" never found anyone.
+const EVIDENCE_TYPES = [
+  { value: 'mock_call', label: 'Mock Call' },
+  { value: 'internal', label: 'Internal Certification' },
+  { value: 'external', label: 'External Certification' },
+];
+const isEligible = t => Boolean(t?.eligibility?.eligible ?? t?.eligible);
+const emptyScore = { evidenceType: 'mock_call', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' };
+
 function CertificationTab({ batchNo, trainees }) {
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [scoreFor, setScoreFor] = useState(null);
+  const [scoreForm, setScoreForm] = useState(emptyScore);
+  const [scoreSaving, setScoreSaving] = useState(false);
 
   useEffect(() => { load(); }, [batchNo]);
 
@@ -621,6 +635,30 @@ function CertificationTab({ batchNo, trainees }) {
     else setMsg(res.message || 'Failed.');
   }
 
+  // Records mock-call / internal / external certification evidence. The rules engine
+  // blocks certification until a passing score exists for each required type, and
+  // until now there was no way to enter one anywhere in the UI.
+  async function saveScore(event) {
+    event.preventDefault();
+    const score = Number(scoreForm.scorePct);
+    if (!Number.isFinite(score) || score < 0 || score > 100) return setMsg('Score must be a number between 0 and 100.');
+    setScoreSaving(true);
+    const res = await api.post(`/coordinator/batches/${batchNo}/certification/evidence`, {
+      employeeId: scoreFor.employeeId,
+      evidenceType: scoreForm.evidenceType,
+      result: scoreForm.result,
+      scorePct: score,
+      conductedBy: scoreForm.conductedBy,
+      remarks: scoreForm.remarks,
+    }, 'coordinator');
+    setScoreSaving(false);
+    if (!res.ok) return setMsg(res.message || 'Unable to save the score.');
+    setMsg(`\u2713 ${scoreForm.result} ${score}% recorded for ${scoreFor.employeeId}.`);
+    setScoreFor(null); setScoreForm(emptyScore); load();
+  }
+
+  function openScore(t) { setScoreForm(emptyScore); setScoreFor(t); }
+
   async function setFinalStatus(employeeId, finalStatus) {
     const res = await api.patch(`/coordinator/batches/${batchNo}/trainees/${employeeId}/final-status`, { finalStatus }, 'coordinator');
     if (res.ok) { setMsg(`✓ ${employeeId} marked as ${finalStatus}.`); load(); }
@@ -629,7 +667,7 @@ function CertificationTab({ batchNo, trainees }) {
 
   async function bulkCertifyAll() {
     if (!data?.trainees) return;
-    const eligible = data.trainees.filter(t => t.eligible && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition');
+    const eligible = data.trainees.filter(t => isEligible(t) && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition');
     if (!eligible.length) return setMsg('No eligible trainees to certify.');
     setBulkLoading(true);
     for (const t of eligible) {
@@ -672,13 +710,34 @@ function CertificationTab({ batchNo, trainees }) {
   if (!data) return <div className="spinner" />;
 
   const traineeList = data.trainees || [];
-  const eligibleCount = traineeList.filter(t => t.eligible).length;
+  const eligibleCount = traineeList.filter(isEligible).length;
   const certifiedCount = traineeList.filter(t => t.certificationStatus === 'Certified').length;
   const attritionCount = traineeList.filter(t => t.certificationStatus === 'Attrition').length;
   const handedOverCount = traineeList.filter(t => t.handoverToOps).length;
-  const pendingCertify = traineeList.filter(t => t.eligible && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition').length;
+  const pendingCertify = traineeList.filter(t => isEligible(t) && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition').length;
   const pendingHandover = traineeList.filter(t => t.certificationStatus === 'Certified' && !t.handoverToOps).length;
   const unresolvedCount = traineeList.filter(t => t.status === 'Active' && !t.handoverToOps && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition').length;
+
+  function evidenceCell(t) {
+    const evidence = t.evidence || [];
+    if (!evidence.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>\u2014</span>;
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+        {evidence.map(item => {
+          const label = EVIDENCE_TYPES.find(type => type.value === item.evidenceType)?.label || item.evidenceType;
+          const passed = String(item.result || '').toLowerCase() === 'pass';
+          return (
+            <span key={item.id || `${item.evidenceType}-${item.conductedAt}`}
+              className={`pill ${passed ? 'ok' : 'bad'}`}
+              style={{ fontSize: 11 }}
+              title={`${label} \u2014 ${item.result} ${Number(item.scorePct || 0)}%${item.remarks ? ` \u2014 ${item.remarks}` : ''}`}>
+              {label.split(' ')[0]} {Number(item.scorePct || 0)}%
+            </span>
+          );
+        })}
+      </div>
+    );
+  }
 
   function statusPill(t) {
     if (t.handoverToOps) return <span className="pill info" style={{ background: '#3b82f6', color: '#fff' }}>Handed Over</span>;
@@ -718,7 +777,8 @@ function CertificationTab({ batchNo, trainees }) {
     // Not yet marked — show all 3 action buttons
     return (
       <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        {t.eligible && (
+        <button className="btn small secondary" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => openScore(t)}>◎ Score</button>
+        {isEligible(t) && (
           <button className="btn small ok" style={{ fontSize: 11, background: '#22c55e', padding: '3px 8px' }} onClick={() => certify(t.employeeId)}>✓ Certify</button>
         )}
         <button className="btn small" style={{ fontSize: 11, background: '#f59e0b', color: '#fff', padding: '3px 8px' }} onClick={() => setFinalStatus(t.employeeId, 'Not Certified')}>✕ Not Certified</button>
@@ -781,7 +841,7 @@ function CertificationTab({ batchNo, trainees }) {
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th><th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
           <tbody>
             {traineeList.map(t => (
               <tr key={t.employeeId}>
@@ -790,7 +850,15 @@ function CertificationTab({ batchNo, trainees }) {
                 <td>{pct(t.courseCompletionPct)}</td>
                 <td>{pct(t.assessmentPassPct)}</td>
                 <td>{pct(t.attendancePct)}</td>
-                <td>{t.eligible ? <span className="pill ok">Eligible</span> : <span className="pill bad">Not Yet</span>}</td>
+                <td>{evidenceCell(t)}</td>
+                <td>
+                  {isEligible(t)
+                    ? <span className="pill ok">Eligible</span>
+                    : <span className="pill bad" title={(t.eligibility?.blockers || []).join(' \u2022 ') || 'Not yet eligible'}>Not Yet</span>}
+                  {!isEligible(t) && (t.eligibility?.blockers || []).length > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3, maxWidth: 260 }}>{t.eligibility.blockers[0]}</div>
+                  )}
+                </td>
                 <td>{statusPill(t)}</td>
                 <td>{actionButtons(t)}</td>
               </tr>
@@ -798,6 +866,62 @@ function CertificationTab({ batchNo, trainees }) {
           </tbody>
         </table>
       </div>
+
+      {scoreFor && (
+        <div className="modal-overlay" onClick={() => setScoreFor(null)}>
+          <div className="modal-box" style={{ maxWidth: 460 }} onClick={event => event.stopPropagation()}>
+            <div className="modal-head">
+              <b>Record score — {scoreFor.traineeName || scoreFor.employeeId}</b>
+              <span style={{ color: 'var(--muted)', fontSize: 12 }}>{scoreFor.employeeId}</span>
+            </div>
+            <form onSubmit={saveScore} style={{ padding: '16px 20px', display: 'grid', gap: 12 }}>
+              <div className="field">
+                <label>Assessment type *</label>
+                <select className="select" value={scoreForm.evidenceType} onChange={event => setScoreForm(form => ({ ...form, evidenceType: event.target.value }))}>
+                  {EVIDENCE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div className="field">
+                  <label>Result *</label>
+                  <select className="select" value={scoreForm.result} onChange={event => setScoreForm(form => ({ ...form, result: event.target.value }))}>
+                    <option>Pass</option>
+                    <option>Fail</option>
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Score % *</label>
+                  <input className="input" type="number" min="0" max="100" step="0.01" required
+                    value={scoreForm.scorePct}
+                    onChange={event => setScoreForm(form => ({ ...form, scorePct: event.target.value }))} />
+                </div>
+              </div>
+              <div className="field">
+                <label>Assessed by</label>
+                <input className="input" placeholder="Defaults to you" value={scoreForm.conductedBy}
+                  onChange={event => setScoreForm(form => ({ ...form, conductedBy: event.target.value }))} />
+              </div>
+              <div className="field">
+                <label>Remarks</label>
+                <textarea className="input" rows="2" value={scoreForm.remarks}
+                  onChange={event => setScoreForm(form => ({ ...form, remarks: event.target.value }))} />
+              </div>
+              {(scoreFor.eligibility?.blockers || []).length > 0 && (
+                <div className="info-box" style={{ fontSize: 12 }}>
+                  <b>Still blocking certification:</b>
+                  <ul style={{ margin: '6px 0 0 16px' }}>
+                    {scoreFor.eligibility.blockers.map((blocker, index) => <li key={index}>{blocker}</li>)}
+                  </ul>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button type="button" className="btn secondary" onClick={() => setScoreFor(null)}>Cancel</button>
+                <button className="btn accent" disabled={scoreSaving}>{scoreSaving ? 'Saving…' : 'Save score'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

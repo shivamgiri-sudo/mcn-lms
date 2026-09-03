@@ -418,6 +418,41 @@ router.delete('/independent-modules/auto-assign-rules/:ruleId', ...auth, async (
   }
 });
 
+// Replacing the file itself had no route at all - an admin could only retype the
+// Direct URL by hand, which is how stale content stayed live. Swaps the stored file,
+// re-derives the type, and bumps the version so the change is traceable.
+router.post('/content-repository/:repositoryContentId/file', ...auth, contentUpload.single('file'), async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    if (!req.file) return res.status(400).json({ ok: false, message: 'A replacement file is required.' });
+    const repositoryContentId = clean(req.params.repositoryContentId);
+    const rows = await prisma.$queryRawUnsafe('SELECT * FROM content_repository_master WHERE repository_content_id = ? AND status = ?', repositoryContentId, 'Active');
+    const existing = rows?.[0];
+    if (!existing) return res.status(404).json({ ok: false, message: 'Repository content not found.' });
+
+    const publicUrl = repoPathFromFile(req.file);
+    const contentType = clean(req.body?.contentType) || guessContentType(req.file);
+    const versionNo = toInt(existing.version_no, 1) + 1;
+    await prisma.$executeRawUnsafe(
+      `UPDATE content_repository_master
+          SET direct_media_url = ?, local_file_path = ?, source_type = 'local',
+              content_type = ?, drive_file_id = NULL, drive_url = NULL, version_no = ?
+        WHERE repository_content_id = ?`,
+      publicUrl, req.file.path, contentType, versionNo, repositoryContentId,
+    );
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'REPLACE_CONTENT_REPOSITORY_FILE',
+      module: 'ContentRepository', referenceId: repositoryContentId,
+      oldValue: { directMediaUrl: existing.direct_media_url, versionNo: existing.version_no },
+      newValue: { directMediaUrl: publicUrl, file: req.file.originalname, versionNo },
+    });
+    return res.json({ ok: true, data: { directMediaUrl: publicUrl, contentType, versionNo }, message: `File replaced. Now version ${versionNo}.` });
+  } catch (err) {
+    console.error('[adminStability] content repository file replace failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to replace the repository file.' });
+  }
+});
 router.put('/content-repository/:repositoryContentId', ...auth, async (req, res) => {
   try {
     await ensureContentRepositoryTable();

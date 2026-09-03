@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api, uploadFile } from '../../utils/api.js';
+import { ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const emptyForm = {
   title: '', contentType: 'document', category: '', subCategory: '', process: '', lob: '', tags: '', sourceType: 'local',
@@ -16,6 +17,7 @@ export default function ContentRepositoryTab() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editItem, setEditItem] = useState(null);
+  const [replaceFile, setReplaceFile] = useState(null);
 
   async function load() {
     setLoading(true); setMsg('');
@@ -55,6 +57,7 @@ export default function ContentRepositoryTab() {
   }
 
   function openEdit(item) {
+    setReplaceFile(null);
     setEditItem({
       repositoryContentId: item.repository_content_id,
       title: item.title || '',
@@ -79,9 +82,23 @@ export default function ContentRepositoryTab() {
   async function saveEdit(e) {
     e.preventDefault(); setSaving(true); setMsg('');
     const res = await api.put(`/admin/content-repository/${editItem.repositoryContentId}`, editItem, 'admin');
-    setSaving(false);
-    if (!res.ok) return setMsg(res.message || 'Unable to update repository content.');
-    setMsg('\u2713 Repository content updated.'); setEditItem(null); load();
+    if (!res.ok) { setSaving(false); return setMsg(res.message || 'Unable to update repository content.'); }
+
+    // The file swap runs after the metadata save so a failed upload cannot leave
+    // the row describing content it no longer points at.
+    if (replaceFile) {
+      const fd = new FormData();
+      fd.append('file', replaceFile);
+      if (editItem.contentType) fd.append('contentType', editItem.contentType);
+      const fileRes = await uploadFile(`/admin/content-repository/${editItem.repositoryContentId}/file`, fd, 'admin');
+      setSaving(false);
+      if (!fileRes.ok) return setMsg(`Details saved, but the file was not replaced: ${fileRes.message || 'upload failed'}`);
+      setMsg(`\u2713 ${fileRes.message || 'Repository content updated.'}`);
+    } else {
+      setSaving(false);
+      setMsg('\u2713 Repository content updated.');
+    }
+    setReplaceFile(null); setEditItem(null); load();
   }
 
   function setField(key, value) { setForm(prev => ({ ...prev, [key]: value })); }
@@ -159,8 +176,8 @@ export default function ContentRepositoryTab() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
                 <input className="input" placeholder="Category" value={editItem.category} onChange={e => setEditField('category', e.target.value)} />
                 <input className="input" placeholder="Sub Category" value={editItem.subCategory} onChange={e => setEditField('subCategory', e.target.value)} />
-                <input className="input" placeholder="Process" value={editItem.process} onChange={e => setEditField('process', e.target.value)} />
-                <input className="input" placeholder="LOB" value={editItem.lob} onChange={e => setEditField('lob', e.target.value)} />
+                <ProcessSelect value={editItem.process} onChange={next => setEditField('process', next)} />
+                <LobSelect process={editItem.process} value={editItem.lob} onChange={next => setEditField('lob', next)} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <input className="input" placeholder="Direct URL / Local Public URL" value={editItem.directMediaUrl} onChange={e => setEditField('directMediaUrl', e.target.value)} />
@@ -176,9 +193,18 @@ export default function ContentRepositoryTab() {
                 <select className="input" value={editItem.playerMode} onChange={e => setEditField('playerMode', e.target.value)}><option>Auto</option><option>Manual</option></select>
               </div>
               <textarea className="input" rows="2" placeholder="Description" value={editItem.description} onChange={e => setEditField('description', e.target.value)} />
+              <div className="field" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+                <label>Replace file</label>
+                <input className="input" type="file" onChange={e => setReplaceFile(e.target.files?.[0] || null)} />
+                <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  {replaceFile
+                    ? `\u21bb ${replaceFile.name} will replace the current file and bump the version.`
+                    : 'Leave empty to keep the current file. Everyone already assigned this content sees the new file.'}
+                </p>
+              </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button type="button" className="btn secondary" onClick={() => setEditItem(null)}>Cancel</button>
-                <button className="btn accent" disabled={saving}>{saving ? 'Saving\u2026' : 'Update'}</button>
+                <button type="button" className="btn secondary" onClick={() => { setReplaceFile(null); setEditItem(null); }}>Cancel</button>
+                <button className="btn accent" disabled={saving}>{saving ? 'Saving\u2026' : (replaceFile ? 'Update and replace file' : 'Update')}</button>
               </div>
             </form>
           </div>
