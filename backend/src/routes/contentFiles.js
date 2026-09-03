@@ -24,7 +24,11 @@ function safeFilename(value) {
   return decoded;
 }
 
-async function traineeCanAccess(employeeId, filename) {
+// A file can reach a trainee two ways, and this guard has to know about both.
+// Checking only classroom content meant every Content Repository upload delivered
+// through an independent module was fetched, then refused with "not assigned to
+// your classroom" - the file was genuinely assigned, just not via content_master.
+async function allowedByClassroom(employeeId, filename) {
   const contents = await prisma.contentMaster.findMany({
     where: {
       active: true,
@@ -51,6 +55,58 @@ async function traineeCanAccess(employeeId, filename) {
     select: { id: true },
   });
   return Boolean(mapping);
+}
+
+// A sentinel no real batch/process/branch can equal, so a trainee with an empty
+// batchNo does not match assignments whose assignedTo is also empty.
+const NO_MATCH = '__unassigned__';
+
+// Mirrors getDirectAssignments in routes/traineeStability.js - the same scopes the
+// dashboard uses to decide the trainee may see the module in the first place.
+async function allowedByIndependentModule(employeeId, filename) {
+  const repoRows = await prisma.$queryRawUnsafe(
+    `SELECT repository_content_id FROM content_repository_master
+      WHERE status = 'Active' AND direct_media_url LIKE ? LIMIT 100`,
+    `%/${filename}`,
+  );
+  const repoIds = (repoRows || []).map(row => row.repository_content_id).filter(Boolean);
+  if (!repoIds.length) return false;
+
+  const placeholders = repoIds.map(() => '?').join(',');
+  const mapRows = await prisma.$queryRawUnsafe(
+    `SELECT DISTINCT m.module_id FROM independent_module_content_map m
+      INNER JOIN independent_module_master im ON im.module_id = m.module_id AND im.status = 'Active'
+      WHERE m.active = 1 AND m.repository_content_id IN (${placeholders})`,
+    ...repoIds,
+  );
+  const moduleIds = (mapRows || []).map(row => row.module_id).filter(Boolean);
+  if (!moduleIds.length) return false;
+
+  const trainee = await prisma.traineeMaster.findUnique({
+    where: { employeeId },
+    select: { batchNo: true, process: true, branch: true },
+  });
+
+  const assignment = await prisma.assignedModule.findFirst({
+    where: {
+      active: true,
+      moduleId: { in: moduleIds },
+      OR: [
+        { assignedTo: employeeId, assignedToType: 'individual' },
+        { assignedTo: trainee?.batchNo || NO_MATCH, assignedToType: 'batch' },
+        { assignedTo: trainee?.process || NO_MATCH, assignedToType: 'process' },
+        { assignedTo: trainee?.branch || NO_MATCH, assignedToType: 'branch' },
+        { assignedToType: 'company' },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(assignment);
+}
+
+async function traineeCanAccess(employeeId, filename) {
+  if (await allowedByClassroom(employeeId, filename)) return true;
+  return allowedByIndependentModule(employeeId, filename);
 }
 
 router.get('/files/:filename', contentFileLimiter, requireSession, async (req, res, next) => {

@@ -279,6 +279,9 @@ export default function ClassroomWizard({ onClose, onCreated }) {
     const clRes = await api.post('/admin/classrooms', info, 'admin');
     if (!clRes.ok) { setLoading(false); return setMsg(clRes.message || 'Failed to create classroom.'); }
     const classroomId = clRes.data?.classroomId;
+    // Uploads used to be fired and forgotten, so a rejected file (wrong format, too
+    // large, expired session) left the wizard reporting success with nothing attached.
+    const failures = [];
 
     // 2. Create modules + contents + faqs + mcqs
     for (let i = 0; i < days.length; i++) {
@@ -289,7 +292,7 @@ export default function ClassroomWizard({ onClose, onCreated }) {
         moduleOrder: day.dayNo,
         description: day.desc,
       }, 'admin');
-      if (!modRes.ok) continue;
+      if (!modRes.ok) { failures.push(`Day ${day.dayNo}: ${modRes.message || 'module could not be created'}`); continue; }
       const moduleId = modRes.data?.moduleId;
 
       // Contents
@@ -302,7 +305,8 @@ export default function ClassroomWizard({ onClose, onCreated }) {
           const fd = new FormData();
           fd.append('file', c._file);
           Object.entries(payload).forEach(([k, v]) => v !== undefined && v !== null && fd.append(k, String(v)));
-          await uploadFile(`/admin/modules/${moduleId}/contents`, fd, 'admin');
+          const uploaded = await uploadFile(`/admin/modules/${moduleId}/contents`, fd, 'admin');
+          if (!uploaded?.ok) failures.push(`${c._file.name}: ${uploaded?.message || 'upload failed'}`);
         } else {
           await api.post(`/admin/modules/${moduleId}/contents`, payload, 'admin');
         }
@@ -318,7 +322,8 @@ export default function ClassroomWizard({ onClose, onCreated }) {
       if (fileFaqs.length > 0) {
         const fd = new FormData();
         fileFaqs.forEach(f => fd.append('files', f._file));
-        await uploadFile(`/admin/modules/${moduleId}/faqs/bulk-upload`, fd, 'admin');
+        const faqUploaded = await uploadFile(`/admin/modules/${moduleId}/faqs/bulk-upload`, fd, 'admin');
+        if (!faqUploaded?.ok) failures.push(`FAQ upload: ${faqUploaded?.message || 'failed'}`);
       }
 
       // MCQs — create assessment for this module then bulk upload
@@ -349,7 +354,8 @@ export default function ClassroomWizard({ onClose, onCreated }) {
     }
 
     setLoading(false);
-    setCreated({ classroomId, name: info.classroomName });
+    if (failures.length) setMsg(`Classroom created, but ${failures.length} item(s) failed: ${failures.join(' | ')}`);
+    setCreated({ classroomId, name: info.classroomName, failures });
     setStep(5); // success
     onCreated?.();
   }

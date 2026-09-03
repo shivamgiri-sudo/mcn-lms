@@ -233,6 +233,14 @@ if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
 
 app.use((err, req, res, _next) => {
   console.error(`[${req.requestId || 'no-request-id'}]`, err);
+  // Multer raises upload problems with a `code` and no status, which used to come
+  // back as a bare 500 'Internal server error' - a rejected file read as an outage.
+  if (err?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ ok: false, requestId: req.requestId, message: `That file is larger than the ${process.env.MAX_FILE_SIZE_MB || 200}MB upload limit.` });
+  }
+  if (typeof err?.code === 'string' && err.code.startsWith('LIMIT_')) {
+    return res.status(400).json({ ok: false, requestId: req.requestId, message: err.message || 'Upload rejected.' });
+  }
   const status = Number(err.status || 500);
   return res.status(status).json({
     ok: false,

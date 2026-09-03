@@ -7,6 +7,8 @@ import AssignedTab from './AssignedTab.jsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
 
+const IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
+
 function getDriveProxyUrl(fileId) {
   return `${API_BASE}/drive/proxy/${encodeURIComponent(fileId)}`;
 }
@@ -110,6 +112,9 @@ export default function LearningTab({ days, assignments, onRefresh }) {
         const isPdf = ext === 'pdf';
         const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext);
         if (isVid) return { type: 'html5', url: protectedUrl, requiresAuth: true };
+        // Images get their own type. Routing them through the iframe branch meant a
+        // blob: URL in a frame, which the Content-Security-Policy blocked outright.
+        if (IMAGE_EXTENSIONS.includes(ext)) return { type: 'image', url: protectedUrl, requiresAuth: true };
         if (isPdf) return { type: 'proxy', url: protectedUrl, requiresAuth: true };
         if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true };
         return { type: 'proxy', url: protectedUrl, requiresAuth: true };
@@ -121,6 +126,7 @@ export default function LearningTab({ days, assignments, onRefresh }) {
         const isPdf = ext === 'pdf';
         const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext);
         if (isVid) return { type: 'html5', url };
+        if (IMAGE_EXTENSIONS.includes(ext)) return { type: 'image', url };
         if (isPdf) return { type: 'proxy', url };
         if (isOffice) return { type: 'download', url };
         return { type: 'proxy', url };
@@ -488,6 +494,12 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
           )}
 
           {media?.type === 'html5' && isVideo && <video ref={videoRef} src={media.url} controls style={{ width: '100%', height: '100%', background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} onPause={() => onPauseChange(true)} onPlay={() => onPauseChange(false)} onLoadedMetadata={e => { if (progress?.lastPositionSeconds > 0) e.target.currentTime = progress.lastPositionSeconds; }} />}
+          {media?.type === 'image' && (
+            <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', overflow: 'auto', padding: 12, position: 'relative' }}>
+              {canMarkComplete && <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 3 }}><button className="btn small accent" onClick={() => markComplete(false)} disabled={completionState.saving}>{completionState.saving ? 'Saving…' : '✓ Mark Complete'}</button></div>}
+              <img src={media.url} alt={content.contentTitle} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 6 }} />
+            </div>
+          )}
           {media?.type === 'youtube' && <iframe src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen referrerPolicy="no-referrer-when-downgrade" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" title={content.contentTitle} />}
 
           {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && (

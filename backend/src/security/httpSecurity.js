@@ -41,8 +41,12 @@ export function buildHttpSecurityPolicy(env = process.env) {
   const connectSrc = uniqueSources(["'self'"], mcnmeet, 'wss:', validatedSources('CSP_CONNECT_SRC', env.CSP_CONNECT_SRC));
   const imgSrc = uniqueSources(["'self'", 'data:', 'blob:', 'https:'], validatedSources('CSP_IMG_SRC', env.CSP_IMG_SRC));
   const mediaSrc = uniqueSources(["'self'", 'blob:', 'https:'], validatedSources('CSP_MEDIA_SRC', env.CSP_MEDIA_SRC));
+  // Protected learning content is fetched with the session cookie and handed to the
+  // viewer as a blob: URL. img-src and media-src already allow blob:, so images and
+  // video worked, but every other file type renders in an iframe - without blob: here
+  // the browser silently blocked it and PDFs and images showed an empty panel.
   const frameSrc = uniqueSources(
-    ["'self'", 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
+    ["'self'", 'blob:', 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
     mcnmeet,
     validatedSources('CSP_FRAME_SRC', env.CSP_FRAME_SRC),
     validatedSources('SCORM_CONTENT_ORIGIN', env.SCORM_CONTENT_ORIGIN),

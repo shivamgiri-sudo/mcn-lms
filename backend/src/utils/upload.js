@@ -35,8 +35,10 @@ const MIME_BY_EXTENSION = new Map([
   ['.xlsx', new Set(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])],
   ['.jpg', new Set(['image/jpeg'])],
   ['.jpeg', new Set(['image/jpeg'])],
-  ['.png', new Set(['image/png'])],
+  ['.png', new Set(['image/png', 'image/x-png'])],
   ['.gif', new Set(['image/gif'])],
+  ['.webp', new Set(['image/webp'])],
+  ['.mov', new Set(['video/quicktime'])],
 ]);
 
 function hasMatchingType(file) {
@@ -51,7 +53,11 @@ export const contentUpload = multer({
   fileFilter(_req, file, cb) {
     if (hasMatchingType(file)) return cb(null, true);
     const ext = path.extname(file.originalname || '').toLowerCase();
-    return cb(new Error(`File type does not match the allowed format: ${file.mimetype} (${ext || 'no extension'})`));
+    // Without an explicit status this surfaced as a generic 500 'Internal server
+    // error', so a rejected file looked like an outage instead of a wrong format.
+    const error = new Error(`${ext || 'This file'} files of type ${file.mimetype || 'unknown'} are not accepted. Allowed: ${[...MIME_BY_EXTENSION.keys()].join(', ')}.`);
+    error.status = 400;
+    return cb(error);
   },
 });
 
