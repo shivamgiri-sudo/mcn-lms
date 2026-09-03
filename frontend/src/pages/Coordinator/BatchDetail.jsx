@@ -627,8 +627,8 @@ const EVIDENCE_TYPES = [
 // the certification rule, so a process can run a 3-day or 10-day window without a
 // code change. Lower is better throughout this tab.
 function evidenceTypesForRule(rule) {
-  if (!rule?.pqRequired) return EVIDENCE_TYPES;
-  const days = Math.max(1, Number(rule.pqDays || 5));
+  const days = Number(rule?.pqDays || 0);
+  if (days < 1) return EVIDENCE_TYPES;
   const pqDays = Array.from({ length: days }, (_, index) => ({
     value: `pq_day${index + 1}`,
     label: `PQ Error Rate — Day ${index + 1}`,
@@ -700,8 +700,9 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   function openScore(t) {
     // Land on the first unscored PQ day so the common case is one click.
     const recorded = new Set((t.eligibility?.pq?.recorded || []).map(row => row.day));
-    const nextDay = data?.rule?.pqRequired
-      ? Array.from({ length: Math.max(1, Number(data.rule.pqDays || 5)) }, (_, i) => i + 1).find(day => !recorded.has(day))
+    const trackedDays = Number(data?.rule?.pqDays || 0);
+    const nextDay = trackedDays > 0
+      ? Array.from({ length: trackedDays }, (_, i) => i + 1).find(day => !recorded.has(day))
       : null;
     setScoreForm({ ...emptyScore, evidenceType: nextDay ? `pq_day${nextDay}` : 'mock_call' });
     setScoreFor(t);
@@ -766,7 +767,8 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   const pendingHandover = traineeList.filter(t => t.certificationStatus === 'Certified' && !t.handoverToOps).length;
   const unresolvedCount = traineeList.filter(t => t.status === 'Active' && !t.handoverToOps && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition').length;
 
-  const pqOn = Boolean(data.rule?.pqRequired);
+  // Tracked (pqDays > 0) decides visibility; pqRequired decides whether it blocks.
+  const pqOn = Number(data.rule?.pqDays || 0) > 0;
 
   // Shows each recorded day and the running average against the target, so a
   // coordinator can see at a glance which day is still missing and where they stand.

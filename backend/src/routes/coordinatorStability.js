@@ -539,7 +539,8 @@ router.post('/batches/:batchNo/certification/evidence', ...auth, async (req, res
       const rule = trainee.process && trainee.lob
         ? await prisma.certificationRuleMaster.findFirst({ where: { process: trainee.process, lob: trainee.lob, active: true } })
         : null;
-      const maxDays = Math.max(1, Number(rule?.pqDays ?? 5));
+      const maxDays = Number(rule?.pqDays ?? 0);
+      if (maxDays < 1) return res.status(400).json({ ok: false, message: 'This process does not track Process Quality.' });
       if (pqDay < 1 || pqDay > maxDays) return res.status(400).json({ ok: false, message: `Process Quality day must be between 1 and ${maxDays}.` });
     } else if (!['mock_call', 'internal', 'external'].includes(evidenceType)) {
       return res.status(400).json({ ok: false, message: 'Invalid evidence type.' });

@@ -6,7 +6,7 @@ import { prisma } from '../utils/db.js';
 const PQ_COLUMNS = [
   ['pq_required', "TINYINT(1) NOT NULL DEFAULT 0 AFTER external_cert_pass_pct"],
   ['pq_max_error_pct', "DOUBLE NOT NULL DEFAULT 2.5 AFTER pq_required"],
-  ['pq_days', "INT NOT NULL DEFAULT 5 AFTER pq_max_error_pct"],
+  ['pq_days', "INT NOT NULL DEFAULT 0 AFTER pq_max_error_pct"],
 ];
 
 async function hasColumn(table, column) {

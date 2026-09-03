@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
-const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60, pqRequired: false, pqMaxErrorPct: 2.5, pqDays: 5 };
+const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60, pqRequired: false, pqMaxErrorPct: 2.5, pqDays: 0 };
 
 export default function CertRulesTab() {
   const [rules, setRules] = useState([]);
@@ -55,7 +55,7 @@ export default function CertRulesTab() {
       externalCertPassPct: r.externalCertPassPct,
       pqRequired: Boolean(r.pqRequired),
       pqMaxErrorPct: r.pqMaxErrorPct ?? 2.5,
-      pqDays: r.pqDays ?? 5,
+      pqDays: r.pqDays ?? 0,
     });
     setShowForm(true);
   }
@@ -83,7 +83,7 @@ export default function CertRulesTab() {
     if (r.mockCallRequired) steps.push('Mock Call');
     if (r.internalCertRequired) steps.push('Internal Cert');
     if (r.externalCertRequired) steps.push('External Cert');
-    if (r.pqRequired) steps.push(`PQ \u2264${r.pqMaxErrorPct}% err over ${r.pqDays}d`);
+    if (r.pqDays > 0) steps.push(`PQ \u2264${r.pqMaxErrorPct}% err over ${r.pqDays}d${r.pqRequired ? '' : ' (tracking only)'}`);
     return steps.length ? steps.join(', ') : '—';
   }
 
@@ -176,17 +176,24 @@ export default function CertRulesTab() {
                     below the ceiling. Lower is better, unlike every gate above. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '10px 0', flexWrap: 'wrap' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
-                    <input type="checkbox" checked={form.pqRequired} onChange={() => toggle('pqRequired')} />
-                    Process Quality (PQ) Error Rate Required
+                    <input type="checkbox" checked={form.pqDays > 0} onChange={() => num('pqDays', form.pqDays > 0 ? 0 : 5)} />
+                    Track Process Quality (PQ) error rate
                   </label>
-                  {form.pqRequired && (
+                  {form.pqDays > 0 && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>Max error %:</span>
                       <input className="input" type="number" min="0" max="100" step="0.01" value={form.pqMaxErrorPct} onChange={e => num('pqMaxErrorPct', e.target.value)} style={{ width: 90 }} />
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>Days:</span>
                       <input className="input" type="number" min="1" max="20" value={form.pqDays} onChange={e => num('pqDays', e.target.value)} style={{ width: 70 }} />
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        Averaged over the days actually scored; must be at or below this. Lower is better.
+                      <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                        <input type="checkbox" checked={form.pqRequired} onChange={() => toggle('pqRequired')} />
+                        Blocks certification
+                      </label>
+                      <span style={{ fontSize: 12, color: 'var(--muted)', flexBasis: '100%' }}>
+                        Averaged over the days actually scored and must land at or below the limit \u2014 lower is better.
+                        {form.pqRequired
+                          ? ' Anyone above the limit cannot be certified.'
+                          : ' Tracking only: coordinators record and see the scores, but certification is not blocked yet.'}
                       </span>
                     </div>
                   )}

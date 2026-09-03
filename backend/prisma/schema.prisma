@@ -668,7 +668,9 @@ model CertificationRuleMaster {
   // Lower is better - do not compare it like the percentage gates above.
   pqRequired           Boolean  @default(false) @map("pq_required")
   pqMaxErrorPct        Float    @default(2.5) @map("pq_max_error_pct")
-  pqDays               Int      @default(5) @map("pq_days")
+  // 0 = this process does not use PQ. Above 0 = tracked and enterable; pqRequired
+  // then decides whether a failing average actually blocks certification.
+  pqDays               Int      @default(0) @map("pq_days")
   active               Boolean  @default(true)
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @updatedAt @map("updated_at")
