@@ -657,6 +657,10 @@ model CertificationRuleMaster {
   courseCompletionMin  Float    @default(80) @map("course_completion_min")
   mcqPassPctMin        Float    @default(60) @map("mcq_pass_pct_min")
   attendancePctMin     Float    @default(70) @map("attendance_pct_min")
+  // DEPRECATED, retained only so the historic configuration is not lost. These are
+  // no longer read: every manually recorded gate is a CertificationCriterion row,
+  // and services/certificationSchema.js copies these into criteria once per rule at
+  // boot. Do not add logic against them - edit the criteria instead.
   mockCallRequired     Boolean  @default(false) @map("mock_call_required")
   mockCallPassPct      Float    @default(60) @map("mock_call_pass_pct")
   internalCertRequired Boolean  @default(false) @map("internal_cert_required")

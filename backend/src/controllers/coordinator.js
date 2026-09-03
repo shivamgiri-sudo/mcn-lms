@@ -673,7 +673,7 @@ export async function getCertificationData(req, res) {
 
     const eligibility = trainees.map(t => {
       const evList = evidence.filter(e => e.employeeId === t.employeeId);
-      return { ...t, evidence: evList, eligible: checkEligibility(t, rule, evList) };
+      return { ...t, evidence: evList, eligible: checkEligibility(t, rule) };
     });
 
     res.json({ ok: true, data: { rule, trainees: eligibility } });
@@ -682,15 +682,16 @@ export async function getCertificationData(req, res) {
   }
 }
 
-function checkEligibility(t, rule, evidence) {
+// Only reached from getCertificationData below, which routes/coordinatorStability.js
+// shadows (see server.js mount order), so this never runs in production. It is kept
+// because the handler around it is still exported, but it no longer reads the retired
+// mock/internal/external columns — the live evaluator is evaluateCertification in
+// coordinatorStability.js, backed by services/certificationCriteria.js.
+function checkEligibility(t, rule) {
   if (!rule) return t.courseCompletionPct >= 80 && t.assessmentPassPct >= 60;
-  if (t.courseCompletionPct < rule.courseCompletionMin) return false;
-  if (t.assessmentPassPct < rule.mcqPassPctMin) return false;
-  if (t.attendancePct < rule.attendancePctMin) return false;
-  if (rule.mockCallRequired && !evidence.find(e => e.evidenceType === 'mock_call' && e.result === 'Pass')) return false;
-  if (rule.internalCertRequired && !evidence.find(e => e.evidenceType === 'internal' && e.result === 'Pass')) return false;
-  if (rule.externalCertRequired && !evidence.find(e => e.evidenceType === 'external' && e.result === 'Pass')) return false;
-  return true;
+  return t.courseCompletionPct >= rule.courseCompletionMin
+    && t.assessmentPassPct >= rule.mcqPassPctMin
+    && t.attendancePct >= rule.attendancePctMin;
 }
 
 export async function saveCertificationEvidence(req, res) {

@@ -966,10 +966,24 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
           <b>Certification Rule: {data.rule.process} / {data.rule.lob}</b>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
             Course: {data.rule.courseCompletionMin}% &nbsp;|&nbsp; MCQ: {data.rule.mcqPassPctMin}% &nbsp;|&nbsp; Attendance: {data.rule.attendancePctMin}%
-            {data.rule.mockCallRequired && ' | Mock Call Required'}
-            {data.rule.internalCertRequired && ' | Internal Cert Required'}
-            {data.rule.externalCertRequired && ' | External Cert Required'}
           </p>
+          {/* The manual gates come from this process's own criteria, so the card
+              always matches what the table and the entry form offer. */}
+          {shownCriteria.length > 0 && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+              {shownCriteria.map(c => {
+                const value = c.measure === 'completion' ? 'completed' : formatCriterionValue(c.targetValue, c.unit);
+                const comparison = c.measure === 'completion' ? '' : (c.direction === 'at_most' ? '≤' : '≥');
+                const scope = c.measure === 'daily_average' ? ` avg/${c.days}d` : (c.measure === 'cumulative' ? ' total' : '');
+                return (
+                  <span key={c.criterionKey} className={`pill ${c.blocks === false ? '' : 'info'}`} style={{ fontSize: 11 }}
+                    title={c.blocks === false ? 'Recorded but does not block certification' : 'Blocks certification'}>
+                    {c.label} {comparison}{value}{scope}{c.blocks === false ? ' · tracked' : ''}
+                  </span>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
