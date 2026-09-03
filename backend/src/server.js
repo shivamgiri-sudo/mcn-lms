@@ -17,6 +17,7 @@ import { syncCertificationLifecycleForEmployee } from './services/developmentGov
 import { provisionHrmsEmployees } from './controllers/hrmsSeed.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
 import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
+import { ensureCertificationRuleColumns } from './services/certificationSchema.js';
 
 import browserAuthRoutes from './routes/browserAuth.js';
 import passwordStabilityRoutes from './routes/passwordStability.js';
@@ -395,6 +396,9 @@ function startBackgroundWork() {
 
 const server = app.listen(PORT, () => {
   console.log(`LMS running on port ${PORT}`);
+  // Runs on every boot, not only the scheduler worker, because the certification
+  // rule columns are read by every portal.
+  ensureCertificationRuleColumns().catch(error => console.error('[schema] certification rule columns failed:', error.message));
   runTalentGovernanceCleanup();
   startBackgroundWork();
 });

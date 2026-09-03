@@ -211,6 +211,44 @@ function normalizedResult(value) {
   return String(value || '').trim().toLowerCase();
 }
 
+// Process Quality is recorded one score per training day as evidence rows typed
+// pq_day1 .. pq_dayN. Only the days actually recorded count, so a trainee part-way
+// through the week is measured on the days they have, not penalised for the rest.
+const PQ_TYPE_PREFIX = 'pq_day';
+
+export function pqDayNumber(evidenceType) {
+  const match = /^pq_day(\d{1,2})$/.exec(String(evidenceType || ''));
+  return match ? Number(match[1]) : null;
+}
+
+export function summarisePq(evidence, rule) {
+  const target = Number(rule?.pqTargetPct ?? 0);
+  const days = Math.max(1, Number(rule?.pqDays ?? 5));
+  const scores = new Map();
+  for (const item of evidence || []) {
+    const day = pqDayNumber(item.evidenceType);
+    if (!day || day > days) continue;
+    // A day re-scored later supersedes the earlier attempt.
+    const previous = scores.get(day);
+    if (!previous || new Date(item.conductedAt || item.createdAt || 0) >= new Date(previous.conductedAt || previous.createdAt || 0)) {
+      scores.set(day, item);
+    }
+  }
+  const recorded = [...scores.entries()].sort((a, b) => a[0] - b[0]).map(([day, item]) => ({ day, scorePct: Number(item.scorePct || 0) }));
+  const average = recorded.length
+    ? recorded.reduce((sum, row) => sum + row.scorePct, 0) / recorded.length
+    : null;
+  return {
+    required: Boolean(rule?.pqRequired),
+    target,
+    days,
+    recorded,
+    recordedCount: recorded.length,
+    average: average === null ? null : Math.round(average * 100) / 100,
+    meetsTarget: average !== null && average >= target,
+  };
+}
+
 function passingEvidence(evidence, type, minimumScore) {
   return evidence.some(item =>
     item.evidenceType === type &&
@@ -244,9 +282,14 @@ async function evaluateCertification(trainee, batchNo) {
   if (rule?.mockCallRequired && !passingEvidence(evidence, 'mock_call', rule.mockCallPassPct)) blockers.push(`Passing mock-call evidence of at least ${Number(rule.mockCallPassPct || 0)}% is required`);
   if (rule?.internalCertRequired && !passingEvidence(evidence, 'internal', rule.internalCertPassPct)) blockers.push(`Passing internal-certification evidence of at least ${Number(rule.internalCertPassPct || 0)}% is required`);
   if (rule?.externalCertRequired && !passingEvidence(evidence, 'external', rule.externalCertPassPct)) blockers.push(`Passing external-certification evidence of at least ${Number(rule.externalCertPassPct || 0)}% is required`);
+  const pq = summarisePq(evidence, rule);
+  if (pq.required) {
+    if (!pq.recordedCount) blockers.push(`No Process Quality scores recorded yet (target ${pq.target}% across ${pq.days} days)`);
+    else if (!pq.meetsTarget) blockers.push(`Process Quality average ${pq.average}% across ${pq.recordedCount} day${pq.recordedCount === 1 ? '' : 's'} is below ${pq.target}%`);
+  }
   if (blockingRisks.length) blockers.push(`Resolve ${blockingRisks.length} open critical risk${blockingRisks.length === 1 ? '' : 's'} before certification`);
 
-  return { eligible: blockers.length === 0, blockers, thresholds, ruleId: rule?.ruleId || null, evidenceCount: evidence.length, blockingRisks };
+  return { eligible: blockers.length === 0, blockers, thresholds, pq, ruleId: rule?.ruleId || null, evidenceCount: evidence.length, blockingRisks };
 }
 
 router.get('/trainees/search', ...auth, async (req, res) => {
@@ -487,7 +530,16 @@ router.post('/batches/:batchNo/certification/evidence', ...auth, async (req, res
     if (!trainee || trainee.batchNo !== batch.batchNo) return res.status(400).json({ ok: false, message: 'Trainee is not in this batch.' });
     const evidenceType = String(req.body?.evidenceType || '').trim();
     const result = String(req.body?.result || '').trim();
-    if (!['mock_call', 'internal', 'external'].includes(evidenceType)) return res.status(400).json({ ok: false, message: 'Invalid evidence type.' });
+    const pqDay = pqDayNumber(evidenceType);
+    if (pqDay !== null) {
+      const rule = trainee.process && trainee.lob
+        ? await prisma.certificationRuleMaster.findFirst({ where: { process: trainee.process, lob: trainee.lob, active: true } })
+        : null;
+      const maxDays = Math.max(1, Number(rule?.pqDays ?? 5));
+      if (pqDay < 1 || pqDay > maxDays) return res.status(400).json({ ok: false, message: `Process Quality day must be between 1 and ${maxDays}.` });
+    } else if (!['mock_call', 'internal', 'external'].includes(evidenceType)) {
+      return res.status(400).json({ ok: false, message: 'Invalid evidence type.' });
+    }
     if (!['Pass', 'Fail'].includes(result)) return res.status(400).json({ ok: false, message: 'Evidence result must be Pass or Fail.' });
     const scorePct = Number(req.body?.scorePct || 0);
     if (!Number.isFinite(scorePct) || scorePct < 0 || scorePct > 100) return res.status(400).json({ ok: false, message: 'Score must be between 0 and 100.' });

@@ -622,6 +622,22 @@ const EVIDENCE_TYPES = [
   { value: 'internal', label: 'Internal Certification' },
   { value: 'external', label: 'External Certification' },
 ];
+
+// Process Quality is one score per training day. The number of days comes from the
+// certification rule, so a process can run a 3-day or 10-day window without a code change.
+function evidenceTypesForRule(rule) {
+  if (!rule?.pqRequired) return EVIDENCE_TYPES;
+  const days = Math.max(1, Number(rule.pqDays || 5));
+  const pqDays = Array.from({ length: days }, (_, index) => ({
+    value: `pq_day${index + 1}`,
+    label: `Process Quality — Day ${index + 1}`,
+  }));
+  return [...pqDays, ...EVIDENCE_TYPES];
+}
+
+function evidenceLabel(evidenceType, rule) {
+  return evidenceTypesForRule(rule).find(type => type.value === evidenceType)?.label || evidenceType;
+}
 const isEligible = t => Boolean(t?.eligibility?.eligible ?? t?.eligible);
 const emptyScore = { evidenceType: 'mock_call', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' };
 
@@ -674,7 +690,15 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     setScoreFor(null); setScoreForm(emptyScore); load();
   }
 
-  function openScore(t) { setScoreForm(emptyScore); setScoreFor(t); }
+  function openScore(t) {
+    // Land on the first unscored PQ day so the common case is one click.
+    const recorded = new Set((t.eligibility?.pq?.recorded || []).map(row => row.day));
+    const nextDay = data?.rule?.pqRequired
+      ? Array.from({ length: Math.max(1, Number(data.rule.pqDays || 5)) }, (_, i) => i + 1).find(day => !recorded.has(day))
+      : null;
+    setScoreForm({ ...emptyScore, evidenceType: nextDay ? `pq_day${nextDay}` : 'mock_call' });
+    setScoreFor(t);
+  }
 
   async function setFinalStatus(employeeId, finalStatus) {
     const res = await api.patch(`/coordinator/batches/${batchNo}/trainees/${employeeId}/final-status`, { finalStatus }, 'coordinator');
@@ -735,20 +759,54 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   const pendingHandover = traineeList.filter(t => t.certificationStatus === 'Certified' && !t.handoverToOps).length;
   const unresolvedCount = traineeList.filter(t => t.status === 'Active' && !t.handoverToOps && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition').length;
 
+  const pqOn = Boolean(data.rule?.pqRequired);
+
+  // Shows each recorded day and the running average against the target, so a
+  // coordinator can see at a glance which day is still missing and where they stand.
+  function pqCell(t) {
+    const pq = t.eligibility?.pq;
+    if (!pq) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
+    const byDay = new Map(pq.recorded.map(row => [row.day, row.scorePct]));
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+          {Array.from({ length: pq.days }, (_, index) => index + 1).map(day => {
+            const score = byDay.get(day);
+            const scored = score !== undefined;
+            return (
+              <span key={day}
+                title={scored ? `Day ${day}: ${score}%` : `Day ${day} not scored yet`}
+                style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 5px', borderRadius: 4, minWidth: 26, textAlign: 'center',
+                  background: scored ? (score >= pq.target ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.14)') : 'rgba(128,128,128,.12)',
+                  color: scored ? (score >= pq.target ? '#15803d' : '#b91c1c') : 'var(--muted)',
+                }}>
+                {scored ? score : `D${day}`}
+              </span>
+            );
+          })}
+        </div>
+        <span style={{ fontSize: 11, fontWeight: 700, color: pq.average === null ? 'var(--muted)' : (pq.meetsTarget ? '#15803d' : '#b91c1c') }}>
+          {pq.average === null ? `No days scored · target ${pq.target}%` : `Avg ${pq.average}% / ${pq.target}% · ${pq.recordedCount}/${pq.days} days`}
+        </span>
+      </div>
+    );
+  }
+
   function evidenceCell(t) {
     const evidence = t.evidence || [];
     if (!evidence.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {evidence.map(item => {
-          const label = EVIDENCE_TYPES.find(type => type.value === item.evidenceType)?.label || item.evidenceType;
+          const label = evidenceLabel(item.evidenceType, data.rule);
           const passed = String(item.result || '').toLowerCase() === 'pass';
           return (
             <span key={item.id || `${item.evidenceType}-${item.conductedAt}`}
               className={`pill ${passed ? 'ok' : 'bad'}`}
               style={{ fontSize: 11 }}
               title={`${label} — ${item.result} ${Number(item.scorePct || 0)}%${item.remarks ? ` — ${item.remarks}` : ''}`}>
-              {label.split(' ')[0]} {Number(item.scorePct || 0)}%
+              {label.startsWith('Process Quality') ? `D${item.evidenceType.replace('pq_day', '')}` : label.split(' ')[0]} {Number(item.scorePct || 0)}%
             </span>
           );
         })}
@@ -872,7 +930,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th><th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{pqOn && <th>PQ (avg of {data.rule.pqDays}d)</th>}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
           <tbody>
             {traineeList.map(t => (
               <tr key={t.employeeId}>
@@ -881,6 +939,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
                 <td>{pct(t.courseCompletionPct)}</td>
                 <td>{pct(t.assessmentPassPct)}</td>
                 <td>{pct(t.attendancePct)}</td>
+                {pqOn && <td>{pqCell(t)}</td>}
                 <td>{evidenceCell(t)}</td>
                 <td>
                   {isEligible(t)
@@ -909,7 +968,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
               <div className="field">
                 <label>Assessment type *</label>
                 <select className="select" value={scoreForm.evidenceType} onChange={event => setScoreForm(form => ({ ...form, evidenceType: event.target.value }))}>
-                  {EVIDENCE_TYPES.map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                  {evidenceTypesForRule(data.rule).map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
                 </select>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>

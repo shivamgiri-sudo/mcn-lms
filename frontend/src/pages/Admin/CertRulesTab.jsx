@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
-const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60 };
+const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60, pqRequired: false, pqTargetPct: 85, pqDays: 5 };
 
 export default function CertRulesTab() {
   const [rules, setRules] = useState([]);
@@ -53,6 +53,9 @@ export default function CertRulesTab() {
       internalCertPassPct: r.internalCertPassPct,
       externalCertRequired: r.externalCertRequired,
       externalCertPassPct: r.externalCertPassPct,
+      pqRequired: Boolean(r.pqRequired),
+      pqTargetPct: r.pqTargetPct ?? 85,
+      pqDays: r.pqDays ?? 5,
     });
     setShowForm(true);
   }
@@ -80,6 +83,7 @@ export default function CertRulesTab() {
     if (r.mockCallRequired) steps.push('Mock Call');
     if (r.internalCertRequired) steps.push('Internal Cert');
     if (r.externalCertRequired) steps.push('External Cert');
+    if (r.pqRequired) steps.push(`Process Quality ${r.pqTargetPct}% over ${r.pqDays}d`);
     return steps.length ? steps.join(', ') : '—';
   }
 
@@ -166,6 +170,27 @@ export default function CertRulesTab() {
                     )}
                   </div>
                 ))}
+
+                {/* Process Quality is scored once per training day and averaged across
+                    the days actually recorded, so it needs a target and a day count
+                    rather than a single pass mark. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '10px 0', flexWrap: 'wrap' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
+                    <input type="checkbox" checked={form.pqRequired} onChange={() => toggle('pqRequired')} />
+                    Process Quality (PQ) Required
+                  </label>
+                  {form.pqRequired && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Target %:</span>
+                      <input className="input" type="number" min="0" max="100" value={form.pqTargetPct} onChange={e => num('pqTargetPct', e.target.value)} style={{ width: 80 }} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Days:</span>
+                      <input className="input" type="number" min="1" max="20" value={form.pqDays} onChange={e => num('pqDays', e.target.value)} style={{ width: 70 }} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        Average of the days actually scored must reach the target.
+                      </span>
+                    </div>
+                  )}
+                </div>
                 <button className="btn" type="submit" style={{ marginTop: 14 }}>{editId ? 'Update Rule' : 'Save Rule'}</button>
               </form>
             </div>
