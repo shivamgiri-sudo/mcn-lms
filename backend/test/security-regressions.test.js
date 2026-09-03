@@ -143,7 +143,13 @@ test('insecure legacy password mutation handlers are not mounted', async () => {
 // first-time password, still behind a forced reset at first login.
 test('coordinator onboarding is scoped and issues a forced-reset first credential', async () => {
   const text = await source('src/routes/coordinatorStability.js');
-  assert.match(text, /getOwnedBatch/);
+  // Scope is split: branch colleagues may read a batch, only the assigned
+  // coordinator may mutate it. Onboarding is a mutation, so it must take the
+  // writable lookup - the branch-wide one would let anyone onboard anywhere.
+  assert.match(text, /async function getWritableBatch\(batchNo, req\) \{[^}]*coordinatorLoginId: req\.userId/);
+  const onboardRoute = text.slice(text.indexOf("router.post('/batches/:batchNo/trainees'"));
+  assert.ok(onboardRoute.slice(0, 400).includes('getWritableBatch'), 'trainee onboarding must use the writable batch lookup');
+  assert.doesNotMatch(text, /getOwnedBatch/);
   assert.match(text, /firstTimePassword\(mobile\)/);
   assert.doesNotMatch(text, /temporaryCredential/);
   assert.match(text, /forcePasswordReset: true/);

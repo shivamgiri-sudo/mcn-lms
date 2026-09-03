@@ -68,7 +68,7 @@ export default function CoordDashboard({ user, onLogout }) {
       )}
 
       {selectedBatch ? (
-        <BatchDetail batchNo={selectedBatch} onBack={() => setSelectedBatch(null)} />
+        <BatchDetail batchNo={selectedBatch} user={user} onBack={() => setSelectedBatch(null)} />
       ) : (
         <>
           <div className="tabs" role="tablist" aria-label="Coordinator portal sections">

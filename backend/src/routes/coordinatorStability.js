@@ -21,8 +21,16 @@ function batchScopeWhere(req) {
     : { coordinatorLoginId: req.userId };
 }
 
-async function getOwnedBatch(batchNo, req) {
+// Visible = anywhere in the coordinator's branch. Writable = the batch they are
+// actually named on. Branch colleagues can see each other's batches and report
+// across the branch, but certifying, onboarding, answering and closing stay with
+// the assigned coordinator.
+async function getVisibleBatch(batchNo, req) {
   return prisma.batchMaster.findFirst({ where: { batchNo, ...batchScopeWhere(req) } });
+}
+
+async function getWritableBatch(batchNo, req) {
+  return prisma.batchMaster.findFirst({ where: { batchNo, coordinatorLoginId: req.userId } });
 }
 
 async function ownedBatchNumbers(req) {
@@ -272,8 +280,8 @@ router.get('/trainees/search', ...auth, async (req, res) => {
 router.post('/batches/:batchNo/trainees', ...auth, async (req, res) => {
   try {
     if (!req.coordinator?.canOnboardTrainee) return res.status(403).json({ ok: false, message: 'No permission to onboard trainees.' });
-    const batch = await getOwnedBatch(req.params.batchNo, req);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied for this batch.' });
+    const batch = await getWritableBatch(req.params.batchNo, req);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     const result = await createTraineeAccount(req.body, batch, req.userId);
     return res.status(result.ok ? 200 : 400).json(result);
   } catch (error) {
@@ -285,8 +293,8 @@ router.post('/batches/:batchNo/trainees', ...auth, async (req, res) => {
 router.post('/batches/:batchNo/trainees/bulk', ...auth, async (req, res) => {
   try {
     if (!req.coordinator?.canOnboardTrainee) return res.status(403).json({ ok: false, message: 'No permission to onboard trainees.' });
-    const batch = await getOwnedBatch(req.params.batchNo, req);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied for this batch.' });
+    const batch = await getWritableBatch(req.params.batchNo, req);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     const rows = Array.isArray(req.body?.trainees) ? req.body.trainees : [];
     if (!rows.length) return res.status(400).json({ ok: false, message: 'No trainees provided.' });
     if (rows.length > 500) return res.status(400).json({ ok: false, message: 'Maximum 500 trainees per bulk request.' });
@@ -313,8 +321,8 @@ router.post('/batches/:batchNo/trainees/bulk', ...auth, async (req, res) => {
 router.post('/batches/:batchNo/trainees/enroll-existing', ...auth, async (req, res) => {
   try {
     if (!req.coordinator?.canOnboardTrainee) return res.status(403).json({ ok: false, message: 'No permission to enrol trainees.' });
-    const batch = await getOwnedBatch(req.params.batchNo, req);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied for this batch.' });
+    const batch = await getWritableBatch(req.params.batchNo, req);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     const employeeId = normalize(req.body?.employeeId || '');
     if (!employeeId) return res.status(400).json({ ok: false, message: 'Employee ID is required.' });
 
@@ -379,7 +387,7 @@ router.post('/batches/:batchNo/trainees/enroll-existing', ...auth, async (req, r
 router.patch('/pending-activities/:id', ...auth, async (req, res) => {
   try {
     const activity = await prisma.pendingActivityLog.findUnique({ where: { id: req.params.id } });
-    if (!activity?.batchNo || !await getOwnedBatch(activity.batchNo, req)) return res.status(403).json({ ok: false, message: 'Access denied for this activity.' });
+    if (!activity?.batchNo || !await getWritableBatch(activity.batchNo, req)) return res.status(403).json({ ok: false, message: 'Access denied for this activity.' });
     const status = String(req.body?.status || 'Actioned');
     if (!['Open', 'Actioned', 'Closed'].includes(status)) return res.status(400).json({ ok: false, message: 'Invalid activity status.' });
     const closureRemarks = String(req.body?.closureRemarks || '').trim();
@@ -407,7 +415,7 @@ router.patch('/pending-activities/:id', ...auth, async (req, res) => {
 router.patch('/queries/:id', ...auth, async (req, res) => {
   try {
     const query = await prisma.traineeQueryLog.findUnique({ where: { id: req.params.id } });
-    if (!query?.batchNo || !await getOwnedBatch(query.batchNo, req)) return res.status(403).json({ ok: false, message: 'Access denied for this query.' });
+    if (!query?.batchNo || !await getWritableBatch(query.batchNo, req)) return res.status(403).json({ ok: false, message: 'Access denied for this query.' });
     const answer = String(req.body?.answer || req.body?.coordinatorAnswer || '').trim();
     if (!answer) return res.status(400).json({ ok: false, message: 'Answer is required.' });
     const now = new Date();
@@ -432,7 +440,7 @@ router.patch('/risks/:id', ...auth, async (req, res) => {
     if (!validStatuses.has(status)) return res.status(400).json({ ok: false, message: 'Invalid risk status.' });
     if (status === 'Closed' && !String(closureRemarks || '').trim()) return res.status(400).json({ ok: false, message: 'Closure remarks are required to close a risk.' });
     const risk = await prisma.trainingRiskLog.findUnique({ where: { id } });
-    if (!risk?.batchNo || !await getOwnedBatch(risk.batchNo, req)) return res.status(403).json({ ok: false, message: 'Access denied for this risk.' });
+    if (!risk?.batchNo || !await getWritableBatch(risk.batchNo, req)) return res.status(403).json({ ok: false, message: 'Access denied for this risk.' });
 
     const updated = await prisma.$transaction(async tx => {
       const savedRisk = await tx.trainingRiskLog.update({
@@ -457,8 +465,8 @@ router.patch('/risks/:id', ...auth, async (req, res) => {
 
 router.get('/batches/:batchNo/certification', ...auth, async (req, res) => {
   try {
-    const batch = await getOwnedBatch(req.params.batchNo, req);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    const batch = await getVisibleBatch(req.params.batchNo, req);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     const trainees = await prisma.traineeMaster.findMany({ where: { batchNo: batch.batchNo }, orderBy: { traineeName: 'asc' } });
     const rule = trainees[0]?.process && trainees[0]?.lob ? await prisma.certificationRuleMaster.findFirst({ where: { process: trainees[0].process, lob: trainees[0].lob, active: true } }) : null;
     const evidence = await prisma.certificationEvidence.findMany({ where: { batchNo: batch.batchNo } });
@@ -472,8 +480,8 @@ router.get('/batches/:batchNo/certification', ...auth, async (req, res) => {
 
 router.post('/batches/:batchNo/certification/evidence', ...auth, async (req, res) => {
   try {
-    const batch = await getOwnedBatch(req.params.batchNo, req);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    const batch = await getWritableBatch(req.params.batchNo, req);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     const employeeId = String(req.body?.employeeId || '').trim();
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!trainee || trainee.batchNo !== batch.batchNo) return res.status(400).json({ ok: false, message: 'Trainee is not in this batch.' });
@@ -499,8 +507,8 @@ router.post('/batches/:batchNo/certification/certify', ...auth, async (req, res)
     const { batchNo } = req.params;
     const employeeId = String(req.body?.employeeId || '').trim();
     if (!employeeId) return res.status(400).json({ ok: false, message: 'Employee ID required.' });
-    const [batch, trainee] = await Promise.all([getOwnedBatch(batchNo, req), prisma.traineeMaster.findUnique({ where: { employeeId } })]);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    const [batch, trainee] = await Promise.all([getWritableBatch(batchNo, req), prisma.traineeMaster.findUnique({ where: { employeeId } })]);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     if (!trainee || trainee.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
     if (trainee.certificationStatus === 'Certified') return res.json({ ok: true, alreadyCertified: true, message: `${employeeId} is already certified.` });
 
@@ -531,8 +539,8 @@ router.post('/batches/:batchNo/certification/handover', ...auth, async (req, res
     const { batchNo } = req.params;
     const employeeId = String(req.body?.employeeId || '').trim();
     if (!employeeId) return res.status(400).json({ ok: false, message: 'Employee ID required.' });
-    const [batch, trainee] = await Promise.all([getOwnedBatch(batchNo, req), prisma.traineeMaster.findUnique({ where: { employeeId } })]);
-    if (!batch) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    const [batch, trainee] = await Promise.all([getWritableBatch(batchNo, req), prisma.traineeMaster.findUnique({ where: { employeeId } })]);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Only the coordinator assigned to this batch can make this change.' });
     if (!trainee || trainee.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
     if (trainee.certificationStatus !== 'Certified') return res.status(409).json({ ok: false, message: 'Only certified trainees can be handed over to operations.' });
     if (trainee.handoverToOps) return res.json({ ok: true, alreadyHandedOver: true, message: `${employeeId} is already handed over to OPS.` });

@@ -35,7 +35,15 @@ function parseCsvTrainees(text) {
   }).filter(t => t.traineeName || t.mobile);
 }
 
-export default function BatchDetail({ batchNo, onBack }) {
+// A coordinator sees every batch in their branch but may only act on the ones they
+// are assigned to, so the actions are hidden rather than left to fail with a 403.
+function ownsBatch(batch, user) {
+  const owner = String(batch?.coordinatorLoginId || '').trim().toLowerCase();
+  const me = String(user?.loginId || '').trim().toLowerCase();
+  return Boolean(owner) && owner === me;
+}
+
+export default function BatchDetail({ batchNo, user, onBack }) {
   const [data, setData] = useState(null);
   const [activeTab, setActiveTab] = useState('trainees');
   const [showOnboard, setShowOnboard] = useState(false);
@@ -61,6 +69,9 @@ export default function BatchDetail({ batchNo, onBack }) {
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
   const [enrolling, setEnrolling] = useState(null);
+
+  // Branch colleagues can open this batch read-only; only the assigned coordinator acts.
+  const canEdit = ownsBatch(data?.batch, user);
 
   useEffect(() => { load(); }, [batchNo]);
 
@@ -309,7 +320,7 @@ export default function BatchDetail({ batchNo, onBack }) {
       )}
 
       {/* CERTIFICATION TAB */}
-      {activeTab === 'certification' && <CertificationTab batchNo={batchNo} trainees={trainees} />}
+      {activeTab === 'certification' && <CertificationTab batchNo={batchNo} trainees={trainees} canEdit={canEdit} />}
 
       {/* Onboard single trainee */}
       {showOnboard && (
@@ -394,7 +405,12 @@ export default function BatchDetail({ batchNo, onBack }) {
                   </div>
                 </div>
               )}
-              {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
+              {!canEdit && (
+        <div className="info-box" style={{ marginBottom: 10, fontSize: 13 }}>
+          You can view this batch because it is in your branch, but only its assigned coordinator can record scores or certify.
+        </div>
+      )}
+      {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button className="btn" onClick={bulkAddFromCsv} disabled={loading || !csvPreview || csvPreview.length === 0}>
                   {loading ? 'Uploading...' : csvPreview ? `+ Onboard ${csvPreview.length} Trainees` : 'Select a CSV file first'}
@@ -608,7 +624,7 @@ const EVIDENCE_TYPES = [
 const isEligible = t => Boolean(t?.eligibility?.eligible ?? t?.eligible);
 const emptyScore = { evidenceType: 'mock_call', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' };
 
-function CertificationTab({ batchNo, trainees }) {
+function CertificationTab({ batchNo, trainees, canEdit = true }) {
   const [data, setData] = useState(null);
   const [msg, setMsg] = useState('');
   const [bulkLoading, setBulkLoading] = useState(false);
@@ -765,6 +781,7 @@ function CertificationTab({ batchNo, trainees }) {
   }
 
   function actionButtons(t) {
+    if (!canEdit) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>View only</span>;
     if (t.handoverToOps) {
       return <div style={{ display: 'flex', gap: 4 }}><span style={{ color: '#4ade80', fontSize: 13 }}>✓ Done</span><button className="btn small" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => openCertificate(t.employeeId)}>Cert.</button></div>;
     }

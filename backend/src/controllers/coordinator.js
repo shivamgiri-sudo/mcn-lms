@@ -20,10 +20,18 @@ export function coordinatorBatchWhere(req) {
     : { coordinatorLoginId: req.userId };
 }
 
+// Read scope: every batch in the coordinator's branch, so they can see what their
+// colleagues are running and report across the branch.
 function canAccessBatch(batch, req) {
   if (!batch) return false;
   if (batch.coordinatorLoginId === req.userId) return true;
   return !!req.userBranch && batch.branch === req.userBranch;
+}
+
+// Write scope: only the batch you are named on. Branch colleagues can look, but
+// certifying, onboarding, answering and closing stay with the assigned coordinator.
+function canWriteBatch(batch, req) {
+  return Boolean(batch) && batch.coordinatorLoginId === req.userId;
 }
 
 // ── Dashboard ──────────────────────────────────────────────────────────────────
@@ -540,7 +548,7 @@ export async function updatePendingActivity(req, res) {
     if (!activity) return res.status(404).json({ ok: false, message: 'Activity not found.' });
     if (activity.batchNo) {
       const batch = await prisma.batchMaster.findUnique({ where: { batchNo: activity.batchNo } });
-      if (!canAccessBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+      if (!canWriteBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     }
 
     const updated = await prisma.pendingActivityLog.update({
@@ -597,7 +605,7 @@ export async function answerQuery(req, res) {
     if (!query) return res.status(404).json({ ok: false, message: 'Query not found.' });
     if (query.batchNo) {
       const batch = await prisma.batchMaster.findUnique({ where: { batchNo: query.batchNo } });
-      if (!canAccessBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+      if (!canWriteBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     }
     const tatHours = (Date.now() - new Date(query.createdAt).getTime()) / 3600000;
 
@@ -630,7 +638,7 @@ export async function updateRiskAction(req, res) {
     if (!risk) return res.status(404).json({ ok: false, message: 'Risk not found.' });
     if (risk.batchNo) {
       const batch = await prisma.batchMaster.findUnique({ where: { batchNo: risk.batchNo } });
-      if (!canAccessBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+      if (!canWriteBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     }
 
     const updated = await prisma.trainingRiskLog.update({
@@ -689,7 +697,7 @@ export async function saveCertificationEvidence(req, res) {
   try {
     const { employeeId, evidenceType, result, scorePct, conductedBy, conductedAt, remarks } = req.body;
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo: req.params.batchNo } });
-    if (!canAccessBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    if (!canWriteBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     const ev = await prisma.certificationEvidence.create({
       data: {
         employeeId,
@@ -718,7 +726,7 @@ export async function certifyTrainee(req, res) {
       prisma.batchMaster.findUnique({ where: { batchNo } }),
       prisma.traineeMaster.findUnique({ where: { employeeId } }),
     ]);
-    if (!canAccessBatch(batchCheck, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    if (!canWriteBatch(batchCheck, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     if (!traineeCheck || traineeCheck.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
 
     const [trainee, batch] = await prisma.$transaction(async tx => {
@@ -762,7 +770,7 @@ export async function handoverTrainee(req, res) {
   try {
     const { employeeId } = req.body;
     const batchCheck = await prisma.batchMaster.findUnique({ where: { batchNo: req.params.batchNo } });
-    if (!canAccessBatch(batchCheck, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    if (!canWriteBatch(batchCheck, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     const traineeCheck = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!traineeCheck || traineeCheck.batchNo !== req.params.batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
     await prisma.$transaction(async tx => {
@@ -792,7 +800,7 @@ export async function updateTraineeFinalStatus(req, res) {
     }
 
     const batchCheck = await prisma.batchMaster.findUnique({ where: { batchNo } });
-    if (!canAccessBatch(batchCheck, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+    if (!canWriteBatch(batchCheck, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     const traineeCheck = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!traineeCheck || traineeCheck.batchNo !== batchNo) return res.status(400).json({ ok: false, message: 'Trainee not in this batch.' });
 
@@ -860,7 +868,7 @@ export async function closeBatchByCoordinator(req, res) {
 
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
     if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
-    if (!canAccessBatch(batch, req)) return res.status(403).json({ ok: false, message: 'You are not the coordinator of this batch.' });
+    if (!canWriteBatch(batch, req)) return res.status(403).json({ ok: false, message: 'You are not the coordinator of this batch.' });
     if (!req.coordinator?.canCloseBatch) return res.status(403).json({ ok: false, message: 'You do not have permission to close batches.' });
     if (batch.batchStatus === 'Completed') return res.status(400).json({ ok: false, message: 'Batch already closed.' });
 
@@ -927,7 +935,7 @@ export async function coordMapEmpId(req, res) {
     if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
     if (trainee.batchNo) {
       const batch = await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } });
-      if (!canAccessBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
+      if (!canWriteBatch(batch, req)) return res.status(403).json({ ok: false, message: 'Access denied.' });
     }
     if (!trainee.mobile) return res.status(400).json({ ok: false, message: 'Trainee has no mobile — cannot map.' });
 
