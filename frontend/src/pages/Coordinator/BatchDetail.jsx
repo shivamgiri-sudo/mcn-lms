@@ -736,7 +736,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
 
   function evidenceCell(t) {
     const evidence = t.evidence || [];
-    if (!evidence.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>\u2014</span>;
+    if (!evidence.length) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {evidence.map(item => {
@@ -746,7 +746,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
             <span key={item.id || `${item.evidenceType}-${item.conductedAt}`}
               className={`pill ${passed ? 'ok' : 'bad'}`}
               style={{ fontSize: 11 }}
-              title={`${label} \u2014 ${item.result} ${Number(item.scorePct || 0)}%${item.remarks ? ` \u2014 ${item.remarks}` : ''}`}>
+              title={`${label} — ${item.result} ${Number(item.scorePct || 0)}%${item.remarks ? ` — ${item.remarks}` : ''}`}>
               {label.split(' ')[0]} {Number(item.scorePct || 0)}%
             </span>
           );
@@ -788,8 +788,21 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     if (t.certificationStatus === 'Certified') {
       return <div style={{ display: 'flex', gap: 4 }}><button className="btn small secondary" style={{ fontSize: 12 }} onClick={() => handover(t.employeeId)}>→ Handover</button><button className="btn small" style={{ fontSize: 11, padding: '2px 6px' }} onClick={() => openCertificate(t.employeeId)}>Cert.</button></div>;
     }
-    if (t.certificationStatus === 'Attrition' || t.certificationStatus === 'Not Certified') {
-      return null;
+    if (t.certificationStatus === 'Attrition') {
+      return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
+    }
+    // "Not Certified" is reversible, not a dead end: recording a passing mock-call /
+    // internal / external score is precisely what makes the trainee eligible.
+    // Returning null here left the batch with no way to enter one at all.
+    if (t.certificationStatus === 'Not Certified') {
+      return (
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          <button className="btn small secondary" style={{ fontSize: 11, padding: '3px 8px' }} onClick={() => openScore(t)}>◎ Score</button>
+          {isEligible(t) && (
+            <button className="btn small ok" style={{ fontSize: 11, background: '#22c55e', padding: '3px 8px' }} onClick={() => certify(t.employeeId)}>✓ Certify</button>
+          )}
+        </div>
+      );
     }
     // Not yet marked — show all 3 action buttons
     return (
