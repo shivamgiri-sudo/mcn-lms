@@ -626,14 +626,23 @@ const EVIDENCE_TYPES = [
 // Process Quality is one ERROR RATE per training day. The number of days comes from
 // the certification rule, so a process can run a 3-day or 10-day window without a
 // code change. Lower is better throughout this tab.
+// The entry options mirror the certification rule for this process and LOB: a
+// coordinator is only offered the gates their process actually uses. With no rule
+// configured at all, every gate stays available rather than leaving a dead screen.
 function evidenceTypesForRule(rule) {
   const days = Number(rule?.pqDays || 0);
-  if (days < 1) return EVIDENCE_TYPES;
-  const pqDays = Array.from({ length: days }, (_, index) => ({
+  const pqDays = Array.from({ length: Math.max(0, days) }, (_, index) => ({
     value: `pq_day${index + 1}`,
     label: `PQ Error Rate — Day ${index + 1}`,
   }));
-  return [...pqDays, ...EVIDENCE_TYPES];
+  if (!rule) return EVIDENCE_TYPES;
+  const configured = EVIDENCE_TYPES.filter(type => (
+    (type.value === 'mock_call' && rule.mockCallRequired)
+    || (type.value === 'internal' && rule.internalCertRequired)
+    || (type.value === 'external' && rule.externalCertRequired)
+  ));
+  const gates = configured.length || pqDays.length ? configured : EVIDENCE_TYPES;
+  return [...pqDays, ...gates];
 }
 
 function evidenceLabel(evidenceType, rule) {
@@ -704,7 +713,8 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     const nextDay = trackedDays > 0
       ? Array.from({ length: trackedDays }, (_, i) => i + 1).find(day => !recorded.has(day))
       : null;
-    setScoreForm({ ...emptyScore, evidenceType: nextDay ? `pq_day${nextDay}` : 'mock_call' });
+    const options = evidenceTypesForRule(data?.rule);
+    setScoreForm({ ...emptyScore, evidenceType: nextDay ? `pq_day${nextDay}` : (options[0]?.value || 'mock_call') });
     setScoreFor(t);
   }
 
