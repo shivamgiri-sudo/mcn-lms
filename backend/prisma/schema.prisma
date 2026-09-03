@@ -663,10 +663,11 @@ model CertificationRuleMaster {
   internalCertPassPct  Float    @default(60) @map("internal_cert_pass_pct")
   externalCertRequired Boolean  @default(false) @map("external_cert_required")
   externalCertPassPct  Float    @default(60) @map("external_cert_pass_pct")
-  // Process Quality: a score per training day, averaged across the days actually
-  // recorded and compared to pqTargetPct. Off unless a process switches it on.
+  // Process Quality is an ERROR RATE: one figure per training day, averaged across
+  // the days actually recorded, and it must come in at or below pqMaxErrorPct.
+  // Lower is better - do not compare it like the percentage gates above.
   pqRequired           Boolean  @default(false) @map("pq_required")
-  pqTargetPct          Float    @default(85) @map("pq_target_pct")
+  pqMaxErrorPct        Float    @default(2.5) @map("pq_max_error_pct")
   pqDays               Int      @default(5) @map("pq_days")
   active               Boolean  @default(true)
   createdAt            DateTime @default(now()) @map("created_at")

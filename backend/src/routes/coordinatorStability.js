@@ -211,9 +211,10 @@ function normalizedResult(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-// Process Quality is recorded one score per training day as evidence rows typed
-// pq_day1 .. pq_dayN. Only the days actually recorded count, so a trainee part-way
-// through the week is measured on the days they have, not penalised for the rest.
+// Process Quality is an ERROR RATE recorded once per training day as evidence rows
+// typed pq_day1 .. pq_dayN. Only the days actually recorded count, so a trainee
+// part-way through the week is measured on the days they have. Lower is better: the
+// average must come in at or BELOW pqMaxErrorPct, the opposite of every other gate.
 const PQ_TYPE_PREFIX = 'pq_day';
 
 export function pqDayNumber(evidenceType) {
@@ -222,7 +223,7 @@ export function pqDayNumber(evidenceType) {
 }
 
 export function summarisePq(evidence, rule) {
-  const target = Number(rule?.pqTargetPct ?? 0);
+  const maxError = Number(rule?.pqMaxErrorPct ?? 2.5);
   const days = Math.max(1, Number(rule?.pqDays ?? 5));
   const scores = new Map();
   for (const item of evidence || []) {
@@ -238,14 +239,17 @@ export function summarisePq(evidence, rule) {
   const average = recorded.length
     ? recorded.reduce((sum, row) => sum + row.scorePct, 0) / recorded.length
     : null;
+  const rounded = average === null ? null : Math.round(average * 100) / 100;
   return {
     required: Boolean(rule?.pqRequired),
-    target,
+    maxError,
     days,
     recorded,
     recordedCount: recorded.length,
-    average: average === null ? null : Math.round(average * 100) / 100,
-    meetsTarget: average !== null && average >= target,
+    average: rounded,
+    // At or below the ceiling passes. Inverting this silently certifies the worst
+    // performers, so it is asserted directly in process-quality-regressions.test.js.
+    meetsTarget: rounded !== null && rounded <= maxError,
   };
 }
 
@@ -284,8 +288,8 @@ async function evaluateCertification(trainee, batchNo) {
   if (rule?.externalCertRequired && !passingEvidence(evidence, 'external', rule.externalCertPassPct)) blockers.push(`Passing external-certification evidence of at least ${Number(rule.externalCertPassPct || 0)}% is required`);
   const pq = summarisePq(evidence, rule);
   if (pq.required) {
-    if (!pq.recordedCount) blockers.push(`No Process Quality scores recorded yet (target ${pq.target}% across ${pq.days} days)`);
-    else if (!pq.meetsTarget) blockers.push(`Process Quality average ${pq.average}% across ${pq.recordedCount} day${pq.recordedCount === 1 ? '' : 's'} is below ${pq.target}%`);
+    if (!pq.recordedCount) blockers.push(`No Process Quality scores recorded yet (max ${pq.maxError}% error rate across ${pq.days} days)`);
+    else if (!pq.meetsTarget) blockers.push(`Process Quality error rate ${pq.average}% across ${pq.recordedCount} day${pq.recordedCount === 1 ? '' : 's'} exceeds the ${pq.maxError}% limit`);
   }
   if (blockingRisks.length) blockers.push(`Resolve ${blockingRisks.length} open critical risk${blockingRisks.length === 1 ? '' : 's'} before certification`);
 

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
-const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60, pqRequired: false, pqTargetPct: 85, pqDays: 5 };
+const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60, pqRequired: false, pqMaxErrorPct: 2.5, pqDays: 5 };
 
 export default function CertRulesTab() {
   const [rules, setRules] = useState([]);
@@ -54,7 +54,7 @@ export default function CertRulesTab() {
       externalCertRequired: r.externalCertRequired,
       externalCertPassPct: r.externalCertPassPct,
       pqRequired: Boolean(r.pqRequired),
-      pqTargetPct: r.pqTargetPct ?? 85,
+      pqMaxErrorPct: r.pqMaxErrorPct ?? 2.5,
       pqDays: r.pqDays ?? 5,
     });
     setShowForm(true);
@@ -83,7 +83,7 @@ export default function CertRulesTab() {
     if (r.mockCallRequired) steps.push('Mock Call');
     if (r.internalCertRequired) steps.push('Internal Cert');
     if (r.externalCertRequired) steps.push('External Cert');
-    if (r.pqRequired) steps.push(`Process Quality ${r.pqTargetPct}% over ${r.pqDays}d`);
+    if (r.pqRequired) steps.push(`PQ \u2264${r.pqMaxErrorPct}% err over ${r.pqDays}d`);
     return steps.length ? steps.join(', ') : '—';
   }
 
@@ -171,22 +171,22 @@ export default function CertRulesTab() {
                   </div>
                 ))}
 
-                {/* Process Quality is scored once per training day and averaged across
-                    the days actually recorded, so it needs a target and a day count
-                    rather than a single pass mark. */}
+                {/* Process Quality is an error rate: one figure per training day,
+                    averaged across the days actually recorded, and it must land at or
+                    below the ceiling. Lower is better, unlike every gate above. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '10px 0', flexWrap: 'wrap' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
                     <input type="checkbox" checked={form.pqRequired} onChange={() => toggle('pqRequired')} />
-                    Process Quality (PQ) Required
+                    Process Quality (PQ) Error Rate Required
                   </label>
                   {form.pqRequired && (
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Target %:</span>
-                      <input className="input" type="number" min="0" max="100" value={form.pqTargetPct} onChange={e => num('pqTargetPct', e.target.value)} style={{ width: 80 }} />
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Max error %:</span>
+                      <input className="input" type="number" min="0" max="100" step="0.01" value={form.pqMaxErrorPct} onChange={e => num('pqMaxErrorPct', e.target.value)} style={{ width: 90 }} />
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>Days:</span>
                       <input className="input" type="number" min="1" max="20" value={form.pqDays} onChange={e => num('pqDays', e.target.value)} style={{ width: 70 }} />
                       <span style={{ fontSize: 12, color: 'var(--muted)' }}>
-                        Average of the days actually scored must reach the target.
+                        Averaged over the days actually scored; must be at or below this. Lower is better.
                       </span>
                     </div>
                   )}

@@ -623,14 +623,15 @@ const EVIDENCE_TYPES = [
   { value: 'external', label: 'External Certification' },
 ];
 
-// Process Quality is one score per training day. The number of days comes from the
-// certification rule, so a process can run a 3-day or 10-day window without a code change.
+// Process Quality is one ERROR RATE per training day. The number of days comes from
+// the certification rule, so a process can run a 3-day or 10-day window without a
+// code change. Lower is better throughout this tab.
 function evidenceTypesForRule(rule) {
   if (!rule?.pqRequired) return EVIDENCE_TYPES;
   const days = Math.max(1, Number(rule.pqDays || 5));
   const pqDays = Array.from({ length: days }, (_, index) => ({
     value: `pq_day${index + 1}`,
-    label: `Process Quality — Day ${index + 1}`,
+    label: `PQ Error Rate — Day ${index + 1}`,
   }));
   return [...pqDays, ...EVIDENCE_TYPES];
 }
@@ -676,17 +677,23 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     const score = Number(scoreForm.scorePct);
     if (!Number.isFinite(score) || score < 0 || score > 100) return setMsg('Score must be a number between 0 and 100.');
     setScoreSaving(true);
+    // For a PQ day the verdict follows from the error rate, so it is derived here
+    // rather than taken from the form, where it could contradict the number entered.
+    const isPq = scoreForm.evidenceType.startsWith('pq_day');
+    const result = isPq
+      ? (score <= Number(data.rule?.pqMaxErrorPct ?? 2.5) ? 'Pass' : 'Fail')
+      : scoreForm.result;
     const res = await api.post(`/coordinator/batches/${batchNo}/certification/evidence`, {
       employeeId: scoreFor.employeeId,
       evidenceType: scoreForm.evidenceType,
-      result: scoreForm.result,
+      result,
       scorePct: score,
       conductedBy: scoreForm.conductedBy,
       remarks: scoreForm.remarks,
     }, 'coordinator');
     setScoreSaving(false);
     if (!res.ok) return setMsg(res.message || 'Unable to save the score.');
-    setMsg(`\u2713 ${scoreForm.result} ${score}% recorded for ${scoreFor.employeeId}.`);
+    setMsg(`\u2713 ${result} \u2014 ${score}%${isPq ? ' error rate' : ''} recorded for ${scoreFor.employeeId}.`);
     setScoreFor(null); setScoreForm(emptyScore); load();
   }
 
@@ -767,6 +774,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     const pq = t.eligibility?.pq;
     if (!pq) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
     const byDay = new Map(pq.recorded.map(row => [row.day, row.scorePct]));
+    const withinLimit = value => value <= pq.maxError;
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
@@ -775,11 +783,11 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
             const scored = score !== undefined;
             return (
               <span key={day}
-                title={scored ? `Day ${day}: ${score}%` : `Day ${day} not scored yet`}
+                title={scored ? `Day ${day}: ${score}% error rate` : `Day ${day} not scored yet`}
                 style={{
                   fontSize: 10, fontWeight: 700, padding: '2px 5px', borderRadius: 4, minWidth: 26, textAlign: 'center',
-                  background: scored ? (score >= pq.target ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.14)') : 'rgba(128,128,128,.12)',
-                  color: scored ? (score >= pq.target ? '#15803d' : '#b91c1c') : 'var(--muted)',
+                  background: scored ? (withinLimit(score) ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.14)') : 'rgba(128,128,128,.12)',
+                  color: scored ? (withinLimit(score) ? '#15803d' : '#b91c1c') : 'var(--muted)',
                 }}>
                 {scored ? score : `D${day}`}
               </span>
@@ -787,7 +795,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
           })}
         </div>
         <span style={{ fontSize: 11, fontWeight: 700, color: pq.average === null ? 'var(--muted)' : (pq.meetsTarget ? '#15803d' : '#b91c1c') }}>
-          {pq.average === null ? `No days scored · target ${pq.target}%` : `Avg ${pq.average}% / ${pq.target}% · ${pq.recordedCount}/${pq.days} days`}
+          {pq.average === null ? `No days scored · max ${pq.maxError}%` : `Avg ${pq.average}% vs max ${pq.maxError}% · ${pq.recordedCount}/${pq.days} days`}
         </span>
       </div>
     );
@@ -806,7 +814,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
               className={`pill ${passed ? 'ok' : 'bad'}`}
               style={{ fontSize: 11 }}
               title={`${label} — ${item.result} ${Number(item.scorePct || 0)}%${item.remarks ? ` — ${item.remarks}` : ''}`}>
-              {label.startsWith('Process Quality') ? `D${item.evidenceType.replace('pq_day', '')}` : label.split(' ')[0]} {Number(item.scorePct || 0)}%
+              {label.startsWith('PQ Error Rate') ? `D${item.evidenceType.replace('pq_day', '')}` : label.split(' ')[0]} {Number(item.scorePct || 0)}%
             </span>
           );
         })}
@@ -930,7 +938,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{pqOn && <th>PQ (avg of {data.rule.pqDays}d)</th>}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{pqOn && <th>PQ error rate (max {data.rule.pqMaxErrorPct}%)</th>}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
           <tbody>
             {traineeList.map(t => (
               <tr key={t.employeeId}>
@@ -957,7 +965,12 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
         </table>
       </div>
 
-      {scoreFor && (
+      {scoreFor && (() => {
+        const isPqEntry = scoreForm.evidenceType.startsWith('pq_day');
+        const entered = Number(scoreForm.scorePct);
+        const pqVerdict = !isPqEntry || scoreForm.scorePct === '' || !Number.isFinite(entered)
+          ? '' : (entered <= Number(data.rule?.pqMaxErrorPct ?? 2.5) ? 'Pass' : 'Fail');
+        return (
         <div className="modal-overlay" onClick={() => setScoreFor(null)}>
           <div className="modal-box" style={{ maxWidth: 460 }} onClick={event => event.stopPropagation()}>
             <div className="modal-head">
@@ -974,16 +987,27 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>Result *</label>
-                  <select className="select" value={scoreForm.result} onChange={event => setScoreForm(form => ({ ...form, result: event.target.value }))}>
-                    <option>Pass</option>
-                    <option>Fail</option>
-                  </select>
+                  {isPqEntry ? (
+                    <div className="input" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, color: pqVerdict === 'Pass' ? '#15803d' : (pqVerdict === 'Fail' ? '#b91c1c' : 'var(--muted)') }}>
+                      {pqVerdict || 'Enter an error rate'}
+                    </div>
+                  ) : (
+                    <select className="select" value={scoreForm.result} onChange={event => setScoreForm(form => ({ ...form, result: event.target.value }))}>
+                      <option>Pass</option>
+                      <option>Fail</option>
+                    </select>
+                  )}
                 </div>
                 <div className="field">
-                  <label>Score % *</label>
+                  <label>{isPqEntry ? 'Error rate % *' : 'Score % *'}</label>
                   <input className="input" type="number" min="0" max="100" step="0.01" required
                     value={scoreForm.scorePct}
                     onChange={event => setScoreForm(form => ({ ...form, scorePct: event.target.value }))} />
+                  {isPqEntry && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      Errors for this day. Must average at or below {data.rule.pqMaxErrorPct}% across the week — lower is better.
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="field">
@@ -1011,7 +1035,8 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
             </form>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
