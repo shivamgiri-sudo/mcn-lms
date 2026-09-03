@@ -261,7 +261,7 @@ export default function BatchDetail({ batchNo, user, onBack }) {
 
           <div className="table-wrap">
             <table>
-          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{shownCriteria.map(c => <th key={c.criterionKey}>{c.label}</th>)}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
+              <thead><tr><th>Employee ID</th><th>Name</th><th>Mobile</th><th>Course %</th><th>MCQ %</th><th>Attendance %</th><th>Risk</th><th>Status</th><th>Perm. ID</th></tr></thead>
               <tbody>
                 {trainees.map(t => (
                   <tr key={t.id}>
