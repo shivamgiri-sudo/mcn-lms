@@ -174,7 +174,7 @@ export default function BatchDetail({ batchNo, user, onBack }) {
           <p style={{ color: 'var(--muted)', fontSize: 13 }}>{batch.batchName} &nbsp;|&nbsp; {batch.process} / {batch.lob} &nbsp;|&nbsp; {batch.branch}</p>
         </div>
         <span className={`pill ${batch.batchStatus === 'Active' ? 'ok' : ''}`} style={{ marginLeft: 'auto' }}>{batch.batchStatus}</span>
-        {batch.batchStatus === 'Active' && (
+        {batch.batchStatus === 'Active' && canEdit && (
           <button
             className="btn small danger"
             onClick={() => {
@@ -190,6 +190,12 @@ export default function BatchDetail({ batchNo, user, onBack }) {
           >🔒 Close Batch</button>
         )}
       </div>
+
+      {!canEdit && (
+        <div className="info-box" style={{ margin: '10px 0', fontSize: 13 }}>
+          Read-only: this batch is in your branch, so you can see everything in it, but only its assigned coordinator can add trainees, record scores, certify or close it.
+        </div>
+      )}
 
       {/* KPI Row */}
       <div className="stat-row">
@@ -208,8 +214,8 @@ export default function BatchDetail({ batchNo, user, onBack }) {
       {activeTab === 'trainees' && (
         <div>
           <div style={{ display: 'flex', gap: 8, margin: '10px 0' }}>
-            <button className="btn small" onClick={() => setShowOnboard(true)}>+ Add Trainee</button>
-            <button className="btn small secondary" onClick={() => setShowBulk(true)}>⬆ Bulk Upload (CSV)</button>
+            {canEdit && <button className="btn small" onClick={() => setShowOnboard(true)}>+ Add Trainee</button>}
+            {canEdit && <button className="btn small secondary" onClick={() => setShowBulk(true)}>⬆ Bulk Upload (CSV)</button>}
             <button className="btn small secondary" onClick={() => downloadCsv(`/reports/trainees/export?batchNo=${encodeURIComponent(batchNo)}`, `trainees-${batchNo}.csv`, 'coordinator')}>⬇ Export CSV</button>
           </div>
           {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 8 }}>{msg}<button style={{ marginLeft: 8, cursor: 'pointer', border: 0, background: 'transparent', color: 'inherit', fontWeight: 700 }} onClick={() => setMsg('')}>✕</button></div>}
@@ -405,11 +411,6 @@ export default function BatchDetail({ batchNo, user, onBack }) {
                   </div>
                 </div>
               )}
-              {!canEdit && (
-        <div className="info-box" style={{ marginBottom: 10, fontSize: 13 }}>
-          You can view this batch because it is in your branch, but only its assigned coordinator can record scores or certify.
-        </div>
-      )}
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button className="btn" onClick={bulkAddFromCsv} disabled={loading || !csvPreview || csvPreview.length === 0}>
