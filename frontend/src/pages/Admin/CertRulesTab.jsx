@@ -1,7 +1,38 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 
-const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, mockCallRequired: false, mockCallPassPct: 60, internalCertRequired: false, internalCertPassPct: 60, externalCertRequired: false, externalCertPassPct: 60, pqRequired: false, pqMaxErrorPct: 2.5, pqDays: 0 };
+// The three thresholds below are computed from a trainee's own KPIs. Everything a
+// coordinator records by hand is a criterion, so a process can define a mock call, a
+// client certification round, a cumulative sales target or an email audit score
+// without needing a new column.
+const BLANK = { process: '', lob: '', courseCompletionMin: 80, mcqPassPctMin: 60, attendancePctMin: 70, criteria: [] };
+
+const MEASURES = [
+  { value: 'single', label: 'Single score', hint: 'One figure recorded once. A re-test replaces the earlier attempt.' },
+  { value: 'daily_average', label: 'Daily average', hint: 'A figure per day, averaged over the days actually recorded.' },
+  { value: 'cumulative', label: 'Cumulative total', hint: 'Entries add up and must reach the target.' },
+  { value: 'completion', label: 'Completed / not completed', hint: 'A yes-no gate with no number.' },
+];
+const DIRECTIONS = [
+  { value: 'at_least', label: 'At least (higher is better)' },
+  { value: 'at_most', label: 'At most (lower is better, e.g. an error rate)' },
+];
+const UNITS = [
+  { value: 'percent', label: '% percentage' },
+  { value: 'number', label: '# number / count' },
+  { value: 'currency', label: '₹ currency' },
+];
+
+const PRESETS = [
+  { label: 'Mock Call', measure: 'single', direction: 'at_least', targetValue: 60, unit: 'percent' },
+  { label: 'Client Certification Round', measure: 'single', direction: 'at_least', targetValue: 80, unit: 'percent' },
+  { label: 'Email Audit Score', measure: 'single', direction: 'at_least', targetValue: 90, unit: 'percent' },
+  { label: 'PQ Error Rate', measure: 'daily_average', direction: 'at_most', targetValue: 2.5, unit: 'percent', days: 5 },
+  { label: 'Sales Target', measure: 'cumulative', direction: 'at_least', targetValue: 50, unit: 'number' },
+  { label: 'Client Sign-off', measure: 'completion', direction: 'at_least', targetValue: 0, unit: 'percent' },
+];
+
+const blankCriterion = () => ({ criterionKey: '', label: '', measure: 'single', direction: 'at_least', targetValue: 80, unit: 'percent', days: 0, blocks: true });
 
 export default function CertRulesTab() {
   const [rules, setRules] = useState([]);
@@ -47,15 +78,16 @@ export default function CertRulesTab() {
       courseCompletionMin: r.courseCompletionMin,
       mcqPassPctMin: r.mcqPassPctMin,
       attendancePctMin: r.attendancePctMin,
-      mockCallRequired: r.mockCallRequired,
-      mockCallPassPct: r.mockCallPassPct,
-      internalCertRequired: r.internalCertRequired,
-      internalCertPassPct: r.internalCertPassPct,
-      externalCertRequired: r.externalCertRequired,
-      externalCertPassPct: r.externalCertPassPct,
-      pqRequired: Boolean(r.pqRequired),
-      pqMaxErrorPct: r.pqMaxErrorPct ?? 2.5,
-      pqDays: r.pqDays ?? 0,
+      criteria: (r.criteria || []).map(c => ({
+        criterionKey: c.criterionKey,
+        label: c.label,
+        measure: c.measure,
+        direction: c.direction,
+        targetValue: c.targetValue,
+        unit: c.unit,
+        days: c.days ?? 0,
+        blocks: c.blocks !== false,
+      })),
     });
     setShowForm(true);
   }
@@ -78,13 +110,27 @@ export default function CertRulesTab() {
     else setMsg(res.message || 'Failed to delete.');
   }
 
+  function describeCriterion(c) {
+    if (c.measure === 'completion') return `${c.label}: completed`;
+    const value = c.unit === 'currency' ? `₹${c.targetValue}` : `${c.targetValue}${c.unit === 'percent' ? '%' : ''}`;
+    const comparison = c.direction === 'at_most' ? '≤' : '≥';
+    const scope = c.measure === 'daily_average' ? ` avg/${c.days}d` : (c.measure === 'cumulative' ? ' total' : '');
+    return `${c.label} ${comparison}${value}${scope}${c.blocks === false ? ' (tracked)' : ''}`;
+  }
+
   function stepsRequired(r) {
-    const steps = [];
-    if (r.mockCallRequired) steps.push('Mock Call');
-    if (r.internalCertRequired) steps.push('Internal Cert');
-    if (r.externalCertRequired) steps.push('External Cert');
-    if (r.pqDays > 0) steps.push(`PQ \u2264${r.pqMaxErrorPct}% err over ${r.pqDays}d${r.pqRequired ? '' : ' (tracking only)'}`);
+    const steps = (r.criteria || []).filter(c => c.active !== false).map(describeCriterion);
     return steps.length ? steps.join(', ') : '—';
+  }
+
+  function setCriterion(index, patch) {
+    setForm(p => ({ ...p, criteria: p.criteria.map((c, i) => (i === index ? { ...c, ...patch } : c)) }));
+  }
+  function addCriterion(preset) {
+    setForm(p => ({ ...p, criteria: [...p.criteria, { ...blankCriterion(), ...(preset || {}) }] }));
+  }
+  function removeCriterion(index) {
+    setForm(p => ({ ...p, criteria: p.criteria.filter((_, i) => i !== index) }));
   }
 
   const toggle = (k) => setForm(p => ({ ...p, [k]: !p[k] }));
@@ -156,47 +202,76 @@ export default function CertRulesTab() {
                   <div className="field"><label>Min MCQ Pass %</label><input className="input" type="number" max="100" value={form.mcqPassPctMin} onChange={e => num('mcqPassPctMin', e.target.value)} /></div>
                   <div className="field"><label>Min Attendance %</label><input className="input" type="number" max="100" value={form.attendancePctMin} onChange={e => num('attendancePctMin', e.target.value)} /></div>
                 </div>
-                {[['mockCallRequired', 'mockCallPassPct', 'Mock Call'], ['internalCertRequired', 'internalCertPassPct', 'Internal Cert'], ['externalCertRequired', 'externalCertPassPct', 'External Cert']].map(([req, pctKey, label]) => (
-                  <div key={req} style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '10px 0' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
-                      <input type="checkbox" checked={form[req]} onChange={() => toggle(req)} />
-                      {label} Required
-                    </label>
-                    {form[req] && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Pass %:</span>
-                        <input className="input" type="number" max="100" value={form[pctKey]} onChange={e => num(pctKey, e.target.value)} style={{ width: 80 }} />
-                      </div>
-                    )}
+                {/* Everything a coordinator records by hand is a criterion. Each carries
+                    its own measure, direction, target and unit, so a mock call, a client
+                    round, a daily error rate, a sales total and a sign-off all live side
+                    by side without needing a column each. */}
+                <div style={{ borderTop: '1px solid var(--line)', marginTop: 14, paddingTop: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: 8 }}>
+                    <b style={{ fontSize: 14 }}>Certification criteria</b>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Coordinators are offered exactly these, and only these.</span>
                   </div>
-                ))}
 
-                {/* Process Quality is an error rate: one figure per training day,
-                    averaged across the days actually recorded, and it must land at or
-                    below the ceiling. Lower is better, unlike every gate above. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, margin: '10px 0', flexWrap: 'wrap' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontWeight: 700, fontSize: 13 }}>
-                    <input type="checkbox" checked={form.pqDays > 0} onChange={() => num('pqDays', form.pqDays > 0 ? 0 : 5)} />
-                    Track Process Quality (PQ) error rate
-                  </label>
-                  {form.pqDays > 0 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Max error %:</span>
-                      <input className="input" type="number" min="0" max="100" step="0.01" value={form.pqMaxErrorPct} onChange={e => num('pqMaxErrorPct', e.target.value)} style={{ width: 90 }} />
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>Days:</span>
-                      <input className="input" type="number" min="1" max="20" value={form.pqDays} onChange={e => num('pqDays', e.target.value)} style={{ width: 70 }} />
-                      <label style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
-                        <input type="checkbox" checked={form.pqRequired} onChange={() => toggle('pqRequired')} />
-                        Blocks certification
-                      </label>
-                      <span style={{ fontSize: 12, color: 'var(--muted)', flexBasis: '100%' }}>
-                        Averaged over the days actually scored and must land at or below the limit \u2014 lower is better.
-                        {form.pqRequired
-                          ? ' Anyone above the limit cannot be certified.'
-                          : ' Tracking only: coordinators record and see the scores, but certification is not blocked yet.'}
-                      </span>
-                    </div>
+                  {form.criteria.length === 0 && (
+                    <p style={{ fontSize: 13, color: 'var(--muted)', margin: '10px 0' }}>
+                      No manual criteria yet — this process certifies on course, MCQ and attendance alone.
+                    </p>
                   )}
+
+                  {form.criteria.map((c, index) => (
+                    <div key={index} style={{ border: '1px solid var(--line)', borderRadius: 8, padding: 10, marginTop: 10, display: 'grid', gap: 8 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <input className="input" style={{ flex: '1 1 200px' }} placeholder="Name, e.g. Client Certification Round"
+                          value={c.label} onChange={e => setCriterion(index, { label: e.target.value })} />
+                        <button type="button" className="btn small danger" onClick={() => removeCriterion(index)}>Remove</button>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 8 }}>
+                        <select className="select" value={c.measure}
+                          onChange={e => setCriterion(index, { measure: e.target.value, days: e.target.value === 'daily_average' ? (c.days || 5) : 0 })}>
+                          {MEASURES.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                        </select>
+                        {c.measure !== 'completion' && (
+                          <select className="select" value={c.direction} onChange={e => setCriterion(index, { direction: e.target.value })}>
+                            {DIRECTIONS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                          </select>
+                        )}
+                        {c.measure !== 'completion' && (
+                          <select className="select" value={c.unit} onChange={e => setCriterion(index, { unit: e.target.value })}>
+                            {UNITS.map(u => <option key={u.value} value={u.value}>{u.label}</option>)}
+                          </select>
+                        )}
+                        {c.measure !== 'completion' && (
+                          <input className="input" type="number" min="0" step="0.01"
+                            max={c.unit === 'percent' ? 100 : undefined}
+                            placeholder="Target" value={c.targetValue}
+                            onChange={e => setCriterion(index, { targetValue: e.target.value === '' ? '' : Number(e.target.value) })} />
+                        )}
+                        {c.measure === 'daily_average' && (
+                          <input className="input" type="number" min="1" max="20" placeholder="Days" value={c.days}
+                            onChange={e => setCriterion(index, { days: Number(e.target.value) })} />
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, fontWeight: 700 }}>
+                          <input type="checkbox" checked={c.blocks !== false} onChange={() => setCriterion(index, { blocks: c.blocks === false })} />
+                          Blocks certification
+                        </label>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {MEASURES.find(m => m.value === c.measure)?.hint}
+                          {c.blocks === false && ' Recorded and shown, but does not stop certification.'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 12, alignItems: 'center' }}>
+                    <button type="button" className="btn small" onClick={() => addCriterion()}>+ Add criterion</button>
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>or start from:</span>
+                    {PRESETS.map(preset => (
+                      <button key={preset.label} type="button" className="btn small secondary" style={{ fontSize: 11 }}
+                        onClick={() => addCriterion(preset)}>{preset.label}</button>
+                    ))}
+                  </div>
                 </div>
                 <button className="btn" type="submit" style={{ marginTop: 14 }}>{editId ? 'Update Rule' : 'Save Rule'}</button>
               </form>

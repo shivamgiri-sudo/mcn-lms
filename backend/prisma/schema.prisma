@@ -679,6 +679,33 @@ model CertificationRuleMaster {
   @@map("certification_rule_master")
 }
 
+// One configurable gate on a certification rule. Processes differ: a mock call, a
+// client certification round, a sales target, an email audit score, a daily error
+// rate. Rather than a column per gate, each rule owns a list of these.
+model CertificationCriterion {
+  id           String   @id @default(uuid())
+  ruleId       String   @map("rule_id")
+  criterionKey String   @map("criterion_key")
+  label        String
+  // single | daily_average | cumulative | completion
+  measure      String   @default("single")
+  // at_least (a score to reach) | at_most (an error rate to stay under)
+  direction    String   @default("at_least")
+  targetValue  Float    @default(0) @map("target_value")
+  // percent | number | currency
+  unit         String   @default("percent")
+  days         Int      @default(0)
+  // true blocks certification; false records and displays without gating
+  blocks       Boolean  @default(true)
+  sortOrder    Int      @default(0) @map("sort_order")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@unique([ruleId, criterionKey])
+  @@index([ruleId])
+  @@map("certification_criterion")
+}
 model CertificationEvidence {
   id           String    @id @default(uuid())
   employeeId   String    @map("employee_id")

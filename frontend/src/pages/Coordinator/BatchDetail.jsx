@@ -261,7 +261,7 @@ export default function BatchDetail({ batchNo, user, onBack }) {
 
           <div className="table-wrap">
             <table>
-              <thead><tr><th>Employee ID</th><th>Name</th><th>Mobile</th><th>Course %</th><th>MCQ %</th><th>Attendance %</th><th>Risk</th><th>Status</th><th>Perm. ID</th></tr></thead>
+          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{shownCriteria.map(c => <th key={c.criterionKey}>{c.label}</th>)}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
               <tbody>
                 {trainees.map(t => (
                   <tr key={t.id}>
@@ -617,36 +617,48 @@ function QueryCard({ query: q, onAction }) {
 // The certification endpoint returns { ...trainee, evidence, eligibility }. The table
 // read t.eligible, which is always undefined, so every trainee showed "Not Yet" and
 // "Certify All Eligible" never found anyone.
-const EVIDENCE_TYPES = [
-  { value: 'mock_call', label: 'Mock Call' },
-  { value: 'internal', label: 'Internal Certification' },
-  { value: 'external', label: 'External Certification' },
+// The entry options, the columns and the pass/fail wording all come from the
+// process's own certification criteria, so a mock call, a client round, a daily
+// error rate, a cumulative sales target and a sign-off each render correctly
+// without the screen knowing anything about them in advance.
+const FALLBACK_TYPES = [
+  { value: 'mock_call', label: 'Mock Call', measure: 'single', direction: 'at_least', unit: 'percent' },
+  { value: 'internal', label: 'Internal Certification', measure: 'single', direction: 'at_least', unit: 'percent' },
+  { value: 'external', label: 'External Certification', measure: 'single', direction: 'at_least', unit: 'percent' },
 ];
 
-// Process Quality is one ERROR RATE per training day. The number of days comes from
-// the certification rule, so a process can run a 3-day or 10-day window without a
-// code change. Lower is better throughout this tab.
-// The entry options mirror the certification rule for this process and LOB: a
-// coordinator is only offered the gates their process actually uses. With no rule
-// configured at all, every gate stays available rather than leaving a dead screen.
-function evidenceTypesForRule(rule) {
-  const days = Number(rule?.pqDays || 0);
-  const pqDays = Array.from({ length: Math.max(0, days) }, (_, index) => ({
-    value: `pq_day${index + 1}`,
-    label: `PQ Error Rate — Day ${index + 1}`,
-  }));
-  if (!rule) return EVIDENCE_TYPES;
-  const configured = EVIDENCE_TYPES.filter(type => (
-    (type.value === 'mock_call' && rule.mockCallRequired)
-    || (type.value === 'internal' && rule.internalCertRequired)
-    || (type.value === 'external' && rule.externalCertRequired)
-  ));
-  const gates = configured.length || pqDays.length ? configured : EVIDENCE_TYPES;
-  return [...pqDays, ...gates];
+function formatCriterionValue(value, unit) {
+  if (value === null || value === undefined) return '—';
+  const rounded = Math.round(Number(value) * 100) / 100;
+  if (unit === 'currency') return `₹${rounded.toLocaleString('en-IN')}`;
+  if (unit === 'percent') return `${rounded}%`;
+  return String(rounded);
 }
 
-function evidenceLabel(evidenceType, rule) {
-  return evidenceTypesForRule(rule).find(type => type.value === evidenceType)?.label || evidenceType;
+// One selectable option per criterion, expanded to one per day for a daily measure.
+function entryOptionsForRule(rule) {
+  const criteria = (rule?.criteria || []).filter(c => c.active !== false);
+  if (!criteria.length) return FALLBACK_TYPES;
+  const options = [];
+  for (const c of criteria) {
+    if (c.measure === 'daily_average') {
+      const days = Math.max(1, Number(c.days || 1));
+      for (let day = 1; day <= days; day += 1) {
+        options.push({ value: `${c.criterionKey}#${day}`, label: `${c.label} — Day ${day}`, criterion: c });
+      }
+    } else {
+      options.push({ value: c.criterionKey, label: c.label, criterion: c });
+    }
+  }
+  return options;
+}
+
+function criterionForEntry(rule, evidenceType) {
+  return entryOptionsForRule(rule).find(option => option.value === evidenceType)?.criterion || null;
+}
+
+function entryLabel(rule, evidenceType) {
+  return entryOptionsForRule(rule).find(option => option.value === evidenceType)?.label || evidenceType;
 }
 const isEligible = t => Boolean(t?.eligibility?.eligible ?? t?.eligible);
 const emptyScore = { evidenceType: 'mock_call', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' };
@@ -684,13 +696,18 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   async function saveScore(event) {
     event.preventDefault();
     const score = Number(scoreForm.scorePct);
-    if (!Number.isFinite(score) || score < 0 || score > 100) return setMsg('Score must be a number between 0 and 100.');
+    const criterion = criterionForEntry(data.rule, scoreForm.evidenceType);
+    const unit = criterion?.unit || 'percent';
+    if (criterion?.measure !== 'completion') {
+      if (!Number.isFinite(score) || score < 0) return setMsg(`${criterion?.label || 'Score'} must be zero or more.`);
+      // Only percentages are capped; a sales target of 250 units must be recordable.
+      if (unit === 'percent' && score > 100) return setMsg(`${criterion?.label || 'Score'} is a percentage, so it cannot exceed 100.`);
+    }
     setScoreSaving(true);
-    // For a PQ day the verdict follows from the error rate, so it is derived here
-    // rather than taken from the form, where it could contradict the number entered.
-    const isPq = scoreForm.evidenceType.startsWith('pq_day');
-    const result = isPq
-      ? (score <= Number(data.rule?.pqMaxErrorPct ?? 2.5) ? 'Pass' : 'Fail')
+    // The verdict follows from the figure and the criterion's direction, so a
+    // coordinator can never record a Pass that contradicts the number entered.
+    const result = criterion && criterion.measure !== 'completion'
+      ? ((criterion.direction === 'at_most' ? score <= Number(criterion.targetValue) : score >= Number(criterion.targetValue)) ? 'Pass' : 'Fail')
       : scoreForm.result;
     const res = await api.post(`/coordinator/batches/${batchNo}/certification/evidence`, {
       employeeId: scoreFor.employeeId,
@@ -702,19 +719,16 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     }, 'coordinator');
     setScoreSaving(false);
     if (!res.ok) return setMsg(res.message || 'Unable to save the score.');
-    setMsg(`\u2713 ${result} \u2014 ${score}%${isPq ? ' error rate' : ''} recorded for ${scoreFor.employeeId}.`);
+    setMsg(`\u2713 ${result} \u2014 ${formatCriterionValue(score, unit)} recorded for ${scoreFor.employeeId}.`);
     setScoreFor(null); setScoreForm(emptyScore); load();
   }
 
   function openScore(t) {
-    // Land on the first unscored PQ day so the common case is one click.
-    const recorded = new Set((t.eligibility?.pq?.recorded || []).map(row => row.day));
-    const trackedDays = Number(data?.rule?.pqDays || 0);
-    const nextDay = trackedDays > 0
-      ? Array.from({ length: trackedDays }, (_, i) => i + 1).find(day => !recorded.has(day))
-      : null;
-    const options = evidenceTypesForRule(data?.rule);
-    setScoreForm({ ...emptyScore, evidenceType: nextDay ? `pq_day${nextDay}` : (options[0]?.value || 'mock_call') });
+    // Land on the first option with nothing recorded, so the common case is one click.
+    const options = entryOptionsForRule(data?.rule);
+    const recorded = new Set((t.evidence || []).map(item => item.evidenceType));
+    const next = options.find(option => !recorded.has(option.value)) || options[0];
+    setScoreForm({ ...emptyScore, evidenceType: next?.value || 'mock_call' });
     setScoreFor(t);
   }
 
@@ -777,38 +791,49 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   const pendingHandover = traineeList.filter(t => t.certificationStatus === 'Certified' && !t.handoverToOps).length;
   const unresolvedCount = traineeList.filter(t => t.status === 'Active' && !t.handoverToOps && t.certificationStatus !== 'Certified' && t.certificationStatus !== 'Attrition').length;
 
-  // Tracked (pqDays > 0) decides visibility; pqRequired decides whether it blocks.
-  const pqOn = Number(data.rule?.pqDays || 0) > 0;
+  // A column per criterion this process defines.
+  const shownCriteria = (data.rule?.criteria || []).filter(c => c.active !== false);
 
-  // Shows each recorded day and the running average against the target, so a
-  // coordinator can see at a glance which day is still missing and where they stand.
-  function pqCell(t) {
-    const pq = t.eligibility?.pq;
-    if (!pq) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
-    const byDay = new Map(pq.recorded.map(row => [row.day, row.scorePct]));
-    const withinLimit = value => value <= pq.maxError;
+  function criterionCell(t, criterion) {
+    const result = (t.eligibility?.criteria || []).find(r => r.criterionKey === criterion.criterionKey);
+    if (!result) return <span style={{ color: 'var(--muted)', fontSize: 12 }}>—</span>;
+    const good = result.met;
+    const tone = result.entries === 0 ? 'var(--muted)' : (good ? '#15803d' : '#b91c1c');
+
+    if (result.measure === 'completion') {
+      return <span className={`pill ${good ? 'ok' : ''}`} style={{ fontSize: 11 }}>{good ? 'Completed' : 'Pending'}</span>;
+    }
+
+    const limitWord = result.direction === 'at_most' ? 'max' : 'min';
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-        <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-          {Array.from({ length: pq.days }, (_, index) => index + 1).map(day => {
-            const score = byDay.get(day);
-            const scored = score !== undefined;
-            return (
-              <span key={day}
-                title={scored ? `Day ${day}: ${score}% error rate` : `Day ${day} not scored yet`}
-                style={{
-                  fontSize: 10, fontWeight: 700, padding: '2px 5px', borderRadius: 4, minWidth: 26, textAlign: 'center',
-                  background: scored ? (withinLimit(score) ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.14)') : 'rgba(128,128,128,.12)',
-                  color: scored ? (withinLimit(score) ? '#15803d' : '#b91c1c') : 'var(--muted)',
-                }}>
-                {scored ? score : `D${day}`}
-              </span>
-            );
-          })}
-        </div>
-        <span style={{ fontSize: 11, fontWeight: 700, color: pq.average === null ? 'var(--muted)' : (pq.meetsTarget ? '#15803d' : '#b91c1c') }}>
-          {pq.average === null ? `No days scored · max ${pq.maxError}%` : `Avg ${pq.average}% vs max ${pq.maxError}% · ${pq.recordedCount}/${pq.days} days`}
+        {result.measure === 'daily_average' && (
+          <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            {Array.from({ length: Math.max(1, result.days) }, (_, i) => i + 1).map(day => {
+              const entry = (result.days_recorded || []).find(row => row.day === day);
+              const ok = entry && (result.direction === 'at_most' ? entry.value <= result.target : entry.value >= result.target);
+              return (
+                <span key={day} title={entry ? `Day ${day}: ${formatCriterionValue(entry.value, result.unit)}` : `Day ${day} not recorded`}
+                  style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 5px', borderRadius: 4, minWidth: 26, textAlign: 'center',
+                    background: entry ? (ok ? 'rgba(34,197,94,.16)' : 'rgba(239,68,68,.14)') : 'rgba(128,128,128,.12)',
+                    color: entry ? (ok ? '#15803d' : '#b91c1c') : 'var(--muted)',
+                  }}>
+                  {entry ? entry.value : `D${day}`}
+                </span>
+              );
+            })}
+          </div>
+        )}
+        <span style={{ fontSize: 11, fontWeight: 700, color: tone }}>
+          {result.entries === 0
+            ? `Not recorded · ${limitWord} ${formatCriterionValue(result.target, result.unit)}`
+            : `${formatCriterionValue(result.value, result.unit)} vs ${limitWord} ${formatCriterionValue(result.target, result.unit)}`}
         </span>
+        {result.entries > 0 && result.measure === 'daily_average' && (
+          <span style={{ fontSize: 10, color: 'var(--muted)' }}>{result.entries}/{result.days} days</span>
+        )}
+        {!result.blocks && <span style={{ fontSize: 10, color: 'var(--muted)' }}>tracked only</span>}
       </div>
     );
   }
@@ -819,14 +844,14 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     return (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
         {evidence.map(item => {
-          const label = evidenceLabel(item.evidenceType, data.rule);
+          const label = entryLabel(data.rule, item.evidenceType);
           const passed = String(item.result || '').toLowerCase() === 'pass';
           return (
             <span key={item.id || `${item.evidenceType}-${item.conductedAt}`}
               className={`pill ${passed ? 'ok' : 'bad'}`}
               style={{ fontSize: 11 }}
               title={`${label} — ${item.result} ${Number(item.scorePct || 0)}%${item.remarks ? ` — ${item.remarks}` : ''}`}>
-              {label.startsWith('PQ Error Rate') ? `D${item.evidenceType.replace('pq_day', '')}` : label.split(' ')[0]} {Number(item.scorePct || 0)}%
+              {label.length > 14 ? `${label.slice(0, 12)}…` : label} {formatCriterionValue(item.scorePct, criterionForEntry(data.rule, item.evidenceType)?.unit || 'percent')}
             </span>
           );
         })}
@@ -950,7 +975,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="table-wrap">
         <table>
-          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{pqOn && <th>PQ error rate (max {data.rule.pqMaxErrorPct}%)</th>}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
+          <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{shownCriteria.map(c => <th key={c.criterionKey}>{c.label}</th>)}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
           <tbody>
             {traineeList.map(t => (
               <tr key={t.employeeId}>
@@ -959,7 +984,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
                 <td>{pct(t.courseCompletionPct)}</td>
                 <td>{pct(t.assessmentPassPct)}</td>
                 <td>{pct(t.attendancePct)}</td>
-                {pqOn && <td>{pqCell(t)}</td>}
+                {shownCriteria.map(c => <td key={c.criterionKey}>{criterionCell(t, c)}</td>)}
                 <td>{evidenceCell(t)}</td>
                 <td>
                   {isEligible(t)
@@ -978,10 +1003,15 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
       </div>
 
       {scoreFor && (() => {
-        const isPqEntry = scoreForm.evidenceType.startsWith('pq_day');
+        // Everything about the field follows the chosen criterion: its wording, its
+        // unit, whether 100 is a cap, and which way the comparison runs.
+        const activeCriterion = criterionForEntry(data.rule, scoreForm.evidenceType);
+        const isCompletion = activeCriterion?.measure === 'completion';
+        const unit = activeCriterion?.unit || 'percent';
+        const atMost = activeCriterion?.direction === 'at_most';
         const entered = Number(scoreForm.scorePct);
-        const pqVerdict = !isPqEntry || scoreForm.scorePct === '' || !Number.isFinite(entered)
-          ? '' : (entered <= Number(data.rule?.pqMaxErrorPct ?? 2.5) ? 'Pass' : 'Fail');
+        const derivedVerdict = !activeCriterion || isCompletion || scoreForm.scorePct === '' || !Number.isFinite(entered)
+          ? '' : ((atMost ? entered <= Number(activeCriterion.targetValue) : entered >= Number(activeCriterion.targetValue)) ? 'Pass' : 'Fail');
         return (
         <div className="modal-overlay" onClick={() => setScoreFor(null)}>
           <div className="modal-box" style={{ maxWidth: 460 }} onClick={event => event.stopPropagation()}>
@@ -993,15 +1023,15 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
               <div className="field">
                 <label>Assessment type *</label>
                 <select className="select" value={scoreForm.evidenceType} onChange={event => setScoreForm(form => ({ ...form, evidenceType: event.target.value }))}>
-                  {evidenceTypesForRule(data.rule).map(type => <option key={type.value} value={type.value}>{type.label}</option>)}
+                  {entryOptionsForRule(data.rule).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div className="field">
                   <label>Result *</label>
-                  {isPqEntry ? (
-                    <div className="input" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, color: pqVerdict === 'Pass' ? '#15803d' : (pqVerdict === 'Fail' ? '#b91c1c' : 'var(--muted)') }}>
-                      {pqVerdict || 'Enter an error rate'}
+                  {activeCriterion && !isCompletion ? (
+                    <div className="input" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, color: derivedVerdict === 'Pass' ? '#15803d' : (derivedVerdict === 'Fail' ? '#b91c1c' : 'var(--muted)') }}>
+                      {derivedVerdict || `Enter a ${atMost ? 'rate' : 'score'}`}
                     </div>
                   ) : (
                     <select className="select" value={scoreForm.result} onChange={event => setScoreForm(form => ({ ...form, result: event.target.value }))}>
@@ -1011,13 +1041,18 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
                   )}
                 </div>
                 <div className="field">
-                  <label>{isPqEntry ? 'Error rate % *' : 'Score % *'}</label>
+                  <label>{activeCriterion ? `${activeCriterion.label}${unit === 'percent' ? ' %' : (unit === 'currency' ? ' (₹)' : '')} *` : 'Score % *'}</label>
                   <input className="input" type="number" min="0" max="100" step="0.01" required
                     value={scoreForm.scorePct}
                     onChange={event => setScoreForm(form => ({ ...form, scorePct: event.target.value }))} />
-                  {isPqEntry && (
+                  {activeCriterion && !isCompletion && (
                     <span style={{ fontSize: 11, color: 'var(--muted)' }}>
-                      Errors for this day. Must average at or below {data.rule.pqMaxErrorPct}% across the week — lower is better.
+                      {activeCriterion.measure === 'daily_average'
+                        ? `Recorded per day. The average of the days entered must be ${atMost ? 'at or below' : 'at or above'} ${formatCriterionValue(activeCriterion.targetValue, unit)}.`
+                        : (activeCriterion.measure === 'cumulative'
+                          ? `Entries add up. The total must reach ${formatCriterionValue(activeCriterion.targetValue, unit)}.`
+                          : `Must be ${atMost ? 'at or below' : 'at or above'} ${formatCriterionValue(activeCriterion.targetValue, unit)}.`)}
+                      {atMost && ' Lower is better.'}
                     </span>
                   )}
                 </div>

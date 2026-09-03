@@ -1034,15 +1034,68 @@ export async function deleteTraineeAccount(req, res) {
 export async function listCertificationRules(req, res) {
   try {
     const rules = await prisma.certificationRuleMaster.findMany({ orderBy: [{ process: 'asc' }, { lob: 'asc' }] });
-    res.json({ ok: true, data: rules });
+    const criteria = await prisma.certificationCriterion.findMany({ orderBy: [{ ruleId: 'asc' }, { sortOrder: 'asc' }] });
+    const byRule = new Map();
+    for (const item of criteria) {
+      if (!byRule.has(item.ruleId)) byRule.set(item.ruleId, []);
+      byRule.get(item.ruleId).push(item);
+    }
+    res.json({ ok: true, data: rules.map(rule => ({ ...rule, criteria: byRule.get(rule.ruleId) || [] })) });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
 
+const MEASURES = new Set(['single', 'daily_average', 'cumulative', 'completion']);
+const DIRECTIONS = new Set(['at_least', 'at_most']);
+const UNITS = new Set(['percent', 'number', 'currency']);
+
+// A criterion key is used verbatim as the evidence type, so it has to be a stable,
+// URL- and query-safe slug rather than whatever the admin typed as a label.
+function criterionKeyFrom(raw, label, index) {
+  const source = String(raw || label || `criterion_${index + 1}`);
+  const slug = source.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+  return slug || `criterion_${index + 1}`;
+}
+
+// Replace-all: the editor posts the full list, so a criterion the admin removed is
+// deactivated rather than deleted, keeping any evidence already recorded against it.
+async function syncCriteria(ruleId, incoming) {
+  if (!Array.isArray(incoming)) return;
+  const seen = new Set();
+  for (let index = 0; index < incoming.length; index += 1) {
+    const row = incoming[index] || {};
+    const label = String(row.label || '').trim();
+    if (!label) continue;
+    const criterionKey = criterionKeyFrom(row.criterionKey, label, index);
+    if (seen.has(criterionKey)) continue;
+    seen.add(criterionKey);
+
+    const measure = MEASURES.has(row.measure) ? row.measure : 'single';
+    const data = {
+      label,
+      measure,
+      direction: DIRECTIONS.has(row.direction) ? row.direction : 'at_least',
+      targetValue: measure === 'completion' ? 0 : Math.max(0, Number(row.targetValue) || 0),
+      unit: UNITS.has(row.unit) ? row.unit : 'percent',
+      days: measure === 'daily_average' ? Math.min(20, Math.max(1, Number(row.days) || 5)) : 0,
+      blocks: row.blocks !== false,
+      sortOrder: index,
+      active: true,
+    };
+    const existing = await prisma.certificationCriterion.findFirst({ where: { ruleId, criterionKey } });
+    if (existing) await prisma.certificationCriterion.update({ where: { id: existing.id }, data });
+    else await prisma.certificationCriterion.create({ data: { ruleId, criterionKey, ...data } });
+  }
+  await prisma.certificationCriterion.updateMany({
+    where: { ruleId, criterionKey: { notIn: [...seen] }, active: true },
+    data: { active: false },
+  });
+}
+
 export async function saveCertificationRule(req, res) {
   try {
-    const { process, lob, ...rest } = req.body;
+    const { process, lob, criteria, ...rest } = req.body;
     if (!process || !lob) return res.status(400).json({ ok: false, message: 'Process and LOB required.' });
     const existing = await prisma.certificationRuleMaster.findFirst({ where: { process, lob } });
     let rule;
@@ -1051,8 +1104,11 @@ export async function saveCertificationRule(req, res) {
     } else {
       rule = await prisma.certificationRuleMaster.create({ data: { ruleId: `RULE-${generateId()}`, process, lob, ...rest } });
     }
+    await syncCriteria(rule.ruleId, criteria);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: existing ? 'UPDATE_CERT_RULE' : 'CREATE_CERT_RULE', module: 'Certification', referenceId: rule.ruleId, newValue: { process, lob, criteria: (criteria || []).length } });
     res.json({ ok: true, data: rule });
   } catch (err) {
+    console.error('[admin] save certification rule failed:', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
@@ -1060,13 +1116,26 @@ export async function saveCertificationRule(req, res) {
 export async function updateCertificationRule(req, res) {
   try {
     const { id } = req.params;
-    const { process, lob, courseCompletionMin, mcqPassPctMin, attendancePctMin, mockCallRequired, mockCallPassPct, internalCertRequired, internalCertPassPct, externalCertRequired, externalCertPassPct, active } = req.body;
+    const { process, lob, courseCompletionMin, mcqPassPctMin, attendancePctMin, active, criteria } = req.body;
+    const number = value => (value != null && value !== '' ? parseFloat(value) : undefined);
     const rule = await prisma.certificationRuleMaster.update({
       where: { id },
-      data: { process, lob, courseCompletionMin: courseCompletionMin != null ? parseFloat(courseCompletionMin) : undefined, mcqPassPctMin: mcqPassPctMin != null ? parseFloat(mcqPassPctMin) : undefined, attendancePctMin: attendancePctMin != null ? parseFloat(attendancePctMin) : undefined, mockCallRequired, mockCallPassPct: mockCallPassPct != null ? parseFloat(mockCallPassPct) : undefined, internalCertRequired, internalCertPassPct: internalCertPassPct != null ? parseFloat(internalCertPassPct) : undefined, externalCertRequired, externalCertPassPct: externalCertPassPct != null ? parseFloat(externalCertPassPct) : undefined, active },
+      data: {
+        process,
+        lob,
+        courseCompletionMin: number(courseCompletionMin),
+        mcqPassPctMin: number(mcqPassPctMin),
+        attendancePctMin: number(attendancePctMin),
+        active,
+      },
     });
+    // The manually recorded gates are criteria rows now, so they are synced here too
+    // rather than written as columns on the rule.
+    await syncCriteria(rule.ruleId, criteria);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_CERT_RULE', module: 'Certification', referenceId: rule.ruleId, newValue: { process, lob, criteria: (criteria || []).length } });
     res.json({ ok: true, data: rule });
   } catch (err) {
+    console.error('[admin] update certification rule failed:', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }

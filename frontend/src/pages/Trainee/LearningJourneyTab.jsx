@@ -122,11 +122,7 @@ export default function LearningJourneyTab({ onNavigate }) {
           <div><span>Course</span><strong>{journey.requirements?.courseCompletionPct ?? '—'}%</strong></div>
           <div><span>Assessment</span><strong>{journey.requirements?.assessmentPassPct ?? '—'}%</strong></div>
           <div><span>Attendance</span><strong>{journey.requirements?.attendancePct ?? '—'}%</strong></div>
-          <div><span>Evidence</span><strong>{[
-            journey.requirements?.mockCallRequired && 'Mock',
-            journey.requirements?.internalCertificationRequired && 'Internal',
-            journey.requirements?.externalCertificationRequired && 'External',
-          ].filter(Boolean).join(' + ') || 'Standard'}</strong></div>
+          <div><span>Evidence</span><strong>{(journey.requirements?.evidenceGates || []).join(' + ') || 'Standard'}</strong></div>
         </div>
       </div>
 

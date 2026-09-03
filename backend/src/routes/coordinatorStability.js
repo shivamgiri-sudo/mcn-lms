@@ -6,6 +6,7 @@ import { hashPassword, generateSalt, normalize, firstTimePassword } from '../uti
 import { generateTempEmpId } from '../utils/empIdMapping.js';
 import { audit } from '../utils/audit.js';
 import { getFormOptions, scopeFormOptions } from '../services/formOptions.js';
+import { evaluateCriteria, parseEvidenceType } from '../services/certificationCriteria.js';
 import { notifyCertification, notifyOnboarding, notifyBatchAssignment } from '../utils/notify.js';
 
 const router = Router();
@@ -207,59 +208,9 @@ async function createTraineeAccount(raw, batch, coordinatorLoginId) {
   };
 }
 
-function normalizedResult(value) {
-  return String(value || '').trim().toLowerCase();
-}
-
-// Process Quality is an ERROR RATE recorded once per training day as evidence rows
-// typed pq_day1 .. pq_dayN. Only the days actually recorded count, so a trainee
-// part-way through the week is measured on the days they have. Lower is better: the
-// average must come in at or BELOW pqMaxErrorPct, the opposite of every other gate.
-const PQ_TYPE_PREFIX = 'pq_day';
-
-export function pqDayNumber(evidenceType) {
-  const match = /^pq_day(\d{1,2})$/.exec(String(evidenceType || ''));
-  return match ? Number(match[1]) : null;
-}
-
-export function summarisePq(evidence, rule) {
-  const maxError = Number(rule?.pqMaxErrorPct ?? 2.5);
-  const days = Math.max(1, Number(rule?.pqDays ?? 5));
-  const scores = new Map();
-  for (const item of evidence || []) {
-    const day = pqDayNumber(item.evidenceType);
-    if (!day || day > days) continue;
-    // A day re-scored later supersedes the earlier attempt.
-    const previous = scores.get(day);
-    if (!previous || new Date(item.conductedAt || item.createdAt || 0) >= new Date(previous.conductedAt || previous.createdAt || 0)) {
-      scores.set(day, item);
-    }
-  }
-  const recorded = [...scores.entries()].sort((a, b) => a[0] - b[0]).map(([day, item]) => ({ day, scorePct: Number(item.scorePct || 0) }));
-  const average = recorded.length
-    ? recorded.reduce((sum, row) => sum + row.scorePct, 0) / recorded.length
-    : null;
-  const rounded = average === null ? null : Math.round(average * 100) / 100;
-  return {
-    required: Boolean(rule?.pqRequired),
-    maxError,
-    days,
-    recorded,
-    recordedCount: recorded.length,
-    average: rounded,
-    // At or below the ceiling passes. Inverting this silently certifies the worst
-    // performers, so it is asserted directly in process-quality-regressions.test.js.
-    meetsTarget: rounded !== null && rounded <= maxError,
-  };
-}
-
-function passingEvidence(evidence, type, minimumScore) {
-  return evidence.some(item =>
-    item.evidenceType === type &&
-    normalizedResult(item.result) === 'pass' &&
-    Number(item.scorePct || 0) >= Number(minimumScore || 0)
-  );
-}
+// Manually recorded gates now live in certification_criterion and are evaluated by
+// services/certificationCriteria.js, so the PQ-specific helpers and the fixed
+// mock/internal/external check that used to sit here have been removed.
 
 async function evaluateCertification(trainee, batchNo) {
   const [rule, evidence, blockingRisks] = await Promise.all([
@@ -273,6 +224,17 @@ async function evaluateCertification(trainee, batchNo) {
     }),
   ]);
 
+  // Manually recorded gates are configured per rule as criteria rows, so a process can
+  // define a client certification round, a sales target or an email audit without a
+  // schema change. The three thresholds below stay on the rule itself because they are
+  // computed from the trainee's own KPIs rather than entered by a coordinator.
+  const criteria = rule
+    ? await prisma.certificationCriterion.findMany({
+      where: { ruleId: rule.ruleId, active: true },
+      orderBy: { sortOrder: 'asc' },
+    })
+    : [];
+
   const thresholds = {
     courseCompletionMin: Number(rule?.courseCompletionMin ?? 80),
     mcqPassPctMin: Number(rule?.mcqPassPctMin ?? 60),
@@ -283,17 +245,19 @@ async function evaluateCertification(trainee, batchNo) {
   if (Number(trainee.courseCompletionPct || 0) < thresholds.courseCompletionMin) blockers.push(`Course completion ${Number(trainee.courseCompletionPct || 0)}% is below ${thresholds.courseCompletionMin}%`);
   if (Number(trainee.assessmentPassPct || 0) < thresholds.mcqPassPctMin) blockers.push(`Assessment pass ${Number(trainee.assessmentPassPct || 0)}% is below ${thresholds.mcqPassPctMin}%`);
   if (Number(trainee.attendancePct || 0) < thresholds.attendancePctMin) blockers.push(`Attendance ${Number(trainee.attendancePct || 0)}% is below ${thresholds.attendancePctMin}%`);
-  if (rule?.mockCallRequired && !passingEvidence(evidence, 'mock_call', rule.mockCallPassPct)) blockers.push(`Passing mock-call evidence of at least ${Number(rule.mockCallPassPct || 0)}% is required`);
-  if (rule?.internalCertRequired && !passingEvidence(evidence, 'internal', rule.internalCertPassPct)) blockers.push(`Passing internal-certification evidence of at least ${Number(rule.internalCertPassPct || 0)}% is required`);
-  if (rule?.externalCertRequired && !passingEvidence(evidence, 'external', rule.externalCertPassPct)) blockers.push(`Passing external-certification evidence of at least ${Number(rule.externalCertPassPct || 0)}% is required`);
-  const pq = summarisePq(evidence, rule);
-  if (pq.required) {
-    if (!pq.recordedCount) blockers.push(`No Process Quality scores recorded yet (max ${pq.maxError}% error rate across ${pq.days} days)`);
-    else if (!pq.meetsTarget) blockers.push(`Process Quality error rate ${pq.average}% across ${pq.recordedCount} day${pq.recordedCount === 1 ? '' : 's'} exceeds the ${pq.maxError}% limit`);
-  }
+  const { results: criteriaResults, blockers: criteriaBlockers } = evaluateCriteria(criteria, evidence);
+  blockers.push(...criteriaBlockers);
   if (blockingRisks.length) blockers.push(`Resolve ${blockingRisks.length} open critical risk${blockingRisks.length === 1 ? '' : 's'} before certification`);
 
-  return { eligible: blockers.length === 0, blockers, thresholds, pq, ruleId: rule?.ruleId || null, evidenceCount: evidence.length, blockingRisks };
+  return {
+    eligible: blockers.length === 0,
+    blockers,
+    thresholds,
+    criteria: criteriaResults,
+    ruleId: rule?.ruleId || null,
+    evidenceCount: evidence.length,
+    blockingRisks,
+  };
 }
 
 router.get('/trainees/search', ...auth, async (req, res) => {
@@ -517,8 +481,13 @@ router.get('/batches/:batchNo/certification', ...auth, async (req, res) => {
     const trainees = await prisma.traineeMaster.findMany({ where: { batchNo: batch.batchNo }, orderBy: { traineeName: 'asc' } });
     const rule = trainees[0]?.process && trainees[0]?.lob ? await prisma.certificationRuleMaster.findFirst({ where: { process: trainees[0].process, lob: trainees[0].lob, active: true } }) : null;
     const evidence = await prisma.certificationEvidence.findMany({ where: { batchNo: batch.batchNo } });
+    // The coordinator screen renders itself from these, so it offers exactly the gates
+    // this process defines and nothing else.
+    const criteria = rule
+      ? await prisma.certificationCriterion.findMany({ where: { ruleId: rule.ruleId, active: true }, orderBy: { sortOrder: 'asc' } })
+      : [];
     const rows = await Promise.all(trainees.map(async trainee => ({ ...trainee, evidence: evidence.filter(item => item.employeeId === trainee.employeeId), eligibility: await evaluateCertification(trainee, batch.batchNo) })));
-    return res.json({ ok: true, data: { rule, trainees: rows } });
+    return res.json({ ok: true, data: { rule: rule ? { ...rule, criteria } : null, trainees: rows } });
   } catch (error) {
     console.error('[coordinatorStability] certification data failed:', error);
     return res.status(500).json({ ok: false, message: 'Server error' });
@@ -534,20 +503,34 @@ router.post('/batches/:batchNo/certification/evidence', ...auth, async (req, res
     if (!trainee || trainee.batchNo !== batch.batchNo) return res.status(400).json({ ok: false, message: 'Trainee is not in this batch.' });
     const evidenceType = String(req.body?.evidenceType || '').trim();
     const result = String(req.body?.result || '').trim();
-    const pqDay = pqDayNumber(evidenceType);
-    if (pqDay !== null) {
-      const rule = trainee.process && trainee.lob
-        ? await prisma.certificationRuleMaster.findFirst({ where: { process: trainee.process, lob: trainee.lob, active: true } })
-        : null;
-      const maxDays = Number(rule?.pqDays ?? 0);
-      if (maxDays < 1) return res.status(400).json({ ok: false, message: 'This process does not track Process Quality.' });
-      if (pqDay < 1 || pqDay > maxDays) return res.status(400).json({ ok: false, message: `Process Quality day must be between 1 and ${maxDays}.` });
-    } else if (!['mock_call', 'internal', 'external'].includes(evidenceType)) {
-      return res.status(400).json({ ok: false, message: 'Invalid evidence type.' });
+
+    // The gate must be one this process actually defines, so a coordinator cannot
+    // record a sales target against a process that has no such criterion.
+    const parsed = parseEvidenceType(evidenceType);
+    if (!parsed) return res.status(400).json({ ok: false, message: 'An assessment type is required.' });
+    const rule = trainee.process && trainee.lob
+      ? await prisma.certificationRuleMaster.findFirst({ where: { process: trainee.process, lob: trainee.lob, active: true } })
+      : null;
+    if (!rule) return res.status(400).json({ ok: false, message: `No certification rule is configured for ${trainee.process || 'this process'} / ${trainee.lob || 'this LOB'}.` });
+    const criterion = await prisma.certificationCriterion.findFirst({
+      where: { ruleId: rule.ruleId, criterionKey: parsed.key, active: true },
+    });
+    if (!criterion) return res.status(400).json({ ok: false, message: 'That assessment is not part of this process’s certification criteria.' });
+
+    if (criterion.measure === 'daily_average') {
+      const maxDays = Math.max(1, Number(criterion.days || 1));
+      if (!parsed.day) return res.status(400).json({ ok: false, message: `${criterion.label} is recorded per day — pick a day.` });
+      if (parsed.day < 1 || parsed.day > maxDays) return res.status(400).json({ ok: false, message: `${criterion.label} day must be between 1 and ${maxDays}.` });
+    } else if (parsed.day) {
+      return res.status(400).json({ ok: false, message: `${criterion.label} is recorded once, not per day.` });
     }
+
     if (!['Pass', 'Fail'].includes(result)) return res.status(400).json({ ok: false, message: 'Evidence result must be Pass or Fail.' });
+    // Percentages are capped at 100; counts and currency are not, or a sales target
+    // of 250 units could never be recorded.
     const scorePct = Number(req.body?.scorePct || 0);
-    if (!Number.isFinite(scorePct) || scorePct < 0 || scorePct > 100) return res.status(400).json({ ok: false, message: 'Score must be between 0 and 100.' });
+    if (!Number.isFinite(scorePct) || scorePct < 0) return res.status(400).json({ ok: false, message: `${criterion.label} must be zero or more.` });
+    if (criterion.unit === 'percent' && scorePct > 100) return res.status(400).json({ ok: false, message: `${criterion.label} is a percentage, so it cannot exceed 100.` });
     const evidence = await prisma.certificationEvidence.create({
       data: { employeeId, batchNo: batch.batchNo, evidenceType, result, scorePct, conductedBy: String(req.body?.conductedBy || '').trim() || req.userId, conductedAt: safeDate(req.body?.conductedAt) || new Date(), remarks: String(req.body?.remarks || '').trim() || null, createdBy: req.userId },
     });

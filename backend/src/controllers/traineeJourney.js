@@ -1,4 +1,5 @@
 import { prisma } from '../utils/db.js';
+import { evaluateCriteria } from '../services/certificationCriteria.js';
 
 function pct(value) {
   return Math.max(0, Math.min(100, Math.round(Number(value || 0))));
@@ -58,9 +59,6 @@ export async function getLearningJourney(req, res) {
       courseCompletionPct: Number(rule?.courseCompletionMin ?? 80),
       assessmentPassPct: Number(rule?.mcqPassPctMin ?? 60),
       attendancePct: Number(rule?.attendancePctMin ?? 70),
-      mockCallRequired: Boolean(rule?.mockCallRequired),
-      internalCertificationRequired: Boolean(rule?.internalCertRequired),
-      externalCertificationRequired: Boolean(rule?.externalCertRequired),
     };
 
     const metrics = {
@@ -83,15 +81,16 @@ export async function getLearningJourney(req, res) {
     const certified = trainee.certificationStatus === 'Certified';
     const handedOver = Boolean(trainee.handoverToOps);
 
-    const passedEvidence = new Set(
-      evidence
-        .filter(item => String(item.result || '').toLowerCase() === 'pass')
-        .map(item => item.evidenceType),
-    );
-    const missingEvidence = [];
-    if (requirements.mockCallRequired && !passedEvidence.has('mock_call')) missingEvidence.push('Mock call');
-    if (requirements.internalCertificationRequired && !passedEvidence.has('internal')) missingEvidence.push('Internal certification');
-    if (requirements.externalCertificationRequired && !passedEvidence.has('external')) missingEvidence.push('External certification');
+    // The gates a trainee still has to clear are whatever this process configures,
+    // so a client certification round or a sales target shows up here without this
+    // view needing to know about it.
+    const criteria = rule
+      ? await prisma.certificationCriterion.findMany({ where: { ruleId: rule.ruleId, active: true }, orderBy: { sortOrder: 'asc' } })
+      : [];
+    const { results: criteriaResults } = evaluateCriteria(criteria, evidence);
+    const missingEvidence = criteriaResults.filter(result => result.blocks && !result.met).map(result => result.label);
+    // Named so the learner sees the gates their own process actually uses.
+    requirements.evidenceGates = criteriaResults.filter(result => result.blocks).map(result => result.label);
 
     const stages = [
       {
