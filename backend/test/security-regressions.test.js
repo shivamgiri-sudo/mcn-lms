@@ -137,16 +137,18 @@ test('insecure legacy password mutation handlers are not mounted', async () => {
   assert.doesNotMatch(text, /adminForgotPassword/);
 });
 
-test('coordinator onboarding is scoped and uses random forced-reset credentials', async () => {
+// Credential policy changed deliberately: the random credential was only ever delivered
+// over email/SMS, so 98 of 316 coordinator-onboarded trainees could never log in when
+// delivery was not configured. Every creation path now derives the same predictable
+// first-time password, still behind a forced reset at first login.
+test('coordinator onboarding is scoped and issues a forced-reset first credential', async () => {
   const text = await source('src/routes/coordinatorStability.js');
   assert.match(text, /getOwnedBatch/);
-  assert.match(text, /temporaryCredential/);
-  assert.match(text, /randomBytes\(12\)/);
+  assert.match(text, /firstTimePassword\(mobile\)/);
+  assert.doesNotMatch(text, /temporaryCredential/);
   assert.match(text, /forcePasswordReset: true/);
   assert.match(text, /credentialDelivered/);
   assert.match(text, /Maximum 500 trainees per bulk request/);
-  assert.doesNotMatch(text, /slice\(-4\)/);
-  assert.doesNotMatch(text, /or 1234 if no mobile/);
 });
 
 test('login pages do not publish or recommend predictable credentials', async () => {

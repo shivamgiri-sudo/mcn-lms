@@ -1,9 +1,8 @@
-import { randomBytes } from 'crypto';
 import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
 import { loadMapping } from '../utils/hrmsConfig.js';
 import { queryHrms } from '../utils/hrmsDb.js';
-import { generateSalt, hashPassword, normalize } from '../utils/hash.js';
+import { generateSalt, hashPassword, normalize, firstTimePassword } from '../utils/hash.js';
 import { autoAssignModulesForNewUser } from '../services/independentModules.js';
 
 const HRMS_DB = process.env.HRMS_DB_NAME || 'mas_hrms';
@@ -41,10 +40,6 @@ function quoteIdentifier(value) {
   const text = String(value || '').trim();
   if (!/^[A-Za-z0-9_]+$/.test(text)) throw new Error(`Unsafe HRMS identifier: ${text || '(empty)'}`);
   return `\`${text}\``;
-}
-
-function temporaryCredential() {
-  return randomBytes(12).toString('base64url');
 }
 
 function dateOrNull(value) {
@@ -308,7 +303,7 @@ export async function syncEmployees(req, res) {
         continue;
       }
 
-      const tempPassword = temporaryCredential();
+      const tempPassword = firstTimePassword(payload.mobile);
       const salt = generateSalt();
       const passwordHash = await hashPassword(tempPassword, salt);
 

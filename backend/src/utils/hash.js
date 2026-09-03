@@ -49,3 +49,13 @@ export function normalize(str) {
 export function generateId(prefix = '') {
   return `${prefix}${Date.now()}-${randomBytes(4).toString('hex').toUpperCase()}`;
 }
+
+// Every account-creation path must derive the first-time password the same way.
+// HRMS sync and the coordinator portal used to generate a random string that was
+// hashed and then discarded (HRMS) or only ever sent over email/SMS (coordinator),
+// which left the account unusable whenever delivery was not configured.
+// forcePasswordReset still forces a change at first login.
+export function firstTimePassword(mobile) {
+  const digits = String(mobile || '').replace(/\D/g, '');
+  return digits.length >= 4 ? digits.slice(-4) : '1234';
+}

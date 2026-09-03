@@ -121,11 +121,11 @@ router.get('/emp-mapping/temp-trainees', ...superAuth, getTempTrainees);
 router.post('/trainees/:employeeId/map-emp-id', ...superElevatedAuth, adminMapSingleEmpId);
 router.post('/emp-mapping/bulk', ...superElevatedAuth, adminBulkMapEmpIds);
 
-// Certification policy is centrally governed and requires elevated approval.
+// Certification policy and process/LOB masters are editable by any admin.
 router.get('/cert-rules', ...auth, listCertificationRules);
-router.post('/cert-rules', ...superElevatedAuth, saveCertificationRule);
-router.put('/cert-rules/:id', ...superElevatedAuth, updateCertificationRule);
-router.delete('/cert-rules/:id', ...superElevatedAuth, deleteCertificationRule);
+router.post('/cert-rules', ...auth, saveCertificationRule);
+router.put('/cert-rules/:id', ...auth, updateCertificationRule);
+router.delete('/cert-rules/:id', ...auth, deleteCertificationRule);
 
 router.post('/classrooms/:classroomId/sync-drive', ...auth, syncClassroomFromDrive);
 router.post('/assign-module', ...auth, assignModule);
@@ -138,9 +138,9 @@ router.get('/broadcast-assignments', ...auth, listBroadcastAssignments);
 router.delete('/broadcast-assignments/:batchKey', ...auth, withdrawBroadcastAssignment);
 
 router.get('/process-lob', ...auth, getProcessLobList);
-router.post('/process-lob', ...superElevatedAuth, saveProcessLob);
-router.put('/process-lob/:id', ...superElevatedAuth, updateProcessLob);
-router.delete('/process-lob/:id', ...superElevatedAuth, deleteProcessLob);
+router.post('/process-lob', ...auth, saveProcessLob);
+router.put('/process-lob/:id', ...auth, updateProcessLob);
+router.delete('/process-lob/:id', ...auth, deleteProcessLob);
 
 router.get('/batches', ...auth, listBatches);
 router.post('/batches', ...auth, validate(batchSchema), adminCreateBatch);

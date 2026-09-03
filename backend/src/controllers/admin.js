@@ -1,5 +1,5 @@
 import { prisma } from '../utils/db.js';
-import { hashPassword, generateSalt, generateId, hashCredential } from '../utils/hash.js';
+import { hashPassword, generateSalt, generateId, hashCredential, firstTimePassword } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
@@ -968,15 +968,27 @@ export async function resetTraineePassword(req, res) {
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
     const userAccount = await prisma.userMaster.findUnique({ where: { employeeId } });
-    if (!userAccount) return res.status(404).json({ ok: false, message: 'Trainee has no login account.' });
-    const tempPass = newPassword || (trainee.mobile ? trainee.mobile.slice(-4) : '1234');
+    const tempPass = newPassword || firstTimePassword(trainee.mobile);
 
     const salt = generateSalt();
     const passwordHash = await hashPassword(tempPass, salt);
-    await prisma.userMaster.update({
-      where: { employeeId },
-      data: { passwordHash, salt, forcePasswordReset: true, failedAttempts: 0, locked: false },
-    });
+    // Some trainees (notably the HRMS-sourced rows) have a trainee record but no
+    // login row at all, which made them unresettable as well as unable to log in.
+    if (userAccount) {
+      await prisma.userMaster.update({
+        where: { employeeId },
+        data: { passwordHash, salt, forcePasswordReset: true, failedAttempts: 0, locked: false, active: true },
+      });
+    } else {
+      await prisma.userMaster.create({
+        data: {
+          employeeId, passwordHash, salt, traineeName: trainee.traineeName,
+          email: trainee.email, mobile: trainee.mobile, branch: trainee.branch,
+          process: trainee.process, lob: trainee.lob, batchNo: trainee.batchNo,
+          classroomId: trainee.classroomId, active: true, forcePasswordReset: true,
+        },
+      });
+    }
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_PASSWORD', module: 'Accounts', referenceId: employeeId });
 

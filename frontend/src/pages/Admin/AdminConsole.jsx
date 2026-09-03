@@ -38,7 +38,9 @@ import IJPManageTab from '../Coordinator/IJPManageTab.jsx';
 import VoiceAccentTab from '../Coordinator/VoiceAccentTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
-const SUPER_ONLY = new Set(['branches', 'processlob', 'certrules', 'org', 'comm-config', 'notif-config', 'system-health', 'runtime-operations']);
+// Config pages any admin may open and save. Branch/Process-LOB/Cert-Rules were
+// previously hidden from branch-scoped admins; the backend now allows plain admin auth.
+const SUPER_ONLY = new Set(['org', 'comm-config', 'notif-config', 'system-health', 'runtime-operations']);
 
 const NAV = [
   { section: 'Overview', items: [{ id: 'dashboard', label: 'Dashboard', icon: '📊' }] },
@@ -99,7 +101,9 @@ export default function AdminConsole({ user, onLogout }) {
   const [showPwModal, setShowPwModal] = useState(false);
   const [pwForm, setPwForm] = useState({ current: '', password: '', confirm: '' });
   const [pwMsg, setPwMsg] = useState('');
-  const isSuper = !user?.branch;
+  // Mirror the backend's requireSuperAdmin: role must be Super Admin AND no branch.
+  // Deciding on branch alone showed super-only pages to plain admins, who then hit a 403 on save.
+  const isSuper = !user?.branch && ['Super Admin', 'SuperAdmin'].includes(user?.role || '');
 
   async function handleChangePassword(event) {
     event.preventDefault();

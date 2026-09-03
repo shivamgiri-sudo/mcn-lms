@@ -142,11 +142,15 @@ test('critical admin mutations require recent elevation', () => {
   assert.match(adminRoutes, /superElevatedAuth/);
   for (const pattern of [
     /router\.post\('\/portal-users', \.\.\.superElevatedAuth/,
-    /router\.post\('\/process-lob', \.\.\.superElevatedAuth/,
     /router\.post\('\/notif-config', \.\.\.superElevatedAuth/,
     /router\.post\('\/comm-config', \.\.\.superElevatedAuth/,
     /router\.put\('\/hrms\/config', \.\.\.superElevatedAuth/,
   ]) assert.match(adminRoutes, pattern);
+  // Deliberately NOT elevation-gated: certification rules and process/LOB masters are
+  // day-to-day config that branch admins own. Gating them behind Super Admin + password
+  // re-entry hid the pages from the people who maintain them.
+  assert.match(adminRoutes, /router\.post\('\/cert-rules', \.\.\.auth,/);
+  assert.match(adminRoutes, /router\.post\('\/process-lob', \.\.\.auth,/);
 });
 
 test('server mounts secure auth first and accepts cookie security headers', () => {

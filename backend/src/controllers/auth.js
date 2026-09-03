@@ -254,7 +254,7 @@ export async function getMyProfile(req, res) {
     if (req.userType === 'admin') {
       const user = await prisma.adminUserMaster.findFirst({
         where: { adminId: req.userId },
-        select: { adminId: true, adminName: true, role: true, lastLogin: true },
+        select: { adminId: true, adminName: true, role: true, branch: true, lastLogin: true },
       });
       return res.json({ ok: true, user });
     }
