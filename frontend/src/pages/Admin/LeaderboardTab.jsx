@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const PAGE_SIZE = 25;
 
@@ -53,15 +54,15 @@ export default function LeaderboardTab() {
         </div>
         <div className="field">
           <label>Branch</label>
-          <input className="input" value={filters.branch} onChange={e => updateFilter('branch', e.target.value)} placeholder="Branch" />
+          <BranchSelect value={filters.branch} onChange={next => updateFilter('branch', next)} placeholder="All branches" />
         </div>
         <div className="field">
           <label>Process</label>
-          <input className="input" value={filters.process} onChange={e => updateFilter('process', e.target.value)} placeholder="Process" />
+          <ProcessSelect value={filters.process} onChange={next => updateFilter('process', next)} placeholder="All processes" />
         </div>
         <div className="field">
           <label>LOB</label>
-          <input className="input" value={filters.lob} onChange={e => updateFilter('lob', e.target.value)} placeholder="LOB" />
+          <LobSelect process={filters.process} value={filters.lob} onChange={next => updateFilter('lob', next)} placeholder="All LOBs" />
         </div>
         <button className="btn small" type="submit">Apply</button>
         <button className="btn small secondary" type="button" onClick={resetFilters}>Clear</button>

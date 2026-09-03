@@ -45,6 +45,16 @@ export async function ensureContentRepositoryTable() {
   `);
 }
 
+// The table predates the branch column, so CREATE TABLE IF NOT EXISTS alone would
+// leave existing installations without it. Add it in place when it is missing.
+async function ensureBranchColumn() {
+  const [row] = await prisma.$queryRawUnsafe(
+    'SELECT COUNT(*) AS present FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ? AND column_name = ?',
+    'independent_module_master', 'branch');
+  if (Number(row?.present ?? row?.PRESENT ?? 0) > 0) return;
+  await prisma.$executeRawUnsafe('ALTER TABLE independent_module_master ADD COLUMN branch VARCHAR(255) NULL AFTER lob');
+}
+
 export async function ensureIndependentModuleTables() {
   await ensureContentRepositoryTable();
   await prisma.$executeRawUnsafe(`
@@ -55,6 +65,7 @@ export async function ensureIndependentModuleTables() {
       category VARCHAR(255) NULL,
       process VARCHAR(255) NULL,
       lob VARCHAR(255) NULL,
+      branch VARCHAR(255) NULL,
       description TEXT NULL,
       estimated_mins INT NOT NULL DEFAULT 0,
       status VARCHAR(100) NOT NULL DEFAULT 'Active',
@@ -100,6 +111,7 @@ export async function ensureIndependentModuleTables() {
       INDEX idx_auto_rule_module (module_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
+  await ensureBranchColumn();
 }
 
 export async function getIndependentModuleById(moduleId) {

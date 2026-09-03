@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { api, downloadCsv } from '../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile\nEMP1001,John Doe,john@example.com,9876543210\n';
 
@@ -560,15 +561,15 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
               </div>
               <div className="field">
                 <label>Branch</label>
-                <input className="input" value={editDraft.branch} onChange={e => setEditDraft(d => ({ ...d, branch: e.target.value }))} />
+                <BranchSelect value={editDraft.branch} onChange={next => setEditDraft(d => ({ ...d, branch: next }))} />
               </div>
               <div className="field">
                 <label>Process</label>
-                <input className="input" value={editDraft.process} onChange={e => setEditDraft(d => ({ ...d, process: e.target.value }))} />
+                <ProcessSelect value={editDraft.process} onChange={next => setEditDraft(d => ({ ...d, process: next }))} />
               </div>
               <div className="field">
                 <label>LOB</label>
-                <input className="input" value={editDraft.lob} onChange={e => setEditDraft(d => ({ ...d, lob: e.target.value }))} />
+                <LobSelect process={editDraft.process} value={editDraft.lob} onChange={next => setEditDraft(d => ({ ...d, lob: next }))} />
               </div>
 
               {/* Coordinator */}

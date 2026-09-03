@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { api, uploadFile } from '../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const STEPS = ['Basic Info', 'Content', 'MCQs', 'SOPs & FAQs', 'Review & Submit'];
 
@@ -426,18 +427,18 @@ export default function ClassroomWizard({ onClose, onCreated }) {
               <div className="col-2">
                 <div className="field">
                   <label>Process</label>
-                  <input className="input" list="proc-list" placeholder="Type or select" value={info.process} onChange={e => setInfo(p => ({ ...p, process: e.target.value }))} />
+                  <ProcessSelect value={info.process} onChange={next => setInfo(p => ({ ...p, process: next }))} />
                   <datalist id="proc-list">{processOptions.map(o => <option key={o} value={o} />)}</datalist>
                 </div>
                 <div className="field">
                   <label>Line of Business (LOB)</label>
-                  <input className="input" list="lob-list" placeholder="Type or select" value={info.lob} onChange={e => setInfo(p => ({ ...p, lob: e.target.value }))} />
+                  <LobSelect process={info.process} value={info.lob} onChange={next => setInfo(p => ({ ...p, lob: next }))} />
                   <datalist id="lob-list">{lobOptions.map(o => <option key={o} value={o} />)}</datalist>
                 </div>
               </div>
               <div className="field">
                 <label>Branch</label>
-                <input className="input" list="branch-list" placeholder="Type or select" value={info.branch} onChange={e => setInfo(p => ({ ...p, branch: e.target.value }))} />
+                <BranchSelect value={info.branch} onChange={next => setInfo(p => ({ ...p, branch: next }))} />
                 <datalist id="branch-list">{branchOptions.map(o => <option key={o} value={o} />)}</datalist>
               </div>
               <div className="field">

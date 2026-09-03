@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
-const emptyModule = { moduleName: '', category: '', process: '', lob: '', description: '', estimatedMins: 0 };
+const emptyModule = { moduleName: '', category: '', process: '', lob: '', branch: '', description: '', estimatedMins: 0 };
 const emptyRule = { moduleId: '', ruleName: '', scopeType: 'All', scopeValue: '', assignmentType: 'Mandatory', message: '', dueDays: 0 };
 
 export default function IndependentModulesTab() {
@@ -121,8 +122,9 @@ export default function IndependentModulesTab() {
             <div className="field"><label>Est. Mins</label><input className="input" type="number" value={moduleForm.estimatedMins} onChange={e => setModuleForm(p => ({ ...p, estimatedMins: e.target.value }))} /></div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <input className="input" placeholder="Process" value={moduleForm.process} onChange={e => setModuleForm(p => ({ ...p, process: e.target.value }))} />
-            <input className="input" placeholder="LOB" value={moduleForm.lob} onChange={e => setModuleForm(p => ({ ...p, lob: e.target.value }))} />
+            <ProcessSelect value={moduleForm.process} onChange={next => setModuleForm(p => ({ ...p, process: next }))} />
+            <LobSelect process={moduleForm.process} value={moduleForm.lob} onChange={next => setModuleForm(p => ({ ...p, lob: next }))} />
+            <BranchSelect value={moduleForm.branch} onChange={next => setModuleForm(p => ({ ...p, branch: next }))} placeholder="All branches" />
           </div>
           <textarea className="input" rows="2" placeholder="Description" value={moduleForm.description} onChange={e => setModuleForm(p => ({ ...p, description: e.target.value }))} />
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn accent" disabled={saving}>{saving ? 'Creating\u2026' : 'Create Module'}</button></div>
@@ -140,12 +142,12 @@ export default function IndependentModulesTab() {
                   <tr key={m.module_id}>
                     <td><span className="clickable" onClick={() => toggleExpand(m.module_id)} style={{ cursor: 'pointer' }}>{expanded[m.module_id] ? '\u25BC' : '\u25B6'}</span></td>
                     <td><b>{m.module_name}</b><br /><span style={{ color: 'var(--muted)', fontSize: 12 }}>{m.description || m.category || '\u2014'}</span></td>
-                    <td>{m.process || '\u2014'} / {m.lob || '\u2014'}</td>
+                    <td>{m.process || '\u2014'} / {m.lob || '\u2014'}{m.branch ? ` \u00b7 ${m.branch}` : ''}</td>
                     <td>{(m.contents || []).length} item(s) &middot; {m.estimated_mins || 0} min</td>
                     <td style={{ display: 'flex', gap: 4 }}>
                       <button className="btn small" onClick={() => openAssignContent(m.module_id)}>+ Content</button>
                       <button className="btn small" onClick={() => setEditModule({
-                        moduleId: m.module_id, moduleName: m.module_name || '', category: m.category || '', process: m.process || '', lob: m.lob || '', description: m.description || '', estimatedMins: m.estimated_mins || 0,
+                        moduleId: m.module_id, moduleName: m.module_name || '', category: m.category || '', process: m.process || '', lob: m.lob || '', branch: m.branch || '', description: m.description || '', estimatedMins: m.estimated_mins || 0,
                       })}>Edit</button>
                       <button className="btn small danger" onClick={() => archiveModule(m.module_id)}>Delete</button>
                     </td>
@@ -235,8 +237,9 @@ export default function IndependentModulesTab() {
                 <div className="field"><label>Est. Mins</label><input className="input" type="number" value={editModule.estimatedMins} onChange={e => setEditModule(p => ({ ...p, estimatedMins: e.target.value }))} /></div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                <input className="input" placeholder="Process" value={editModule.process} onChange={e => setEditModule(p => ({ ...p, process: e.target.value }))} />
-                <input className="input" placeholder="LOB" value={editModule.lob} onChange={e => setEditModule(p => ({ ...p, lob: e.target.value }))} />
+                <ProcessSelect value={editModule.process} onChange={next => setEditModule(p => ({ ...p, process: next }))} />
+                <LobSelect process={editModule.process} value={editModule.lob} onChange={next => setEditModule(p => ({ ...p, lob: next }))} />
+                <BranchSelect value={editModule.branch} onChange={next => setEditModule(p => ({ ...p, branch: next }))} placeholder="All branches" />
               </div>
               <textarea className="input" rows="2" placeholder="Description" value={editModule.description} onChange={e => setEditModule(p => ({ ...p, description: e.target.value }))} />
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>

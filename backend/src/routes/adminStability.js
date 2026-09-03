@@ -3,6 +3,7 @@ import path from 'path';
 import { prisma } from '../utils/db.js';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { audit } from '../utils/audit.js';
+import { getFormOptions } from '../services/formOptions.js';
 import { generateId, generateSalt, hashPassword } from '../utils/hash.js';
 import { contentUpload } from '../utils/upload.js';
 import {
@@ -327,8 +328,8 @@ router.post('/independent-modules', ...auth, async (req, res) => {
 
     await prisma.$transaction(async tx => {
       await tx.$executeRawUnsafe(
-        `INSERT INTO independent_module_master (id, module_id, module_name, category, process, lob, description, estimated_mins, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        generateId('im-'), moduleId, moduleName, clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), 'Active', req.userId
+        `INSERT INTO independent_module_master (id, module_id, module_name, category, process, lob, branch, description, estimated_mins, status, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        generateId('im-'), moduleId, moduleName, clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.branch), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), 'Active', req.userId
       );
       for (let i = 0; i < contents.length; i += 1) {
         const c = contents[i];
@@ -463,13 +464,28 @@ router.put('/independent-modules/:moduleId', ...auth, async (req, res) => {
     const moduleId = clean(req.params.moduleId);
     const existing = await prisma.$queryRawUnsafe('SELECT * FROM independent_module_master WHERE module_id = ? AND status = ?', moduleId, 'Active');
     if (!existing?.[0]) return res.status(404).json({ ok: false, message: 'Independent module not found.' });
+    // Attaching content posts only { contents }. The old version still wrote every
+    // other column from an absent body, blanking category / process / LOB / duration
+    // on the module every time someone reordered its content. Only update what was sent.
+    const columns = [];
+    const values = [];
+    const setIfPresent = (field, column, transform = clean) => {
+      if (req.body?.[field] === undefined) return;
+      columns.push(`${column} = ?`);
+      values.push(transform(req.body[field]));
+    };
     const moduleName = clean(req.body?.moduleName);
-    if (moduleName) {
-      await prisma.$executeRawUnsafe('UPDATE independent_module_master SET module_name = ?, category = ?, process = ?, lob = ?, description = ?, estimated_mins = ? WHERE module_id = ?',
-        moduleName, clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), moduleId);
-    } else {
-      await prisma.$executeRawUnsafe('UPDATE independent_module_master SET category = ?, process = ?, lob = ?, description = ?, estimated_mins = ? WHERE module_id = ?',
-        clean(req.body?.category), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.description), toInt(req.body?.estimatedMins, 0), moduleId);
+    if (moduleName) { columns.push('module_name = ?'); values.push(moduleName); }
+    setIfPresent('category', 'category');
+    setIfPresent('process', 'process');
+    setIfPresent('lob', 'lob');
+    setIfPresent('branch', 'branch');
+    setIfPresent('description', 'description');
+    setIfPresent('estimatedMins', 'estimated_mins', raw => toInt(raw, 0));
+    if (columns.length) {
+      await prisma.$executeRawUnsafe(
+        `UPDATE independent_module_master SET ${columns.join(', ')} WHERE module_id = ?`,
+        ...values, moduleId);
     }
     const contents = Array.isArray(req.body?.contents) ? req.body.contents : null;
     if (contents) {
@@ -521,6 +537,17 @@ router.delete('/independent-modules/:moduleId/contents/:repositoryContentId', ..
   } catch (err) {
     console.error('[adminStability] independent module remove content failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to remove content from module.' });
+  }
+});
+
+
+// Forms across both portals pick branch / process / LOB from this one list.
+router.get('/form-options', ...auth, async (_req, res) => {
+  try {
+    return res.json({ ok: true, data: await getFormOptions() });
+  } catch (error) {
+    console.error('[adminStability] form options failed:', error);
+    return res.status(500).json({ ok: false, message: 'Unable to load form options.' });
   }
 });
 

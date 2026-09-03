@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, uploadFile } from '../../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../../components/OrgSelect.jsx';
 
 function parseCsvRows(rawCsv) {
   const rows = [];
@@ -302,10 +303,10 @@ export default function EditClassroomModal({ classroom, onClose, onSaved }) {
               <form onSubmit={saveDetails}>
                 <div className="field"><label>Classroom Name</label><input className="input" value={detailsForm.classroomName} onChange={e => setDetailsForm(p => ({ ...p, classroomName: e.target.value }))} required /></div>
                 <div className="col-2">
-                  <div className="field"><label>Process</label><input className="input" value={detailsForm.process} onChange={e => setDetailsForm(p => ({ ...p, process: e.target.value }))} /></div>
-                  <div className="field"><label>LOB</label><input className="input" value={detailsForm.lob} onChange={e => setDetailsForm(p => ({ ...p, lob: e.target.value }))} /></div>
+                  <div className="field"><label>Process</label><ProcessSelect value={detailsForm.process} onChange={next => setDetailsForm(p => ({ ...p, process: next }))} /></div>
+                  <div className="field"><label>LOB</label><LobSelect process={detailsForm.process} value={detailsForm.lob} onChange={next => setDetailsForm(p => ({ ...p, lob: next }))} /></div>
                 </div>
-                <div className="field"><label>Branch</label><input className="input" placeholder="e.g. Bangalore, Mumbai" value={detailsForm.branch} onChange={e => setDetailsForm(p => ({ ...p, branch: e.target.value }))} /></div>
+                <div className="field"><label>Branch</label><BranchSelect value={detailsForm.branch} onChange={next => setDetailsForm(p => ({ ...p, branch: next }))} /></div>
                 <div className="field"><label>Description</label><textarea className="input" rows={3} value={detailsForm.description} onChange={e => setDetailsForm(p => ({ ...p, description: e.target.value }))} /></div>
                 <button className="btn" type="submit" disabled={loading}>{loading ? 'Saving...' : 'Save Changes'}</button>
               </form>

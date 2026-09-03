@@ -229,6 +229,13 @@ export async function fetchAuthenticatedBlobUrl(url, type = 'trainee') {
   }
 }
 
+function uploadFailureMessage(status) {
+  if (status === 413) return 'That file is too large to upload. Ask an administrator to raise the upload size limit, or upload a smaller file.';
+  if (status === 504 || status === 502) return 'The upload timed out before it finished. Try a smaller file or a stronger connection.';
+  if (status === 401 || status === 403) return 'Your session expired during the upload. Sign in again and retry.';
+  return `The server rejected this upload (HTTP ${status}).`;
+}
+
 export async function uploadFile(url, formData, type = 'admin') {
   try {
     const res = await fetch(resolveRequestUrl(url), {
@@ -238,7 +245,10 @@ export async function uploadFile(url, formData, type = 'admin') {
       credentials: 'include',
       cache: 'no-store',
     });
-    const data = await res.json().catch(() => ({ ok: false, message: 'Invalid server response' }));
+    // A rejected upload is answered by the reverse proxy, not the API, so the body is
+    // HTML and res.json() throws. Reporting that as 'Invalid server response' hid a
+    // plain file-too-large error for months - name the real cause instead.
+    const data = await res.json().catch(() => ({ ok: false, message: uploadFailureMessage(res.status) }));
     handleSessionFailure(res.status, data, type);
     return data;
   } catch (err) {

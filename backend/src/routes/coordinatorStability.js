@@ -5,6 +5,7 @@ import { requireSession, requireRole } from '../middleware/auth.js';
 import { hashPassword, generateSalt, normalize, firstTimePassword } from '../utils/hash.js';
 import { generateTempEmpId } from '../utils/empIdMapping.js';
 import { audit } from '../utils/audit.js';
+import { getFormOptions, scopeFormOptions } from '../services/formOptions.js';
 import { notifyCertification, notifyOnboarding, notifyBatchAssignment } from '../utils/notify.js';
 
 const router = Router();
@@ -548,6 +549,18 @@ router.post('/batches/:batchNo/certification/handover', ...auth, async (req, res
   } catch (error) {
     console.error('[coordinatorStability] handover failed:', error);
     return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+});
+
+
+// Same list the admin console uses, narrowed to the coordinator's own branch.
+router.get('/form-options', ...auth, async (req, res) => {
+  try {
+    const options = await getFormOptions();
+    return res.json({ ok: true, data: scopeFormOptions(options, req.userBranch) });
+  } catch (error) {
+    console.error('[coordinatorStability] form options failed:', error);
+    return res.status(500).json({ ok: false, message: 'Unable to load form options.' });
   }
 });
 

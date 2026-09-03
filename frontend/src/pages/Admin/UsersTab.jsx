@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const BULK_CSV_TEMPLATE = 'loginId,name,pin,role,branch,process,lob,designation,department,employeeCode,canCreateBatch,canOnboardTrainee,canUploadLmsReport,canOverrideAttendance,canCloseBatch,canViewManagementDashboard\nCOORD001,John Doe,1234,Coordinator,Bangalore,Collections,LOB1,Training Coordinator,Training,,true,true,false,false,false,false\n';
 
@@ -437,7 +438,7 @@ export default function UsersTab() {
                   </div>
                   <div className="field">
                     <label>Branch</label>
-                    <input className="input" placeholder="e.g. Bangalore, Mumbai" value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value }))} />
+                    <BranchSelect value={form.branch} onChange={next => setForm(p => ({ ...p, branch: next }))} />
                   </div>
                   <div className="field">
                     <label>Process</label>

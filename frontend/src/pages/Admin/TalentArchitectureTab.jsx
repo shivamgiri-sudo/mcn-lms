@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api.js';
 import './talentAdmin.css';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const EMPTY_SKILL = { skillCode: '', skillName: '', category: '', levelScale: 5, description: '' };
 const EMPTY_REQUIREMENT = { skillId: '', processName: '', lobName: '', department: '', designation: '', requiredLevel: 1, weight: 1, critical: false };
@@ -357,8 +358,8 @@ export default function TalentArchitectureTab() {
               <div className="talent-admin-panel-head"><div><h3>Set requirement</h3><p>Saving the same skill and scope updates the existing requirement.</p></div></div>
               <FormField label="Skill"><select required name="skillId" value={requirementForm.skillId} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }}><option value="">Select skill</option>{activeSkills.map(skill => <option key={skill.skillId} value={skill.skillId}>{skill.skillName}</option>)}</select></FormField>
               <div className="talent-admin-form-grid">
-                <FormField label="Process"><input name="processName" value={requirementForm.processName} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
-                <FormField label="LOB"><input name="lobName" value={requirementForm.lobName} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
+                <FormField label="Process"><ProcessSelect value={requirementForm.processName} onChange={next => setRequirementForm(form => ({ ...form, processName: next }))} /></FormField>
+                <FormField label="LOB"><LobSelect process={requirementForm.processName} value={requirementForm.lobName} onChange={next => setRequirementForm(form => ({ ...form, lobName: next }))} /></FormField>
                 <FormField label="Department"><input name="department" value={requirementForm.department} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
                 <FormField label="Designation"><input name="designation" value={requirementForm.designation} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
               </div>
@@ -376,9 +377,9 @@ export default function TalentArchitectureTab() {
       {view === 'skill-matrix' && (
         <div className="talent-matrix-shell">
           <form className="talent-matrix-filters" onSubmit={submitMatrixFilters}>
-            <FormField label="Branch"><input value={skillMatrixFilters.branch} onChange={event => updateMatrixFilter('branch', event.target.value)} placeholder="All branches" /></FormField>
-            <FormField label="Process"><input value={skillMatrixFilters.process} onChange={event => updateMatrixFilter('process', event.target.value)} placeholder="All processes" /></FormField>
-            <FormField label="LOB"><input value={skillMatrixFilters.lob} onChange={event => updateMatrixFilter('lob', event.target.value)} placeholder="All LOBs" /></FormField>
+            <FormField label="Branch"><BranchSelect value={skillMatrixFilters.branch} onChange={next => updateMatrixFilter('branch', next)} placeholder="All branches" /></FormField>
+            <FormField label="Process"><ProcessSelect value={skillMatrixFilters.process} onChange={next => updateMatrixFilter('process', next)} placeholder="All processes" /></FormField>
+            <FormField label="LOB"><LobSelect process={skillMatrixFilters.process} value={skillMatrixFilters.lob} onChange={next => updateMatrixFilter('lob', next)} placeholder="All LOBs" /></FormField>
             <FormField label="Batch"><input value={skillMatrixFilters.batchNo} onChange={event => updateMatrixFilter('batchNo', event.target.value)} placeholder="All batches" /></FormField>
             <FormField label="Designation"><input value={skillMatrixFilters.designation} onChange={event => updateMatrixFilter('designation', event.target.value)} placeholder="All designations" /></FormField>
             <FormField label="Skill category"><input value={skillMatrixFilters.category} onChange={event => updateMatrixFilter('category', event.target.value)} placeholder="All categories" /></FormField>
@@ -470,7 +471,7 @@ export default function TalentArchitectureTab() {
                 <h4>Create draft</h4>
                 <FormField label="Path name"><input required name="pathName" value={pathForm.pathName} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /></FormField>
                 <div className="talent-admin-form-grid"><FormField label="Path code"><input name="pathCode" value={pathForm.pathCode} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /></FormField><FormField label="Version"><input type="number" min="1" name="versionNo" value={pathForm.versionNo} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /></FormField></div>
-                <div className="talent-admin-form-grid"><FormField label="Process"><input name="audienceProcess" value={pathForm.audienceProcess} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /></FormField><FormField label="LOB"><input name="audienceLob" value={pathForm.audienceLob} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /></FormField></div>
+                <div className="talent-admin-form-grid"><FormField label="Process"><ProcessSelect value={pathForm.audienceProcess} onChange={next => setPathForm(form => ({ ...form, audienceProcess: next }))} /></FormField><FormField label="LOB"><LobSelect process={pathForm.audienceProcess} value={pathForm.audienceLob} onChange={next => setPathForm(form => ({ ...form, audienceLob: next }))} /></FormField></div>
                 <FormField label="Description"><textarea name="description" rows="3" value={pathForm.description} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /></FormField>
                 <label className="talent-admin-check"><input type="checkbox" name="mandatory" checked={pathForm.mandatory} onChange={event => { const [key, next] = value(event); setPathForm(form => ({ ...form, [key]: next })); }} /><span>Mandatory development path</span></label>
                 <button className="btn" disabled={saving === 'path'}>{saving === 'path' ? 'Creating…' : 'Create draft path'}</button>

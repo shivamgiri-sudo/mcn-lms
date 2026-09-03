@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const STEPS = ['Basic Info', 'Assign Coordinator', 'Assign Classroom', 'Add Trainees', 'Review & Submit'];
 
@@ -193,7 +194,7 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
                     {['NHT', 'Refresher', 'Process Update', 'Other'].map(t => <option key={t}>{t}</option>)}
                   </select>
                 </div>
-                <div className="field"><label>Branch</label><input className="input" placeholder="Branch name" value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value }))} /></div>
+                <div className="field"><label>Branch</label><BranchSelect value={form.branch} onChange={next => setForm(p => ({ ...p, branch: next }))} /></div>
                 <div className="field"><label>Start Date</label><input className="input" type="date" value={form.startDate} onChange={e => setForm(p => ({ ...p, startDate: e.target.value }))} /></div>
                 <div className="field"><label>End Date (planned)</label><input className="input" type="date" value={form.endDate} onChange={e => setForm(p => ({ ...p, endDate: e.target.value }))} /></div>
                 <div className="field"><label>Expected Trainees</label><input className="input" type="number" min="1" value={form.expectedTrainees} onChange={e => setForm(p => ({ ...p, expectedTrainees: e.target.value }))} /></div>

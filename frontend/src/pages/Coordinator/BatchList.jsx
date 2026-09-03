@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
 import { formatDate } from '../../utils/format.js';
+import { BranchSelect } from '../../components/OrgSelect.jsx';
 
 export default function BatchList({ onSelectBatch, user }) {
   const [batches, setBatches] = useState([]);
@@ -110,7 +111,7 @@ export default function BatchList({ onSelectBatch, user }) {
                   </div>
                   <div className="field">
                     <label>Branch</label>
-                    <input className="input" placeholder={user?.branch} value={form.branch} onChange={e => setForm(p => ({ ...p, branch: e.target.value }))} />
+                    <BranchSelect portal="coordinator" value={form.branch} onChange={next => setForm(p => ({ ...p, branch: next }))} placeholder={user?.branch || 'Select branch'} />
                   </div>
                   <div className="field">
                     <label>Start Date</label>

@@ -45,6 +45,18 @@ import iltRoutes from './routes/ilt.js';
 import mentorPairingRoutes from './routes/mentorPairing.js';
 import ijpRoutes from './routes/ijp.js';
 import voiceAccentRoutes from './routes/voiceAccent.js';
+import calibrationCatalogRoutes from './routes/calibrationCatalog.js';
+import calibrationOperationsRoutes from './routes/calibrationOperations.js';
+import calibrationAppealsRoutes from './routes/calibrationAppeals.js';
+import calibrationRoutes from './routes/calibration.js';
+import practicalCatalogRoutes from './routes/practicalCatalog.js';
+import practicalRoutes from './routes/practical.js';
+import notificationRoutes from './routes/notifications.js';
+import runtimeGovernanceRoutes from './routes/runtimeGovernance.js';
+import calendarRoutes from './routes/calendar.js';
+import mobileLearningRoutes from './routes/mobileLearning.js';
+import assessmentIntelligenceRoutes from './routes/assessmentIntelligence.js';
+import assessmentIntelligenceCoordinatorRoutes from './routes/assessmentIntelligenceCoordinator.js';
 
 validateSessionSecurityConfig(process.env);
 
@@ -193,6 +205,22 @@ app.use('/api/ilt', iltRoutes);
 app.use('/api/mentor-pairing', mentorPairingRoutes);
 app.use('/api/ijp', ijpRoutes);
 app.use('/api/voice-accent', voiceAccentRoutes);
+
+// These twelve routers existed on disk but were never mounted, so every page
+// that called them got the SPA shell instead of an API response. Their hook
+// middleware (certificationHooks.js) was already live and waiting for them.
+app.use('/api/calibration', calibrationCatalogRoutes);
+app.use('/api/calibration', calibrationOperationsRoutes);
+app.use('/api/calibration', calibrationAppealsRoutes);
+app.use('/api/calibration', calibrationRoutes);
+app.use('/api/practical', practicalCatalogRoutes);
+app.use('/api/practical', practicalRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api', runtimeGovernanceRoutes);
+app.use('/api/calendar', calendarRoutes);
+app.use('/api/mobile-learning', mobileLearningRoutes);
+app.use('/api/assessment-intelligence/coordinator', assessmentIntelligenceCoordinatorRoutes);
+app.use('/api/assessment-intelligence', assessmentIntelligenceRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));

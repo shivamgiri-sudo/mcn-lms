@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api, downloadCsv } from '../../utils/api.js';
 import { formatDate, pct, riskColor } from '../../utils/format.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const blankUser = { traineeName: '', employeeId: '', lmsId: '', email: '', mobile: '', branch: '', process: '', lob: '', tempPassword: '' };
 
@@ -79,12 +80,12 @@ export default function AccountsTab() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             <div className="field"><label>Email</label><input className="input" type="email" value={newUser.email} onChange={e => setUserField('email', e.target.value)} /></div>
             <div className="field"><label>Mobile</label><input className="input" value={newUser.mobile} onChange={e => setUserField('mobile', e.target.value)} placeholder="Used for temp password" /></div>
-            <div className="field"><label>Branch</label><input className="input" value={newUser.branch} onChange={e => setUserField('branch', e.target.value)} /></div>
+            <div className="field"><label>Branch</label><BranchSelect value={newUser.branch} onChange={next => setUserField('branch', next)} /></div>
             <div className="field"><label>Temp Password optional</label><input className="input" value={newUser.tempPassword} onChange={e => setUserField('tempPassword', e.target.value)} placeholder="Default mobile last 4" /></div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div className="field"><label>Process</label><input className="input" value={newUser.process} onChange={e => setUserField('process', e.target.value)} /></div>
-            <div className="field"><label>LOB</label><input className="input" value={newUser.lob} onChange={e => setUserField('lob', e.target.value)} /></div>
+            <div className="field"><label>Process</label><ProcessSelect value={newUser.process} onChange={next => setUserField('process', next)} /></div>
+            <div className="field"><label>LOB</label><LobSelect process={newUser.process} value={newUser.lob} onChange={next => setUserField('lob', next)} /></div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button className="btn accent" disabled={creating}>{creating ? 'Creating…' : 'Create LMS User'}</button></div>
         </form>
