@@ -219,6 +219,79 @@ router.get('/content-repository', ...auth, async (req, res) => {
       params.push(like(q), like(q), like(q), like(q), like(q));
     }
     sql += ' ORDER BY updated_at DESC LIMIT 200';
+    const rows = await prisma.$queryRawUnsafe(sql, ...params);
+    return res.json({ ok: true, data: rows });
+  } catch (err) {
+    console.error('[adminStability] content repository list failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to load content repository.' });
+  }
+});
+
+router.post('/content-repository', ...auth, async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    const title = clean(req.body?.title);
+    if (!title) return res.status(400).json({ ok: false, message: 'Content title is required.' });
+    const repoId = `REP-${generateId()}`;
+    const id = generateId('repo-');
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO content_repository_master (id, repository_content_id, title, content_type, category, sub_category, process, lob, tags, source_type, direct_media_url, local_file_path, drive_file_id, drive_url, player_mode, estimated_mins, completion_rule_pct, description, version_no, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, repoId, title, clean(req.body?.contentType) || 'document', clean(req.body?.category), clean(req.body?.subCategory), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.tags), clean(req.body?.sourceType) || 'local', clean(req.body?.directMediaUrl), clean(req.body?.localFilePath), clean(req.body?.driveFileId), clean(req.body?.driveUrl), clean(req.body?.playerMode) || 'Auto', toInt(req.body?.estimatedMins, 0), toFloat(req.body?.completionRulePct, 80), clean(req.body?.description), toInt(req.body?.versionNo, 1), 'Active', req.userId
+    );
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repoId, newValue: { title } });
+    return res.json({ ok: true, data: { repositoryContentId: repoId }, message: 'Repository content saved.' });
+  } catch (err) {
+    console.error('[adminStability] content repository create failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to save repository content.' });
+  }
+});
+
+router.post('/content-repository/upload', ...auth, contentUpload.single('file'), async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    if (!req.file) return res.status(400).json({ ok: false, message: 'File is required.' });
+    const title = clean(req.body?.title) || req.file.originalname;
+    const repoId = `REP-${generateId()}`;
+    const id = generateId('repo-');
+    const publicUrl = repoPathFromFile(req.file);
+
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO content_repository_master (id, repository_content_id, title, content_type, category, sub_category, process, lob, tags, source_type, direct_media_url, local_file_path, player_mode, estimated_mins, completion_rule_pct, description, version_no, status, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, repoId, title, clean(req.body?.contentType) || guessContentType(req.file), clean(req.body?.category), clean(req.body?.subCategory), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.tags), 'local', publicUrl, req.file.path, clean(req.body?.playerMode) || 'Auto', toInt(req.body?.estimatedMins, 0), toFloat(req.body?.completionRulePct, 80), clean(req.body?.description), toInt(req.body?.versionNo, 1), 'Active', req.userId
+    );
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPLOAD_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repoId, newValue: { title, file: req.file.originalname } });
+    return res.json({ ok: true, data: { repositoryContentId: repoId, directMediaUrl: publicUrl, localFilePath: req.file.path }, message: 'Repository file uploaded.' });
+  } catch (err) {
+    console.error('[adminStability] content repository upload failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to upload repository file.' });
+  }
+});
+
+router.delete('/content-repository/:repositoryContentId', ...auth, async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    const repositoryContentId = clean(req.params.repositoryContentId);
+    await prisma.$executeRawUnsafe('UPDATE content_repository_master SET status = ? WHERE repository_content_id = ?', 'Archived', repositoryContentId);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ARCHIVE_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repositoryContentId });
+    return res.json({ ok: true, message: 'Repository content archived.' });
+  } catch (err) {
+    console.error('[adminStability] content repository archive failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to archive repository content.' });
+  }
+});
+
+// Who actually read an assigned nugget, and for how long. Time is recorded against
+// the repository content id by the same heartbeat pipeline classroom content uses,
+// so 'did they spend the 2 minutes' is answerable rather than a guess.
+router.get('/independent-modules/:moduleId/reading-report', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
     // A group assignment covers people without naming them, so the roster is
     // expanded from whichever scope granted access. Filtering to 'individual' meant
     // a batch- or process-wide broadcast reported nobody at all.
