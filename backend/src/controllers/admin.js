@@ -1322,6 +1322,27 @@ async function resolveBroadcastTarget(body, createdBy) {
       );
       const repo = rows?.[0];
       if (!repo) return { error: 'Repository content item not found.' };
+
+      // If an admin already built a module around this content, broadcast THAT.
+      // It carries the reading time, category and process; the auto-wrapper carries
+      // none of them. Minting a wrapper regardless meant the configured module was
+      // never the one anybody received. Mirrors the classroom branch below, which
+      // has always resolved to the owning module.
+      const owning = await prisma.$queryRawUnsafe(
+        `SELECT m.module_id, m.module_name
+           FROM independent_module_content_map c
+           INNER JOIN independent_module_master m ON m.module_id = c.module_id
+          WHERE c.repository_content_id = ? AND c.active = 1 AND m.status = 'Active'
+            AND m.module_id NOT LIKE 'IND-CONTENT-%'
+          ORDER BY m.updated_at DESC
+          LIMIT 1`,
+        directContentId,
+      );
+      if (owning?.[0]) {
+        return { moduleId: owning[0].module_id, moduleName: owning[0].module_name, assessmentId: assessmentId || null, contentIds: null };
+      }
+
+      // Nothing owns it yet, so wrap it as before.
       const wrapperModuleId = await ensureIndependentWrapperForContent({
         repositoryContentId: directContentId, title: repo.title, createdBy,
       });
