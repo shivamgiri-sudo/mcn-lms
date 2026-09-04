@@ -219,94 +219,36 @@ router.get('/content-repository', ...auth, async (req, res) => {
       params.push(like(q), like(q), like(q), like(q), like(q));
     }
     sql += ' ORDER BY updated_at DESC LIMIT 200';
-    const rows = await prisma.$queryRawUnsafe(sql, ...params);
-    return res.json({ ok: true, data: rows });
-  } catch (err) {
-    console.error('[adminStability] content repository list failed:', err);
-    return res.status(500).json({ ok: false, message: 'Unable to load content repository.' });
-  }
-});
-
-router.post('/content-repository', ...auth, async (req, res) => {
-  try {
-    await ensureContentRepositoryTable();
-    const title = clean(req.body?.title);
-    if (!title) return res.status(400).json({ ok: false, message: 'Content title is required.' });
-    const repoId = `REP-${generateId()}`;
-    const id = generateId('repo-');
-
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO content_repository_master (id, repository_content_id, title, content_type, category, sub_category, process, lob, tags, source_type, direct_media_url, local_file_path, drive_file_id, drive_url, player_mode, estimated_mins, completion_rule_pct, description, version_no, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, repoId, title, clean(req.body?.contentType) || 'document', clean(req.body?.category), clean(req.body?.subCategory), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.tags), clean(req.body?.sourceType) || 'local', clean(req.body?.directMediaUrl), clean(req.body?.localFilePath), clean(req.body?.driveFileId), clean(req.body?.driveUrl), clean(req.body?.playerMode) || 'Auto', toInt(req.body?.estimatedMins, 0), toFloat(req.body?.completionRulePct, 80), clean(req.body?.description), toInt(req.body?.versionNo, 1), 'Active', req.userId
-    );
-
-    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repoId, newValue: { title } });
-    return res.json({ ok: true, data: { repositoryContentId: repoId }, message: 'Repository content saved.' });
-  } catch (err) {
-    console.error('[adminStability] content repository create failed:', err);
-    return res.status(500).json({ ok: false, message: 'Unable to save repository content.' });
-  }
-});
-
-router.post('/content-repository/upload', ...auth, contentUpload.single('file'), async (req, res) => {
-  try {
-    await ensureContentRepositoryTable();
-    if (!req.file) return res.status(400).json({ ok: false, message: 'File is required.' });
-    const title = clean(req.body?.title) || req.file.originalname;
-    const repoId = `REP-${generateId()}`;
-    const id = generateId('repo-');
-    const publicUrl = repoPathFromFile(req.file);
-
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO content_repository_master (id, repository_content_id, title, content_type, category, sub_category, process, lob, tags, source_type, direct_media_url, local_file_path, player_mode, estimated_mins, completion_rule_pct, description, version_no, status, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      id, repoId, title, clean(req.body?.contentType) || guessContentType(req.file), clean(req.body?.category), clean(req.body?.subCategory), clean(req.body?.process), clean(req.body?.lob), clean(req.body?.tags), 'local', publicUrl, req.file.path, clean(req.body?.playerMode) || 'Auto', toInt(req.body?.estimatedMins, 0), toFloat(req.body?.completionRulePct, 80), clean(req.body?.description), toInt(req.body?.versionNo, 1), 'Active', req.userId
-    );
-
-    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPLOAD_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repoId, newValue: { title, file: req.file.originalname } });
-    return res.json({ ok: true, data: { repositoryContentId: repoId, directMediaUrl: publicUrl, localFilePath: req.file.path }, message: 'Repository file uploaded.' });
-  } catch (err) {
-    console.error('[adminStability] content repository upload failed:', err);
-    return res.status(500).json({ ok: false, message: 'Unable to upload repository file.' });
-  }
-});
-
-router.delete('/content-repository/:repositoryContentId', ...auth, async (req, res) => {
-  try {
-    await ensureContentRepositoryTable();
-    const repositoryContentId = clean(req.params.repositoryContentId);
-    await prisma.$executeRawUnsafe('UPDATE content_repository_master SET status = ? WHERE repository_content_id = ?', 'Archived', repositoryContentId);
-    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ARCHIVE_CONTENT_REPOSITORY_ITEM', module: 'ContentRepository', referenceId: repositoryContentId });
-    return res.json({ ok: true, message: 'Repository content archived.' });
-  } catch (err) {
-    console.error('[adminStability] content repository archive failed:', err);
-    return res.status(500).json({ ok: false, message: 'Unable to archive repository content.' });
-  }
-});
-
-// Who actually read an assigned nugget, and for how long. Time is recorded against
-// the repository content id by the same heartbeat pipeline classroom content uses,
-// so 'did they spend the 2 minutes' is answerable rather than a guess.
-router.get('/independent-modules/:moduleId/reading-report', ...auth, async (req, res) => {
-  try {
-    await ensureIndependentModuleTables();
-    const moduleId = clean(req.params.moduleId);
+    // A group assignment covers people without naming them, so the roster is
+    // expanded from whichever scope granted access. Filtering to 'individual' meant
+    // a batch- or process-wide broadcast reported nobody at all.
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT a.assigned_to AS employeeId, t.trainee_name AS traineeName, t.batch_no AS batchNo,
-              t.process, t.branch, r.repository_content_id AS contentId, r.title AS contentTitle,
+      `SELECT t.employee_id AS employeeId, t.trainee_name AS traineeName, t.batch_no AS batchNo,
+              t.process, t.branch,
+              GROUP_CONCAT(DISTINCT a.assigned_to_type ORDER BY a.assigned_to_type SEPARATOR ', ') AS viaScope,
+              r.repository_content_id AS contentId, r.title AS contentTitle,
               m.estimated_mins AS estimatedMins,
-              p.total_seconds_spent AS secondsSpent, p.required_seconds AS requiredSeconds,
-              p.completion_pct AS completionPct, p.completion_status AS completionStatus,
-              p.open_count AS openCount, p.first_opened_at AS firstOpenedAt, p.last_opened_at AS lastOpenedAt
+              MAX(p.total_seconds_spent) AS secondsSpent, MAX(p.required_seconds) AS requiredSeconds,
+              MAX(p.completion_pct) AS completionPct, MAX(p.completion_status) AS completionStatus,
+              MAX(p.open_count) AS openCount, MAX(p.first_opened_at) AS firstOpenedAt,
+              MAX(p.last_opened_at) AS lastOpenedAt
          FROM assigned_modules a
          INNER JOIN independent_module_master m ON m.module_id = a.module_id
          INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
          INNER JOIN content_repository_master r ON r.repository_content_id = c.repository_content_id
-         LEFT JOIN trainee_master t ON t.employee_id = a.assigned_to
-         LEFT JOIN content_progress p ON p.employee_id = a.assigned_to AND p.content_id = r.repository_content_id
-        WHERE a.module_id = ? AND a.active = 1 AND a.assigned_to_type = 'individual'
-        ORDER BY (p.total_seconds_spent IS NULL) ASC, p.total_seconds_spent DESC, t.trainee_name ASC`,
+         INNER JOIN trainee_master t
+                 ON t.status <> 'Deleted'
+                AND ((a.assigned_to_type = 'individual' AND t.employee_id = a.assigned_to)
+                  OR (a.assigned_to_type = 'batch'      AND t.batch_no    = a.assigned_to)
+                  OR (a.assigned_to_type = 'process'    AND t.process     = a.assigned_to)
+                  OR (a.assigned_to_type = 'branch'     AND t.branch      = a.assigned_to)
+                  OR  a.assigned_to_type = 'company')
+         LEFT JOIN content_progress p
+                ON p.employee_id = t.employee_id AND p.content_id = r.repository_content_id
+        WHERE a.module_id = ? AND a.active = 1
+        GROUP BY t.employee_id, t.trainee_name, t.batch_no, t.process, t.branch,
+                 r.repository_content_id, r.title, m.estimated_mins
+        ORDER BY (MAX(p.total_seconds_spent) IS NULL) ASC, MAX(p.total_seconds_spent) DESC, t.trainee_name ASC`,
       moduleId,
     );
 

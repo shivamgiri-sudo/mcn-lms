@@ -313,13 +313,14 @@ export default function IndependentModulesTab() {
                   </div>
                   <div className="table-wrap" style={{ maxHeight: '46vh', overflow: 'auto' }}>
                     <table>
-                      <thead><tr><th>Employee</th><th>Name</th><th>Batch</th><th>Time spent</th><th>Required</th><th>Progress</th><th>Opens</th><th>Last opened</th></tr></thead>
+                      <thead><tr><th>Employee</th><th>Name</th><th>Batch</th><th>Assigned via</th><th>Time spent</th><th>Required</th><th>Progress</th><th>Opens</th><th>Last opened</th></tr></thead>
                       <tbody>
                         {report.rows.map((r, index) => (
                           <tr key={`${r.employeeId}-${r.contentId}-${index}`}>
                             <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.employeeId}</td>
                             <td>{r.traineeName || '—'}</td>
                             <td>{r.batchNo || '—'}</td>
+                            <td style={{ fontSize: 11 }}>{r.viaScope || '—'}</td>
                             <td>{r.secondsSpent > 0 ? `${Math.round(r.secondsSpent / 6) / 10} min` : '—'}</td>
                             <td>{r.requiredSeconds > 0 ? `${Math.round(r.requiredSeconds / 6) / 10} min` : (r.estimatedMins ? `${r.estimatedMins} min` : '—')}</td>
                             <td>
@@ -331,7 +332,7 @@ export default function IndependentModulesTab() {
                             <td style={{ fontSize: 12 }}>{r.lastOpenedAt ? new Date(r.lastOpenedAt).toLocaleString() : '—'}</td>
                           </tr>
                         ))}
-                        {!report.rows.length && <tr><td colSpan="8" style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>Nobody is individually assigned this module yet.</td></tr>}
+                        {!report.rows.length && <tr><td colSpan="9" style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>Nobody is assigned this module yet.</td></tr>}
                       </tbody>
                     </table>
                   </div>
