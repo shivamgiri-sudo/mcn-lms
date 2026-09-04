@@ -34,7 +34,7 @@ import {
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
   exportModuleCompletion, exportAssessmentResults, exportAttendanceLog,
-  exportCertificationEvidence, exportBroadcastAssignments, exportQAActivity,
+  exportCertificationEvidence, exportBroadcastAssignments, exportContentReading, exportQAActivity,
   listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
@@ -110,6 +110,7 @@ router.get('/reports/assessment-results', ...auth, exportAssessmentResults);
 router.get('/reports/attendance-log', ...auth, exportAttendanceLog);
 router.get('/reports/certification-evidence', ...auth, exportCertificationEvidence);
 router.get('/reports/broadcast-assignments', ...auth, exportBroadcastAssignments);
+router.get('/reports/content-reading', ...auth, exportContentReading);
 router.get('/reports/qa-activity', ...auth, exportQAActivity);
 router.post('/trainees/:employeeId/reset-password', ...auth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);

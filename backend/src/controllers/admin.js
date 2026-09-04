@@ -1,5 +1,6 @@
 import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId, hashCredential, firstTimePassword } from '../utils/hash.js';
+import { parseEvidenceType } from '../services/certificationCriteria.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
@@ -1992,6 +1993,73 @@ export async function exportAttendanceLog(req, res) {
 }
 
 // ── 7. Certification Evidence ──────────────────────────────────────────────────
+// Broadcast content is read, not attended, so its engagement never appeared in any
+// export. Time is recorded against the repository content id by the same heartbeat
+// pipeline classroom content uses, and the roster is expanded from whichever scope
+// granted access - so a process-wide broadcast reports every person it reached, once.
+export async function exportContentReading(req, res) {
+  try {
+    const moduleId = String(req.query?.moduleId || '').trim();
+    const branch = req.userBranch || null;
+    const params = [];
+    let scope = '';
+    if (moduleId) { scope += ' AND a.module_id = ?'; params.push(moduleId); }
+    if (branch) { scope += ' AND t.branch = ?'; params.push(branch); }
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT m.module_id AS moduleId, m.module_name AS moduleName, m.estimated_mins AS estimatedMins,
+              r.title AS contentTitle, r.repository_content_id AS contentId,
+              t.employee_id AS employeeId, t.trainee_name AS traineeName, t.batch_no AS batchNo,
+              t.branch, t.process,
+              GROUP_CONCAT(DISTINCT a.assigned_to_type ORDER BY a.assigned_to_type SEPARATOR ' + ') AS viaScope,
+              MAX(p.total_seconds_spent) AS secondsSpent, MAX(p.required_seconds) AS requiredSeconds,
+              MAX(p.completion_pct) AS completionPct, MAX(p.completion_status) AS completionStatus,
+              MAX(p.open_count) AS openCount, MAX(p.first_opened_at) AS firstOpenedAt,
+              MAX(p.last_opened_at) AS lastOpenedAt
+         FROM assigned_modules a
+         INNER JOIN independent_module_master m ON m.module_id = a.module_id AND m.status = 'Active'
+         INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
+         INNER JOIN content_repository_master r ON r.repository_content_id = c.repository_content_id
+         INNER JOIN trainee_master t
+                 ON t.status <> 'Deleted'
+                AND ((a.assigned_to_type = 'individual' AND t.employee_id = a.assigned_to)
+                  OR (a.assigned_to_type = 'batch'      AND t.batch_no    = a.assigned_to)
+                  OR (a.assigned_to_type = 'process'    AND t.process     = a.assigned_to)
+                  OR (a.assigned_to_type = 'branch'     AND t.branch      = a.assigned_to)
+                  OR  a.assigned_to_type = 'company')
+         LEFT JOIN content_progress p
+                ON p.employee_id = t.employee_id AND p.content_id = r.repository_content_id
+        WHERE a.active = 1${scope}
+        GROUP BY m.module_id, m.module_name, m.estimated_mins, r.title, r.repository_content_id,
+                 t.employee_id, t.trainee_name, t.batch_no, t.branch, t.process
+        ORDER BY m.module_name ASC, (MAX(p.total_seconds_spent) IS NULL) ASC,
+                 MAX(p.total_seconds_spent) DESC, t.trainee_name ASC`,
+      ...params,
+    );
+
+    const headers = [
+      'Module', 'Content', 'Expected Mins', 'Employee ID', 'Trainee Name', 'Batch', 'Branch', 'Process',
+      'Assigned Via', 'Opened', 'Opens', 'Minutes Spent', 'Minutes Required', 'Progress %', 'Status',
+      'First Opened', 'Last Opened',
+    ];
+    const mins = seconds => (Number(seconds || 0) ? Math.round(Number(seconds) / 6) / 10 : 0);
+    const csvRows = (rows || []).map(row => [
+      row.moduleName, row.contentTitle, Number(row.estimatedMins || 0),
+      row.employeeId, row.traineeName || '', row.batchNo || '', row.branch || '', row.process || '',
+      row.viaScope || '',
+      Number(row.openCount || 0) > 0 ? 'Yes' : 'No',
+      Number(row.openCount || 0),
+      mins(row.secondsSpent), mins(row.requiredSeconds),
+      Math.round(Number(row.completionPct || 0)),
+      row.completionStatus || 'Not Started',
+      fmtDt(row.firstOpenedAt), fmtDt(row.lastOpenedAt),
+    ]);
+    csvRes(res, `content-reading-${moduleId || 'all'}-${fmtDate(new Date())}.csv`, headers, csvRows);
+  } catch (err) {
+    console.error('[admin] content reading export failed:', err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
 export async function exportCertificationEvidence(req, res) {
   try {
     const { batchNo } = req.query;
@@ -1999,10 +2067,18 @@ export async function exportCertificationEvidence(req, res) {
     const traineeWhere = { ...branchFilter };
     if (batchNo) traineeWhere.batchNo = batchNo;
 
-    const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true, certificationStatus: true } });
+    const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true, lob: true, certificationStatus: true } });
     const empIds = trainees.map(t => t.employeeId);
     const traineeMap = {};
     trainees.forEach(t => { traineeMap[t.employeeId] = t; });
+
+    // Gates are configurable per process now, so a raw evidence_type like "pq#3" means
+    // nothing on its own. Joining the criterion in gives the label, the unit and the
+    // target the score was actually judged against.
+    const criteria = await prisma.certificationCriterion.findMany({ where: { active: true } });
+    const rules = await prisma.certificationRuleMaster.findMany({ select: { ruleId: true, process: true, lob: true } });
+    const ruleByProcess = new Map(rules.map(rule => [`${rule.process}||${rule.lob}`, rule.ruleId]));
+    const criterionByRuleKey = new Map(criteria.map(item => [`${item.ruleId}||${item.criterionKey}`, item]));
 
     const [evidence, batches] = await Promise.all([
       prisma.certificationEvidence.findMany({
@@ -2018,18 +2094,36 @@ export async function exportCertificationEvidence(req, res) {
       'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
       'Batch Start Date', 'Batch End Date',
       'Overall Cert Status',
-      'Evidence Type', 'Result', 'Score %',
+      'Criterion', 'Measure', 'Day', 'Result', 'Value', 'Unit', 'Target', 'Direction', 'Meets Target', 'Blocks Certification',
+      'Evidence Type Key',
       'Conducted By', 'Conducted At', 'Created By', 'Created At',
       'Remarks',
     ];
     const rows = evidence.map(e => {
       const t = traineeMap[e.employeeId] || {};
       const b = batchMap[t.batchNo] || {};
+      const parsed = parseEvidenceType(e.evidenceType) || { key: e.evidenceType, day: null };
+      const criterion = criterionByRuleKey.get(`${ruleByProcess.get(`${t.process}||${t.lob}`)}||${parsed.key}`);
+      const value = Number(e.scorePct || 0);
+      const target = criterion ? Number(criterion.targetValue || 0) : null;
+      const meets = target === null
+        ? ''
+        : ((criterion.direction === 'at_most' ? value <= target : value >= target) ? 'Yes' : 'No');
       return [
         e.employeeId, t.traineeName, t.batchNo, t.branch, t.process,
         fmtDate(b.startDate), fmtDate(b.endDate),
         t.certificationStatus,
-        e.evidenceType, e.result, e.scorePct || 0,
+        criterion?.label || parsed.key,
+        criterion?.measure || '',
+        parsed.day || '',
+        e.result,
+        value,
+        criterion?.unit || 'percent',
+        target === null ? '' : target,
+        criterion ? (criterion.direction === 'at_most' ? 'at most' : 'at least') : '',
+        meets,
+        criterion ? (criterion.blocks ? 'Yes' : 'No') : '',
+        e.evidenceType,
         e.conductedBy || '', fmtDt(e.conductedAt), e.createdBy || '', fmtDt(e.createdAt),
         e.remarks || '',
       ];
