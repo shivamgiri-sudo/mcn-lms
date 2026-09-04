@@ -38,9 +38,14 @@ export async function mergeContentWrappersIntoOwningModules({ dryRun = false } =
 
     let repointed = 0;
     let deduped = 0;
+    // Broadcasting the same content twice leaves several active rows per person, so
+    // the walk has to remember who it has already placed on the owner. Without this
+    // the dry run reports every row as a move and hides the de-duplication.
+    const placed = new Set();
     for (const assignment of assignments) {
-      // The owner may already be assigned to this person; keep one row, retire the other.
-      const existing = await prisma.assignedModule.findFirst({
+      const key = `${assignment.assignedToType}:${assignment.assignedTo}`;
+      // The owner may already be assigned to this person; keep one row, retire the rest.
+      const existing = placed.has(key) || await prisma.assignedModule.findFirst({
         where: {
           moduleId: pair.owner_id,
           assignedTo: assignment.assignedTo,
@@ -49,6 +54,7 @@ export async function mergeContentWrappersIntoOwningModules({ dryRun = false } =
         },
         select: { id: true },
       });
+      if (!existing) placed.add(key);
       if (dryRun) { existing ? deduped += 1 : repointed += 1; continue; }
       if (existing) {
         await prisma.assignedModule.update({ where: { id: assignment.id }, data: { active: false } });
