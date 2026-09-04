@@ -36,6 +36,11 @@ export default function AssignedTab({ assignments, onRefresh }) {
               <div className="row" style={{ gap: 8, flexWrap: 'wrap' }}>
                 <b>{a.moduleName}</b>
                 {a.independentModule && <span className="pill info">Independent Module</span>}
+                {a.estimatedMins > 0 && (
+                  <span className="pill" style={{ fontSize: 11 }} title="Time this is expected to take">
+                    ⏱ {a.estimatedMins} min
+                  </span>
+                )}
               </div>
               {a.message && <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{a.message}</p>}
               <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Assigned: {formatDate(a.createdAt)} {a.dueDate ? `| Due: ${formatDate(a.dueDate)}` : ''}</p>
@@ -62,7 +67,7 @@ export default function AssignedTab({ assignments, onRefresh }) {
                         <span className="content-type-badge">{content.contentType || 'content'}</span>
                         <b style={{ fontSize: 13 }}>{content.contentTitle || content.title}</b>
                         {content.required && <span className="pill warn">Required</span>}
-                        {content.estimatedMins > 0 && (
+                        {content.estimatedMins > 0 && !(a.estimatedMins > 0) && (
                           <span className="pill" style={{ fontSize: 11 }} title="Time the admin expects this to take">
                             ⏱ {content.estimatedMins} min read
                           </span>

@@ -420,11 +420,19 @@ async function enrichIndependentAssignments(assignments, employeeId) {
         byModule[row.module_id].push(mapClassroomContent(row));
       }
     }
-    const withContent = assignments.map(assignment => ({
-      ...assignment,
-      independentModule: knownIndependent.has(assignment.moduleId),
-      contents: byModule[assignment.moduleId] || [],
-    }));
+    // The reading time an admin sets lives on the module, not on the repository
+    // item, so it has to travel with the assignment or the learner never sees it.
+    const moduleMeta = new Map((moduleRows || []).map(row => [row.module_id, row]));
+    const withContent = assignments.map(assignment => {
+      const meta = moduleMeta.get(assignment.moduleId);
+      return {
+        ...assignment,
+        independentModule: knownIndependent.has(assignment.moduleId),
+        estimatedMins: Number(meta?.estimated_mins || 0),
+        category: meta?.category || null,
+        contents: byModule[assignment.moduleId] || [],
+      };
+    });
     return employeeId ? attachAssessmentsToAssignments(withContent, employeeId) : withContent;
   } catch (err) {
     console.error('[traineeStability] enrichIndependentAssignments failed:', err.message);
