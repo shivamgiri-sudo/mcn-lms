@@ -62,6 +62,11 @@ export default function AssignedTab({ assignments, onRefresh }) {
                         <span className="content-type-badge">{content.contentType || 'content'}</span>
                         <b style={{ fontSize: 13 }}>{content.contentTitle || content.title}</b>
                         {content.required && <span className="pill warn">Required</span>}
+                        {content.estimatedMins > 0 && (
+                          <span className="pill" style={{ fontSize: 11 }} title="Time the admin expects this to take">
+                            ⏱ {content.estimatedMins} min read
+                          </span>
+                        )}
                       </div>
                       {content.description && <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{content.description}</p>}
                     </div>

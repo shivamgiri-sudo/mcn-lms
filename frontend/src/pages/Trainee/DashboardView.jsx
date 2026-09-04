@@ -24,11 +24,17 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
   const overall = s.overallTrainingProgress || 0;
   const totalSecs = s.totalSecondsSpent || 0;
 
+  // Assigned and broadcast content lives on the My Learning tab, but the portal
+  // opens on My Journey — so without a count here, a learner has no way to know
+  // something new was assigned to them.
+  const assignedItems = (d.directAssignments || []).flatMap(a => (a.contents || []).map(c => ({ ...c, moduleName: a.moduleName })));
+  const assignedPending = assignedItems.filter(c => (c.progress?.completionStatus || 'Not Started') !== 'Completed');
+
   const tabs = [
     { id: 'journey', label: '🧭 My Journey' },
     { id: 'talent', label: '🎯 Skills & Paths' },
     { id: 'live-training', label: '🗓️ Live Training' },
-    { id: 'learning', label: '📚 My Learning' },
+    { id: 'learning', label: '📚 My Learning', badge: assignedPending.length },
     { id: 'qa', label: '💬 Q&A' },
     { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
@@ -134,10 +140,26 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
 
       <div className="tabs" role="tablist" aria-label="Trainee portal sections">
         {tabs.map(tab => (
-          <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={`tab-btn${activeTab === tab.id ? ' active' : ''}`} onClick={() => setActiveTab(tab.id)}>{tab.label}</button>
+          <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={`tab-btn${activeTab === tab.id ? ' active' : ''}`} onClick={() => setActiveTab(tab.id)}>{tab.label}{tab.badge > 0 && <span style={{ marginLeft: 6, background: '#ef4444', color: '#fff', borderRadius: 99, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>{tab.badge}</span>}</button>
         ))}
       </div>
 
+      {activeTab === 'journey' && assignedPending.length > 0 && (
+        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #ef4444' }}>
+          <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+            <b>📢 Assigned to you: {assignedPending.length} item{assignedPending.length === 1 ? '' : 's'} to complete</b>
+            <button className="btn small" onClick={() => setActiveTab('learning')}>Open My Learning →</button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+            {assignedPending.slice(0, 6).map((c, index) => (
+              <span key={c.repositoryContentId || c.contentId || index} className="pill info" style={{ fontSize: 11 }}>
+                {c.contentTitle || c.title}
+              </span>
+            ))}
+            {assignedPending.length > 6 && <span className="pill" style={{ fontSize: 11 }}>+{assignedPending.length - 6} more</span>}
+          </div>
+        </div>
+      )}
       {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
       {activeTab === 'talent' && <SkillsPathsTab />}
       {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
