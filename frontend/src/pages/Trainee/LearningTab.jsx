@@ -424,6 +424,11 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   // making, captured with a timestamp, IP and user agent on the server. Once set it
   // is permanent — there is no un-acknowledge.
   const [ackState, setAckState] = useState({ saving: false, at: progress?.acknowledgedAt || null, error: '' });
+  // A separate, deliberate tick before the button even accepts a click — one
+  // click alone reads as a possible misclick; a checkbox the learner actively
+  // sets, then a button that stays disabled until they do, is the consent
+  // pattern audits expect.
+  const [ackChecked, setAckChecked] = useState(false);
 
   useEffect(() => {
     setIframeLoading(true);
@@ -431,6 +436,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
     setLoadTimeout(false);
     setCompletionState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
     setAckState({ saving: false, at: progress?.acknowledgedAt || null, error: '' });
+    setAckChecked(false);
     if (media?.type === 'proxy' || media?.type === 'drive') {
       const t = setTimeout(() => setLoadTimeout(true), 15000);
       return () => clearTimeout(t);
@@ -457,7 +463,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   }
 
   async function acknowledgeContent() {
-    if (ackState.saving || ackState.at) return;
+    if (ackState.saving || ackState.at || !ackChecked) return;
     setAckState(prev => ({ ...prev, saving: true, error: '' }));
     const res = await api.post(`/trainee/content/${content.contentId}/acknowledge`, {}, 'trainee');
     if (!res.ok) {
@@ -502,8 +508,17 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
               <span>✓ You acknowledged reading this on {new Date(ackState.at).toLocaleString()}.</span>
             ) : (
               <>
-                <span>I confirm that I have read and understood this content.</span>
-                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving}>{ackState.saving ? 'Recording…' : '✓ I Acknowledge'}</button>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', flex: 1, minWidth: 220 }}>
+                  <input
+                    type="checkbox"
+                    checked={ackChecked}
+                    onChange={e => setAckChecked(e.target.checked)}
+                    disabled={ackState.saving}
+                    style={{ width: 16, height: 16, flexShrink: 0 }}
+                  />
+                  <span>I confirm that I have read and understood this content.</span>
+                </label>
+                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving || !ackChecked}>{ackState.saving ? 'Recording…' : '✓ I Acknowledge'}</button>
               </>
             )}
             {ackState.error && <span className="pill bad">{ackState.error}</span>}
