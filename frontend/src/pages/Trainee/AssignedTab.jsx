@@ -17,7 +17,7 @@ function getContentUrl(content) {
   return publicUrl(content.openUrl || content.directMediaUrl || content.driveUrl || content.localFilePath || '');
 }
 
-export default function AssignedTab({ assignments, onRefresh }) {
+export default function AssignedTab({ assignments, onRefresh, onOpenContent }) {
   const [openAssessmentId, setOpenAssessmentId] = useState(null);
 
   if (!assignments || assignments.length === 0) {
@@ -75,7 +75,23 @@ export default function AssignedTab({ assignments, onRefresh }) {
                       </div>
                       {content.description && <p style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{content.description}</p>}
                     </div>
-                    {url ? <a className="btn small secondary" href={url} target="_blank" rel="noopener">Open</a> : <span style={{ color: 'var(--muted)', fontSize: 12 }}>No link</span>}
+                    {/* Opening through the tracked viewer is what records the time
+                        spent. A raw link opened a new tab and measured nothing, so an
+                        admin could never tell whether the reading time was met. */}
+                    {onOpenContent
+                      ? (
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                          <button className="btn small secondary" onClick={() => onOpenContent(content)}>Open</button>
+                          {content.progress && (
+                            <span style={{ fontSize: 11, color: content.progress.completionStatus === 'Completed' ? 'var(--ok)' : 'var(--muted)' }}>
+                              {content.progress.completionStatus === 'Completed'
+                                ? '✓ Completed'
+                                : `${Math.round(content.progress.completionPct || 0)}% read`}
+                            </span>
+                          )}
+                        </div>
+                      )
+                      : (url ? <a className="btn small secondary" href={url} target="_blank" rel="noopener">Open</a> : <span style={{ color: 'var(--muted)', fontSize: 12 }}>No link</span>)}
                   </div>
                 );
               })}

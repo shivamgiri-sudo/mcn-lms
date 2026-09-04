@@ -91,6 +91,9 @@ function mapClassroomContent(row) {
 
 function mapRepoContent(row) {
   return {
+    // The tracked viewer and the heartbeat endpoints key on contentId, so broadcast
+    // content carries its repository id there too and needs no special casing.
+    contentId: row.repository_content_id,
     repositoryContentId: row.repository_content_id,
     title: row.title,
     contentTitle: row.title,
@@ -175,18 +178,74 @@ async function hasClassroomAccess(trainee, classroomId) {
   return Boolean(mapping);
 }
 
+// Broadcast content lives in content_repository_master and reaches a learner through
+// an independent module, so it has no content_master row and used to fall straight
+// through to "Content not found" — which is why opening a nugget recorded nothing and
+// an admin had no way to see whether the reading time was spent. Resolving it here
+// puts it on exactly the same open/heartbeat/close pipeline as classroom content.
+async function resolveRepositoryContentAccess(trainee, employeeId, repositoryContentId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT r.*, m.module_id, m.module_name, m.estimated_mins AS module_estimated_mins
+       FROM content_repository_master r
+       INNER JOIN independent_module_content_map c
+               ON c.repository_content_id = r.repository_content_id AND c.active = 1
+       INNER JOIN independent_module_master m
+               ON m.module_id = c.module_id AND m.status = 'Active'
+      WHERE r.repository_content_id = ? AND r.status = 'Active'
+      ORDER BY m.updated_at DESC
+      LIMIT 1`,
+    repositoryContentId,
+  );
+  const row = rows?.[0];
+  if (!row) return { error: { status: 404, message: 'Content not found.' } };
+
+  // Same scopes the dashboard uses to decide the learner may see the module at all.
+  const assignment = await prisma.assignedModule.findFirst({
+    where: {
+      active: true,
+      moduleId: row.module_id,
+      OR: [
+        { assignedTo: employeeId, assignedToType: 'individual' },
+        { assignedTo: trainee.batchNo || '__none__', assignedToType: 'batch' },
+        { assignedTo: trainee.process || '__none__', assignedToType: 'process' },
+        { assignedTo: trainee.branch || '__none__', assignedToType: 'branch' },
+        { assignedToType: 'company' },
+      ],
+    },
+    select: { id: true },
+  });
+  if (!assignment) return { error: { status: 403, message: 'This content is not assigned to you.' } };
+
+  // The reading time an admin set sits on the module; the repository item's own
+  // estimate is the fallback.
+  const estimatedMins = Number(row.module_estimated_mins || 0) || Number(row.estimated_mins || 0);
+  const content = {
+    contentId: repositoryContentId,
+    contentTitle: row.title,
+    contentType: row.content_type,
+    required: false,
+    completionRulePct: row.completion_rule_pct,
+    estimatedMins,
+    playerMode: row.player_mode || 'Auto',
+    moduleId: row.module_id,
+    module: { dayNo: 0, classroomId: '', active: true },
+  };
+  return { trainee, content, classroomId: '', isRepository: true };
+}
+
 async function requireContentAccess(employeeId, contentId) {
   const [trainee, content] = await Promise.all([
     getTrainee(employeeId),
     prisma.contentMaster.findUnique({ where: { contentId }, include: { module: true } }),
   ]);
   if (!trainee) return { error: { status: 404, message: 'Trainee not found.' } };
-  if (!content || !content.active || !content.module?.active) return { error: { status: 404, message: 'Content not found.' } };
+  if (!content) return resolveRepositoryContentAccess(trainee, employeeId, contentId);
+  if (!content.active || !content.module?.active) return { error: { status: 404, message: 'Content not found.' } };
   const classroomId = content.module.classroomId;
   if (!await hasClassroomAccess(trainee, classroomId)) {
     return { error: { status: 403, message: 'This content is not assigned to your classroom.' } };
   }
-  return { trainee, content, classroomId };
+  return { trainee, content, classroomId, isRepository: false };
 }
 
 async function requireAssessmentAccess(employeeId, assessmentId) {
@@ -423,6 +482,21 @@ async function enrichIndependentAssignments(assignments, employeeId) {
     // The reading time an admin sets lives on the module, not on the repository
     // item, so it has to travel with the assignment or the learner never sees it.
     const moduleMeta = new Map((moduleRows || []).map(row => [row.module_id, row]));
+    // Time spent is recorded against the repository content id, so the learner sees
+    // their own progress on a nugget and an admin has something to report on.
+    const allContentIds = Object.values(byModule).flat().map(item => item.contentId).filter(Boolean);
+    const progressRows = allContentIds.length && employeeId
+      ? await prisma.contentProgress.findMany({ where: { employeeId, contentId: { in: [...new Set(allContentIds)] } } })
+      : [];
+    const progressByContent = new Map(progressRows.map(row => [row.contentId, {
+      completionStatus: row.completionStatus,
+      completionPct: row.completionPct,
+      totalSecondsSpent: row.totalSecondsSpent,
+      requiredSeconds: row.requiredSeconds,
+    }]));
+    for (const list of Object.values(byModule)) {
+      for (const item of list) item.progress = progressByContent.get(item.contentId) || null;
+    }
     const withContent = assignments.map(assignment => {
       const meta = moduleMeta.get(assignment.moduleId);
       return {
@@ -616,9 +690,13 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
     const employeeId = req.userId;
     const access = await requireContentAccess(employeeId, req.params.contentId);
     if (access.error) return res.status(access.error.status).json({ ok: false, message: access.error.message });
-    const { trainee, content, classroomId } = access;
+    const { trainee, content, classroomId, isRepository } = access;
 
-    const allContent = await prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, include: { module: true } });
+    // Sequential unlock is a property of a classroom day. Broadcast content has no
+    // classroom, so this lookup would scan every module with a blank classroomId.
+    const allContent = isRepository
+      ? []
+      : await prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, include: { module: true } });
     const priorRequired = allContent.filter(item => item.required).sort(contentSort);
     const index = priorRequired.findIndex(item => item.contentId === content.contentId);
     if (content.required && index > 0 && process.env.LMS_SEQUENTIAL_UNLOCK_DISABLED !== 'true') {

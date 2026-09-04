@@ -18,6 +18,17 @@ export default function IndependentModulesTab() {
   const [expanded, setExpanded] = useState({});
   const [assignContent, setAssignContent] = useState({ moduleId: '', show: false, query: '', results: [] });
 
+  const [report, setReport] = useState(null);
+
+  // Answers "did they actually read it". Time is recorded by the same heartbeat
+  // pipeline classroom content uses, now that broadcast content has a progress row.
+  async function openReport(m) {
+    setReport({ moduleId: m.module_id, moduleName: m.module_name, loading: true });
+    const res = await api.get(`/admin/independent-modules/${encodeURIComponent(m.module_id)}/reading-report`, 'admin');
+    if (!res.ok) { setMsg(res.message || 'Unable to load the reading report.'); return setReport(null); }
+    setReport({ moduleId: m.module_id, moduleName: m.module_name, loading: false, rows: res.data || [], summary: res.summary || {} });
+  }
+
   async function load() {
     setLoading(true);
     const [moduleRes, ruleRes, repoRes] = await Promise.all([
@@ -149,6 +160,7 @@ export default function IndependentModulesTab() {
                       <button className="btn small" onClick={() => setEditModule({
                         moduleId: m.module_id, moduleName: m.module_name || '', category: m.category || '', process: m.process || '', lob: m.lob || '', branch: m.branch || '', description: m.description || '', estimatedMins: m.estimated_mins || 0,
                       })}>Edit</button>
+                      <button className="btn small secondary" onClick={() => openReport(m)}>⏱ Reading</button>
                       <button className="btn small danger" onClick={() => archiveModule(m.module_id)}>Delete</button>
                     </td>
                   </tr>
@@ -276,6 +288,55 @@ export default function IndependentModulesTab() {
                   </tbody>
                 </table>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {report && (
+        <div className="modal-overlay" onClick={() => setReport(null)}>
+          <div className="modal-box" style={{ maxWidth: 900 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-head">
+              <b>Reading report — {report.moduleName}</b>
+              <button className="btn small secondary" onClick={() => setReport(null)}>✕</button>
+            </div>
+            <div style={{ padding: '14px 18px' }}>
+              {report.loading && <div className="spinner" />}
+              {!report.loading && (
+                <>
+                  <div className="stat-row" style={{ marginBottom: 12 }}>
+                    <div className="stat info"><div className="num">{report.summary.assigned || 0}</div><div className="label">Assigned</div></div>
+                    <div className="stat"><div className="num">{report.summary.opened || 0}</div><div className="label">Opened</div></div>
+                    <div className="stat warn"><div className="num">{report.summary.notOpened || 0}</div><div className="label">Never opened</div></div>
+                    <div className="stat ok"><div className="num">{report.summary.completed || 0}</div><div className="label">Completed</div></div>
+                    <div className="stat"><div className="num">{Math.round((report.summary.averageSecondsSpent || 0) / 6) / 10}m</div><div className="label">Avg time spent</div></div>
+                  </div>
+                  <div className="table-wrap" style={{ maxHeight: '46vh', overflow: 'auto' }}>
+                    <table>
+                      <thead><tr><th>Employee</th><th>Name</th><th>Batch</th><th>Time spent</th><th>Required</th><th>Progress</th><th>Opens</th><th>Last opened</th></tr></thead>
+                      <tbody>
+                        {report.rows.map((r, index) => (
+                          <tr key={`${r.employeeId}-${r.contentId}-${index}`}>
+                            <td style={{ fontFamily: 'monospace', fontSize: 12 }}>{r.employeeId}</td>
+                            <td>{r.traineeName || '—'}</td>
+                            <td>{r.batchNo || '—'}</td>
+                            <td>{r.secondsSpent > 0 ? `${Math.round(r.secondsSpent / 6) / 10} min` : '—'}</td>
+                            <td>{r.requiredSeconds > 0 ? `${Math.round(r.requiredSeconds / 6) / 10} min` : (r.estimatedMins ? `${r.estimatedMins} min` : '—')}</td>
+                            <td>
+                              <span className={`pill ${r.completionStatus === 'Completed' ? 'ok' : (r.openCount > 0 ? 'warn' : '')}`} style={{ fontSize: 11 }}>
+                                {r.completionStatus === 'Completed' ? 'Completed' : (r.openCount > 0 ? `${Math.round(r.completionPct)}%` : 'Not opened')}
+                              </span>
+                            </td>
+                            <td>{r.openCount || 0}</td>
+                            <td style={{ fontSize: 12 }}>{r.lastOpenedAt ? new Date(r.lastOpenedAt).toLocaleString() : '—'}</td>
+                          </tr>
+                        ))}
+                        {!report.rows.length && <tr><td colSpan="8" style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>Nobody is individually assigned this module yet.</td></tr>}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

@@ -226,7 +226,7 @@ export default function LearningTab({ days, assignments, onRefresh }) {
       {assignments && assignments.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <h3 className="section-title" style={{ margin: '0 0 6px' }}>Broadcast &amp; Refresher Assignments</h3>
-          <AssignedTab assignments={assignments} onRefresh={onRefresh} />
+          <AssignedTab assignments={assignments} onRefresh={onRefresh} onOpenContent={openContent} />
         </div>
       )}
 

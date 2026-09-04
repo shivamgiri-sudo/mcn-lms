@@ -285,6 +285,57 @@ router.delete('/content-repository/:repositoryContentId', ...auth, async (req, r
   }
 });
 
+// Who actually read an assigned nugget, and for how long. Time is recorded against
+// the repository content id by the same heartbeat pipeline classroom content uses,
+// so 'did they spend the 2 minutes' is answerable rather than a guess.
+router.get('/independent-modules/:moduleId/reading-report', ...auth, async (req, res) => {
+  try {
+    await ensureIndependentModuleTables();
+    const moduleId = clean(req.params.moduleId);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT a.assigned_to AS employeeId, t.trainee_name AS traineeName, t.batch_no AS batchNo,
+              t.process, t.branch, r.repository_content_id AS contentId, r.title AS contentTitle,
+              m.estimated_mins AS estimatedMins,
+              p.total_seconds_spent AS secondsSpent, p.required_seconds AS requiredSeconds,
+              p.completion_pct AS completionPct, p.completion_status AS completionStatus,
+              p.open_count AS openCount, p.first_opened_at AS firstOpenedAt, p.last_opened_at AS lastOpenedAt
+         FROM assigned_modules a
+         INNER JOIN independent_module_master m ON m.module_id = a.module_id
+         INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
+         INNER JOIN content_repository_master r ON r.repository_content_id = c.repository_content_id
+         LEFT JOIN trainee_master t ON t.employee_id = a.assigned_to
+         LEFT JOIN content_progress p ON p.employee_id = a.assigned_to AND p.content_id = r.repository_content_id
+        WHERE a.module_id = ? AND a.active = 1 AND a.assigned_to_type = 'individual'
+        ORDER BY (p.total_seconds_spent IS NULL) ASC, p.total_seconds_spent DESC, t.trainee_name ASC`,
+      moduleId,
+    );
+
+    const data = (rows || []).map(row => ({
+      ...row,
+      secondsSpent: Number(row.secondsSpent || 0),
+      requiredSeconds: Number(row.requiredSeconds || 0),
+      completionPct: Number(row.completionPct || 0),
+      completionStatus: row.completionStatus || 'Not Started',
+      openCount: Number(row.openCount || 0),
+    }));
+    const opened = data.filter(row => row.openCount > 0).length;
+    const completed = data.filter(row => row.completionStatus === 'Completed').length;
+    return res.json({
+      ok: true,
+      data,
+      summary: {
+        assigned: data.length,
+        opened,
+        notOpened: data.length - opened,
+        completed,
+        averageSecondsSpent: data.length ? Math.round(data.reduce((sum, row) => sum + row.secondsSpent, 0) / data.length) : 0,
+      },
+    });
+  } catch (err) {
+    console.error('[adminStability] reading report failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to build the reading report.' });
+  }
+});
 router.get('/independent-modules', ...auth, async (req, res) => {
   try {
     await ensureIndependentModuleTables();
