@@ -168,7 +168,12 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       {activeTab === 'leaderboard' && <LeaderboardTab />}
       {activeTab === 'ijp' && <IJPTab />}
       {activeTab === 'voice-accent' && <VoiceAccentTab />}
-      {activeTab === 'profile' && <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />}
+      {activeTab === 'profile' && (
+        <>
+          <MyCertificates />
+          <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />
+        </>
+      )}
 
       <style>{`
         .trainee-overview-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,220px);gap:12px;margin-bottom:12px}
@@ -176,6 +181,53 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
         @media(max-width:820px){.trainee-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
         @media(max-width:620px){.trainee-overview-grid{grid-template-columns:1fr}.trainee-kpi-grid{grid-template-columns:1fr}.hero{align-items:flex-start;gap:12px}.hero>.row{width:100%;flex-wrap:wrap}.tabs{overflow-x:auto;justify-content:flex-start}.tab-btn{white-space:nowrap}}
       `}</style>
+    </div>
+  );
+}
+
+// A learner could not reach their own certificate at all. Entitlement is decided
+// server-side from certification status and passed assessments, so this renders
+// only what actually exists for them.
+function MyCertificates() {
+  const [certs, setCerts] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/trainee/certificates', 'trainee').then(res => {
+      if (!cancelled) setCerts(res.ok ? (res.data || []) : []);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  async function openCertificate(certificateNo) {
+    const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
+    const res = await fetch(`${BASE}/trainee/certificates/${encodeURIComponent(certificateNo)}`, {
+      credentials: 'include', headers: { 'X-LMS-Role': 'trainee' },
+    });
+    if (!res.ok) return;
+    const html = await res.text();
+    const w = window.open('', '_blank');
+    if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  if (!certs || !certs.length) return null;
+  return (
+    <div className="card" style={{ marginBottom: 14 }}>
+      <b>🎓 My Certificates</b>
+      <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+        {certs.map(cert => (
+          <div key={cert.certificateNo} className="row between" style={{ flexWrap: 'wrap', gap: 8, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+            <div>
+              <div style={{ fontWeight: 700 }}>{cert.title}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                {cert.type === 'ASSESSMENT' ? 'Assessment' : 'Training'} · {cert.certificateNo}
+                {cert.scorePct != null ? ` · ${Math.round(cert.scorePct)}%` : ''}
+              </div>
+            </div>
+            <button className="btn small" onClick={() => openCertificate(cert.certificateNo)}>View / Print</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

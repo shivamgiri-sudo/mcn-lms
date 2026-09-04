@@ -1,6 +1,7 @@
 import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId, hashCredential, firstTimePassword } from '../utils/hash.js';
 import { parseEvidenceType } from '../services/certificationCriteria.js';
+import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from '../services/certificates.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
@@ -3915,59 +3916,56 @@ export async function getAuditLogDetail(req, res) {
 }
 
 // ── Certificate Generator ─────────────────────────────────────────────────────
+// Certificates are issued once and stored, so the number on a printed copy stays
+// valid and can be verified. The previous version built an id from Date.now(), which
+// changed on every open, carried no logo, and existed only for training completion.
 export async function generateCertificate(req, res) {
   try {
     const { employeeId } = req.params;
     const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
     if (!trainee) return res.status(404).json({ ok: false, message: 'Trainee not found.' });
-    if (trainee.certificationStatus !== 'Certified' && trainee.certificationStatus !== 'HandedOver') {
+    if (!['Certified', 'HandedOver'].includes(trainee.certificationStatus)) {
       return res.status(400).json({ ok: false, message: 'Trainee is not certified.' });
     }
     const batch = trainee.batchNo ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } }) : null;
-    const today = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
-    const esc = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Certificate - ${esc(trainee.traineeName)}</title>
-<style>
-  @page { size: A4 landscape; margin: 0; }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { width: 297mm; height: 210mm; display: flex; align-items: center; justify-content: center;
-    font-family: 'Segoe UI', Roboto, Arial, sans-serif; background: #f0f2f5; }
-  .cert { width: 275mm; height: 185mm; background: #fff; border-radius: 12px;
-    box-shadow: 0 8px 32px rgba(0,0,0,.15); padding: 40px 50px; position: relative;
-    border: 6px double #1a56db; display: flex; flex-direction: column; justify-content: center; }
-  .cert h1 { font-size: 32px; color: #1a56db; text-align: center; letter-spacing: 2px; margin-bottom: 8px; }
-  .cert .subtitle { text-align: center; font-size: 14px; color: #666; margin-bottom: 24px; }
-  .cert .presented { text-align: center; font-size: 15px; color: #444; margin-bottom: 6px; }
-  .cert .name { text-align: center; font-size: 38px; font-weight: 800; color: #111; margin: 8px 0; }
-  .cert .for-text { text-align: center; font-size: 15px; color: #444; line-height: 1.7; }
-  .cert .details { text-align: center; font-size: 14px; color: #555; margin-top: 16px; }
-  .cert .footer { display: flex; justify-content: space-between; margin-top: 30px; padding-top: 16px; border-top: 2px solid #e5e7eb; font-size: 12px; color: #888; }
-  .cert .stamp { position: absolute; bottom: 50px; right: 70px; width: 80px; height: 80px;
-    border: 2px solid #1a56db; border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-size: 10px; color: #1a56db; font-weight: 700; text-align: center; transform: rotate(-15deg); }
-</style></head><body>
-<div class="cert">
-  <h1>MCN LMS</h1>
-  <div class="subtitle">Learning Management System</div>
-  <div class="presented">This is to certify that</div>
-  <div class="name">${esc(trainee.traineeName)}</div>
-  <div class="for-text">has successfully completed the training program<br>
-    ${trainee.process ? `Process: <b>${esc(trainee.process)}</b>` : ''}${trainee.lob ? ` &middot; LOB: <b>${esc(trainee.lob)}</b>` : ''}<br>
-    ${batch ? `Batch: <b>${esc(batch.batchName || batch.batchNo)}</b>` : ''}
-  </div>
-  <div class="details">Certification Status: <b>${esc(trainee.certificationStatus)}</b></div>
-  <div class="footer"><span>Certificate ID: MCN-${esc(employeeId)}-${Date.now().toString(36).toUpperCase()}</span><span>Date: ${esc(today)}</span></div>
-  <div class="stamp">MCN LMS<br>VERIFIED</div>
-</div></body></html>`;
+    const cert = await issueCertificate({
+      employeeId,
+      certificateType: 'TRAINING',
+      referenceId: trainee.batchNo || null,
+      title: batch?.batchName || [trainee.process, trainee.lob].filter(Boolean).join(' / ') || 'Training Programme',
+      traineeName: trainee.traineeName,
+      batchNo: trainee.batchNo,
+      process: trainee.process,
+      lob: trainee.lob,
+      issuedBy: req.userId || null,
+    });
     res.setHeader('Content-Type', 'text/html');
-    res.send(html);
+    return res.send(renderCertificateHtml(cert));
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ ok: false, message: 'Server error' });
+    console.error('[admin] certificate generation failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to generate the certificate.' });
   }
 }
 
-// ── Bulk Trainee Import ───────────────────────────────────────────────────────
+// Anyone holding the printed copy can confirm it is real without seeing anything
+// beyond what is already on the page.
+export async function verifyCertificate(req, res) {
+  try {
+    await ensureCertificateTable();
+    const code = String(req.params.code || '').trim().toUpperCase();
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT certificate_no, certificate_type, title, trainee_name, employee_id, batch_no, process, lob, score_pct, issued_at, revoked_at FROM certificate_issue WHERE verification_code = ? OR certificate_no = ? LIMIT 1',
+      code, code,
+    );
+    const cert = rows?.[0];
+    if (!cert) return res.status(404).json({ ok: false, valid: false, message: 'No certificate matches that code.' });
+    if (cert.revoked_at) return res.json({ ok: true, valid: false, message: 'This certificate has been revoked.', data: cert });
+    return res.json({ ok: true, valid: true, data: cert });
+  } catch (err) {
+    console.error('[admin] certificate verification failed:', err);
+    return res.status(500).json({ ok: false, message: 'Verification failed.' });
+  }
+}
 export async function bulkImportPreview(req, res) {
   try {
     const { records, skipDuplicates } = req.body;

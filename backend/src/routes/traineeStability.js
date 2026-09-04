@@ -4,6 +4,7 @@ import { prisma } from '../utils/db.js';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { attachAssessmentsToAssignments } from '../controllers/trainee.js';
+import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from '../services/certificates.js';
 import { awardContentCompletion, awardAttendanceStreak } from '../utils/leaderboardEngine.js';
 
 const router = Router();
@@ -1051,4 +1052,99 @@ router.patch('/profile', ...auth, async (req, res) => {
   }
 });
 
+
+// A learner could not reach their own certificate at all — only an admin or
+// coordinator could open one. Entitlement is derived rather than stored as a flag:
+// the training certificate exists once they are certified, and an assessment
+// certificate once they have passed that assessment.
+async function entitledCertificates(employeeId) {
+  await ensureCertificateTable();
+  const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+  if (!trainee) return [];
+  const issued = [];
+
+  if (['Certified', 'HandedOver'].includes(trainee.certificationStatus)) {
+    const batch = trainee.batchNo ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } }) : null;
+    issued.push(await issueCertificate({
+      employeeId,
+      certificateType: 'TRAINING',
+      referenceId: trainee.batchNo || null,
+      title: batch?.batchName || [trainee.process, trainee.lob].filter(Boolean).join(' / ') || 'Training Programme',
+      traineeName: trainee.traineeName,
+      batchNo: trainee.batchNo,
+      process: trainee.process,
+      lob: trainee.lob,
+      issuedBy: 'system',
+    }));
+  }
+
+  const passed = await prisma.assessmentResult.findMany({
+    where: { employeeId, result: 'Pass' },
+    select: { assessmentId: true, bestPercentage: true },
+  });
+  if (passed.length) {
+    const assessments = await prisma.assessmentMaster.findMany({
+      where: { assessmentId: { in: passed.map(row => row.assessmentId) } },
+      select: { assessmentId: true, assessmentName: true },
+    });
+    const nameById = new Map(assessments.map(row => [row.assessmentId, row.assessmentName]));
+    for (const row of passed) {
+      issued.push(await issueCertificate({
+        employeeId,
+        certificateType: 'ASSESSMENT',
+        referenceId: row.assessmentId,
+        title: nameById.get(row.assessmentId) || 'Assessment',
+        traineeName: trainee.traineeName,
+        batchNo: trainee.batchNo,
+        process: trainee.process,
+        lob: trainee.lob,
+        scorePct: row.bestPercentage ?? null,
+        issuedBy: 'system',
+      }));
+    }
+  }
+  return issued.filter(Boolean);
+}
+
+router.get('/certificates', ...auth, async (req, res) => {
+  try {
+    const certs = await entitledCertificates(req.userId);
+    return res.json({
+      ok: true,
+      data: certs.map(cert => ({
+        certificateNo: cert.certificate_no,
+        verificationCode: cert.verification_code,
+        type: cert.certificate_type,
+        title: cert.title,
+        batchNo: cert.batch_no,
+        scorePct: cert.score_pct,
+        issuedAt: cert.issued_at,
+        revoked: Boolean(cert.revoked_at),
+      })),
+    });
+  } catch (error) {
+    console.error('[traineeStability] certificate list failed:', error);
+    return res.status(500).json({ ok: false, message: 'Unable to load your certificates.' });
+  }
+});
+
+router.get('/certificates/:certificateNo', ...auth, async (req, res) => {
+  try {
+    await ensureCertificateTable();
+    // Scoped to the signed-in learner, so a certificate number cannot be used to
+    // pull somebody else's certificate.
+    const rows = await prisma.$queryRawUnsafe(
+      'SELECT * FROM certificate_issue WHERE certificate_no = ? AND employee_id = ? LIMIT 1',
+      String(req.params.certificateNo || '').trim(), req.userId,
+    );
+    const cert = rows?.[0];
+    if (!cert) return res.status(404).json({ ok: false, message: 'Certificate not found.' });
+    if (cert.revoked_at) return res.status(410).json({ ok: false, message: 'This certificate has been revoked.' });
+    res.setHeader('Content-Type', 'text/html');
+    return res.send(renderCertificateHtml(cert));
+  } catch (error) {
+    console.error('[traineeStability] certificate render failed:', error);
+    return res.status(500).json({ ok: false, message: 'Unable to open the certificate.' });
+  }
+});
 export default router;

@@ -39,7 +39,7 @@ import {
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
   listDepartments, createDepartment, updateDepartment, deleteDepartment,
   adminMapSingleEmpId, adminBulkMapEmpIds, getTempTrainees,
-  listAuditLogs, getAuditLogDetail, generateCertificate,
+  listAuditLogs, getAuditLogDetail, generateCertificate, verifyCertificate,
   bulkImportPreview, bulkImportExecute,
 } from '../controllers/admin.js';
 import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
@@ -207,6 +207,7 @@ router.get('/audit-logs/:id', ...superAuth, getAuditLogDetail);
 router.get('/leaderboard', ...auth, getLeaderboardAdmin);
 
 router.get('/certificates/:employeeId/generate', ...auth, generateCertificate);
+router.get('/certificates/verify/:code', ...auth, verifyCertificate);
 router.post('/trainees/import/preview', ...auth, bulkImportPreview);
 router.post('/trainees/import/execute', ...auth, bulkImportExecute);
 
