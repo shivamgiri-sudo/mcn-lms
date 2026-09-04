@@ -6,6 +6,7 @@ import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { attachAssessmentsToAssignments } from '../controllers/trainee.js';
 import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from '../services/certificates.js';
 import { awardContentCompletion, awardAttendanceStreak } from '../utils/leaderboardEngine.js';
+import { audit } from '../utils/audit.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('trainee')];
@@ -20,8 +21,15 @@ function capSeconds(value, max = 30) {
   return Math.min(parseNonNegativeInt(value, 0), max);
 }
 
+// Time-based completion alone lets a learner later claim they never actually read
+// something. Sequential unlock and assessment submission both route through this
+// function, so requiring an explicit acknowledgement here closes that gap
+// everywhere at once. Pre-existing completions are grandfathered by a one-time
+// backfill in contentProgressSchema.js, so this does not retroactively lock
+// anyone who genuinely finished content before the requirement existed.
 function isComplete(row) {
-  return row?.completionStatus === 'Completed' || Number(row?.completionPct || 0) >= 100;
+  const timeComplete = row?.completionStatus === 'Completed' || Number(row?.completionPct || 0) >= 100;
+  return timeComplete && Boolean(row?.acknowledgedAt);
 }
 
 function contentSort(a, b) {
@@ -494,6 +502,7 @@ async function enrichIndependentAssignments(assignments, employeeId) {
       completionPct: row.completionPct,
       totalSecondsSpent: row.totalSecondsSpent,
       requiredSeconds: row.requiredSeconds,
+      acknowledgedAt: row.acknowledgedAt,
     }]));
     for (const list of Object.values(byModule)) {
       for (const item of list) item.progress = progressByContent.get(item.contentId) || null;
@@ -839,6 +848,66 @@ router.post('/content/:contentId/close', ...auth, async (req, res) => {
     return res.json({ ok: true, acceptedSeconds: acceptedDelta, completionPct, completed });
   } catch (error) {
     console.error('[traineeStability] content close failed:', error);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+});
+
+// A time-based completion percentage can be reached by leaving a tab open; it does
+// not prove the learner actually read the content. Acknowledging is a distinct,
+// explicit action captured with the time, IP and user agent of the click, plus a
+// server-built (not client-supplied) attestation sentence, so it stands on its own
+// as a record the learner cannot later claim never happened. isComplete() above
+// requires this on top of time-completion, so it also gates sequential unlock and
+// assessment submission.
+router.post('/content/:contentId/acknowledge', ...auth, async (req, res) => {
+  try {
+    const employeeId = req.userId;
+    const access = await requireContentAccess(employeeId, req.params.contentId);
+    if (access.error) return res.status(access.error.status).json({ ok: false, message: access.error.message });
+    const { content } = access;
+
+    const progress = await prisma.contentProgress.findUnique({ where: { employeeId_contentId: { employeeId, contentId: content.contentId } } });
+    if (!progress?.opened) return res.status(409).json({ ok: false, message: 'Open the content before acknowledging it.' });
+
+    const timeComplete = progress.completionStatus === 'Completed' || Number(progress.completionPct || 0) >= 100;
+    if (!timeComplete) {
+      return res.status(409).json({ ok: false, message: 'Finish the content before you can acknowledge it.' });
+    }
+
+    if (progress.acknowledgedAt) {
+      // Idempotent: the first acknowledgement is the one on record, a repeat click
+      // is not an error and does not overwrite the original timestamp or IP.
+      return res.json({
+        ok: true,
+        alreadyAcknowledged: true,
+        acknowledgedAt: progress.acknowledgedAt,
+        acknowledgementText: progress.acknowledgementText,
+      });
+    }
+
+    const acknowledgementText = `I acknowledge that I have read and understood "${content.contentTitle}".`;
+    const acknowledgedAt = new Date();
+    const acknowledgedIp = String(req.ip || req.socket?.remoteAddress || '').slice(0, 64);
+    const acknowledgedUserAgent = String(req.headers['user-agent'] || '').slice(0, 500);
+
+    await prisma.contentProgress.update({
+      where: { id: progress.id },
+      data: { acknowledgedAt, acknowledgedIp, acknowledgedUserAgent, acknowledgementText },
+    });
+
+    await audit({
+      userIdentity: employeeId,
+      userRole: 'Trainee',
+      action: 'ACKNOWLEDGE_CONTENT',
+      module: 'Learning',
+      referenceId: content.contentId,
+      newValue: { contentTitle: content.contentTitle, acknowledgedAt, acknowledgedIp },
+      source: 'Trainee Portal',
+    });
+
+    return res.json({ ok: true, alreadyAcknowledged: false, acknowledgedAt, acknowledgementText });
+  } catch (error) {
+    console.error('[traineeStability] content acknowledge failed:', error);
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
 });

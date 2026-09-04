@@ -309,11 +309,12 @@ export default function IndependentModulesTab() {
                     <div className="stat"><div className="num">{report.summary.opened || 0}</div><div className="label">Opened</div></div>
                     <div className="stat warn"><div className="num">{report.summary.notOpened || 0}</div><div className="label">Never opened</div></div>
                     <div className="stat ok"><div className="num">{report.summary.completed || 0}</div><div className="label">Completed</div></div>
+                    <div className="stat ok"><div className="num">{report.summary.acknowledged || 0}</div><div className="label">Acknowledged</div></div>
                     <div className="stat"><div className="num">{Math.round((report.summary.averageSecondsSpent || 0) / 6) / 10}m</div><div className="label">Avg time spent</div></div>
                   </div>
                   <div className="table-wrap" style={{ maxHeight: '46vh', overflow: 'auto' }}>
                     <table>
-                      <thead><tr><th>Employee</th><th>Name</th><th>Batch</th><th>Assigned via</th><th>Time spent</th><th>Required</th><th>Progress</th><th>Opens</th><th>Last opened</th></tr></thead>
+                      <thead><tr><th>Employee</th><th>Name</th><th>Batch</th><th>Assigned via</th><th>Time spent</th><th>Required</th><th>Progress</th><th>Opens</th><th>Last opened</th><th>Acknowledged</th></tr></thead>
                       <tbody>
                         {report.rows.map((r, index) => (
                           <tr key={`${r.employeeId}-${r.contentId}-${index}`}>
@@ -330,9 +331,14 @@ export default function IndependentModulesTab() {
                             </td>
                             <td>{r.openCount || 0}</td>
                             <td style={{ fontSize: 12 }}>{r.lastOpenedAt ? new Date(r.lastOpenedAt).toLocaleString() : '—'}</td>
+                            <td>
+                              {r.acknowledged
+                                ? <span className="pill ok" style={{ fontSize: 11 }} title={new Date(r.acknowledgedAt).toLocaleString()}>✓ Acknowledged</span>
+                                : <span className="pill" style={{ fontSize: 11 }}>Not yet</span>}
+                            </td>
                           </tr>
                         ))}
-                        {!report.rows.length && <tr><td colSpan="9" style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>Nobody is assigned this module yet.</td></tr>}
+                        {!report.rows.length && <tr><td colSpan="10" style={{ textAlign: 'center', color: 'var(--muted)', padding: 20 }}>Nobody is assigned this module yet.</td></tr>}
                       </tbody>
                     </table>
                   </div>

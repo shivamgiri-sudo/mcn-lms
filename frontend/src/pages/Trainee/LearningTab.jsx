@@ -420,18 +420,23 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   const [loadTimeout, setLoadTimeout] = useState(false);
   const iframeRef = useRef(null);
   const [completionState, setCompletionState] = useState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
+  // Distinct from completion: an explicit attestation the learner cannot later deny
+  // making, captured with a timestamp, IP and user agent on the server. Once set it
+  // is permanent — there is no un-acknowledge.
+  const [ackState, setAckState] = useState({ saving: false, at: progress?.acknowledgedAt || null, error: '' });
 
   useEffect(() => {
     setIframeLoading(true);
     setIframeError(false);
     setLoadTimeout(false);
     setCompletionState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
+    setAckState({ saving: false, at: progress?.acknowledgedAt || null, error: '' });
     if (media?.type === 'proxy' || media?.type === 'drive') {
       const t = setTimeout(() => setLoadTimeout(true), 15000);
       return () => clearTimeout(t);
     }
     return undefined;
-  }, [content.contentId, media?.type, progress?.completionPct, progress?.completionStatus]);
+  }, [content.contentId, media?.type, progress?.completionPct, progress?.completionStatus, progress?.acknowledgedAt]);
 
   // Hide manual mark-complete for content that has a completionRulePct set (auto-completes via watch time)
   // and for video/youtube (tracked automatically)
@@ -451,6 +456,17 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
     if (closeAfter) onClose();
   }
 
+  async function acknowledgeContent() {
+    if (ackState.saving || ackState.at) return;
+    setAckState(prev => ({ ...prev, saving: true, error: '' }));
+    const res = await api.post(`/trainee/content/${content.contentId}/acknowledge`, {}, 'trainee');
+    if (!res.ok) {
+      setAckState(prev => ({ ...prev, saving: false, error: res.message || 'Unable to record your acknowledgement.' }));
+      return;
+    }
+    setAckState({ saving: false, at: res.acknowledgedAt || new Date().toISOString(), error: '' });
+  }
+
   const modalStyle = fullscreen ? { position: 'fixed', inset: 0, zIndex: 9999, maxWidth: '100vw', width: '100vw', borderRadius: 0, display: 'flex', flexDirection: 'column' } : { maxWidth: 1080, width: '95vw' };
   const contentHeight = fullscreen ? 'calc(100vh - 70px)' : '72vh';
 
@@ -464,6 +480,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
               <span className="content-type-badge">{content.contentType}</span>
               <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>Activity tracked automatically</span>
               {completionState.done && <span className="pill ok">✓ Completed</span>}
+              {ackState.at && <span className="pill ok" title={new Date(ackState.at).toLocaleString()}>✓ Acknowledged</span>}
               {completionState.error && <span className="pill bad">{completionState.error}</span>}
             </div>
           </div>
@@ -474,6 +491,24 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
             <button className="btn small secondary" onClick={onClose}>✕ Close</button>
           </div>
         </div>
+
+        {/* One acknowledgement control for every content type — video, document, image,
+            broadcast nugget. Disabled until time-completion is reached, so it cannot be
+            used as a shortcut around actually engaging with the content; permanent once
+            recorded, matching the server, which never lets it be un-set. */}
+        {completionState.done && (
+          <div className={`info-box ${ackState.at ? '' : 'warn'}`} style={{ fontSize: 13, borderRadius: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            {ackState.at ? (
+              <span>✓ You acknowledged reading this on {new Date(ackState.at).toLocaleString()}.</span>
+            ) : (
+              <>
+                <span>I confirm that I have read and understood this content.</span>
+                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving}>{ackState.saving ? 'Recording…' : '✓ I Acknowledge'}</button>
+              </>
+            )}
+            {ackState.error && <span className="pill bad">{ackState.error}</span>}
+          </div>
+        )}
 
         {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && progress?.lastPositionSeconds > 0 && <div className="info-box" style={{ fontSize: 13, borderRadius: 0, flexShrink: 0 }}>Last watched: {formatSeconds(progress.lastPositionSeconds)} — content resumes if still open.</div>}
 

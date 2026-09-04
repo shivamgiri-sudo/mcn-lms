@@ -1862,6 +1862,9 @@ export async function exportModuleCompletion(req, res) {
       'First Opened At', 'Last Opened At', 'Completed At',
       'Total Time Spent (mins)', 'Estimated Mins',
       'Open Count',
+      // Time-based completion can be reached by leaving a tab open; acknowledgement
+      // is the explicit attestation the learner cannot later deny making.
+      'Acknowledged', 'Acknowledged At', 'Acknowledged IP',
     ];
     const rows = progress.map(p => {
       const t = traineeMap[p.employeeId] || {};
@@ -1877,6 +1880,7 @@ export async function exportModuleCompletion(req, res) {
         fmtDt(p.firstOpenedAt), fmtDt(p.lastOpenedAt), fmtDt(p.completedAt),
         Math.round((p.totalSecondsSpent || 0) / 60), con.estimatedMins || '',
         p.openCount || 0,
+        p.acknowledgedAt ? 'Yes' : 'No', fmtDt(p.acknowledgedAt), p.acknowledgedIp || '',
       ];
     });
     csvRes(res, `module-completion-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
@@ -2016,7 +2020,8 @@ export async function exportContentReading(req, res) {
               MAX(p.total_seconds_spent) AS secondsSpent, MAX(p.required_seconds) AS requiredSeconds,
               MAX(p.completion_pct) AS completionPct, MAX(p.completion_status) AS completionStatus,
               MAX(p.open_count) AS openCount, MAX(p.first_opened_at) AS firstOpenedAt,
-              MAX(p.last_opened_at) AS lastOpenedAt
+              MAX(p.last_opened_at) AS lastOpenedAt,
+              MAX(p.acknowledged_at) AS acknowledgedAt
          FROM assigned_modules a
          INNER JOIN independent_module_master m ON m.module_id = a.module_id AND m.status = 'Active'
          INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
@@ -2041,7 +2046,7 @@ export async function exportContentReading(req, res) {
     const headers = [
       'Module', 'Content', 'Expected Mins', 'Employee ID', 'Trainee Name', 'Batch', 'Branch', 'Process',
       'Assigned Via', 'Opened', 'Opens', 'Minutes Spent', 'Minutes Required', 'Progress %', 'Status',
-      'First Opened', 'Last Opened',
+      'First Opened', 'Last Opened', 'Acknowledged', 'Acknowledged At',
     ];
     const mins = seconds => (Number(seconds || 0) ? Math.round(Number(seconds) / 6) / 10 : 0);
     const csvRows = (rows || []).map(row => [
@@ -2053,7 +2058,7 @@ export async function exportContentReading(req, res) {
       mins(row.secondsSpent), mins(row.requiredSeconds),
       Math.round(Number(row.completionPct || 0)),
       row.completionStatus || 'Not Started',
-      fmtDt(row.firstOpenedAt), fmtDt(row.lastOpenedAt),
+      fmtDt(row.firstOpenedAt), fmtDt(row.lastOpenedAt), row.acknowledgedAt ? 'Yes' : 'No', fmtDt(row.acknowledgedAt),
     ]);
     csvRes(res, `content-reading-${moduleId || 'all'}-${fmtDate(new Date())}.csv`, headers, csvRows);
   } catch (err) {

@@ -500,6 +500,14 @@ model ContentProgress {
   completedAt          DateTime? @map("completed_at")
   playerMode           String    @default("Auto") @map("player_mode")
   updatedAt            DateTime  @updatedAt @map("updated_at")
+  // An explicit attestation, distinct from time-based completion above: the learner
+  // pressed Acknowledge after reaching completion. Immutable once set - never
+  // reset by a later heartbeat or re-open, and gates sequential unlock and
+  // assessment submission the same way completion does.
+  acknowledgedAt       DateTime? @map("acknowledged_at")
+  acknowledgedIp       String?   @map("acknowledged_ip")
+  acknowledgedUserAgent String?  @db.Text @map("acknowledged_user_agent")
+  acknowledgementText  String?   @db.Text @map("acknowledgement_text")
 
   @@index([employeeId, classroomId])
   @@index([classroomId])

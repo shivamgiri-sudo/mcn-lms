@@ -304,7 +304,8 @@ router.get('/independent-modules/:moduleId/reading-report', ...auth, async (req,
               MAX(p.total_seconds_spent) AS secondsSpent, MAX(p.required_seconds) AS requiredSeconds,
               MAX(p.completion_pct) AS completionPct, MAX(p.completion_status) AS completionStatus,
               MAX(p.open_count) AS openCount, MAX(p.first_opened_at) AS firstOpenedAt,
-              MAX(p.last_opened_at) AS lastOpenedAt
+              MAX(p.last_opened_at) AS lastOpenedAt,
+              MAX(p.acknowledged_at) AS acknowledgedAt
          FROM assigned_modules a
          INNER JOIN independent_module_master m ON m.module_id = a.module_id
          INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
@@ -332,9 +333,14 @@ router.get('/independent-modules/:moduleId/reading-report', ...auth, async (req,
       completionPct: Number(row.completionPct || 0),
       completionStatus: row.completionStatus || 'Not Started',
       openCount: Number(row.openCount || 0),
+      // Time-based completion can be reached by leaving a tab open; acknowledgement
+      // is the explicit attestation captured in content_progress.acknowledged_at,
+      // which is what makes "did they actually confirm reading this" answerable.
+      acknowledged: Boolean(row.acknowledgedAt),
     }));
     const opened = data.filter(row => row.openCount > 0).length;
     const completed = data.filter(row => row.completionStatus === 'Completed').length;
+    const acknowledged = data.filter(row => row.acknowledged).length;
     return res.json({
       ok: true,
       data,
@@ -342,6 +348,8 @@ router.get('/independent-modules/:moduleId/reading-report', ...auth, async (req,
         assigned: data.length,
         opened,
         notOpened: data.length - opened,
+        acknowledged,
+        notAcknowledged: data.length - acknowledged,
         completed,
         averageSecondsSpent: data.length ? Math.round(data.reduce((sum, row) => sum + row.secondsSpent, 0) / data.length) : 0,
       },

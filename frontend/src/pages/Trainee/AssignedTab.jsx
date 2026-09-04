@@ -83,10 +83,12 @@ export default function AssignedTab({ assignments, onRefresh, onOpenContent }) {
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                           <button className="btn small secondary" onClick={() => onOpenContent(content)}>Open</button>
                           {content.progress && (
-                            <span style={{ fontSize: 11, color: content.progress.completionStatus === 'Completed' ? 'var(--ok)' : 'var(--muted)' }}>
-                              {content.progress.completionStatus === 'Completed'
-                                ? '✓ Completed'
-                                : `${Math.round(content.progress.completionPct || 0)}% read`}
+                            <span style={{ fontSize: 11, color: content.progress.acknowledgedAt ? 'var(--ok)' : (content.progress.completionStatus === 'Completed' ? 'var(--warn)' : 'var(--muted)') }}>
+                              {content.progress.acknowledgedAt
+                                ? '✓ Acknowledged'
+                                : (content.progress.completionStatus === 'Completed'
+                                  ? 'Read — not yet acknowledged'
+                                  : `${Math.round(content.progress.completionPct || 0)}% read`)}
                             </span>
                           )}
                         </div>
