@@ -94,12 +94,15 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
 
   async function enrollExisting(trainee) {
     setEnrolling(trainee.employeeId);
-    const res = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, {
-      trainees: [{ employeeId: trainee.employeeId, traineeName: trainee.traineeName, email: trainee.email || '', mobile: trainee.mobile || '' }],
+    // A search hit is, by definition, a trainee who already has a trainee_master
+    // row — /trainees/bulk only ever creates new ones and would reject them as
+    // "already exists". /trainees/enroll-existing transfers them into this batch.
+    const res = await api.post(`/admin/batches/${batchNo}/trainees/enroll-existing`, {
+      employeeId: trainee.employeeId,
     }, 'admin');
     setEnrolling(null);
     if (res.ok) {
-      addToast(`${trainee.traineeName} enrolled.`);
+      addToast(res.alreadyEnrolled ? `${trainee.traineeName} is already enrolled in this batch.` : `${trainee.traineeName} enrolled.`);
       setSearchQ('');
       setSearchResults([]);
       reload();
