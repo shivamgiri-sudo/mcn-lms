@@ -178,6 +178,13 @@ export default function ReportsTab() {
       url: `/admin/reports/module-completion?${p}`, filename: `module-completion-${bl}-${d}.csv`,
     },
     {
+      key: 'content-reading',
+      icon: '🧩', title: 'Independent Module Reading Report', btnColor: CHART_COLORS.purple,
+      desc: 'Per-learner reading engagement for Independent Modules: opens, minutes spent vs required, completion %, and acknowledgement, across broadcast, auto-assigned, and standalone-wrapped modules alike.',
+      cols: 'Module, Content, Expected Mins, Employee ID, Name, Batch, Branch, Process, Assigned Via, Opened, Opens, Minutes Spent, Minutes Required, Progress %, Status, First Opened, Last Opened, Acknowledged, Acknowledged At',
+      url: `/admin/reports/content-reading`, filename: `content-reading-${d}.csv`,
+    },
+    {
       key: 'assessment-results',
       icon: '📝', title: 'Assessment Results', btnColor: CHART_COLORS.amber,
       desc: 'Every MCQ attempt with score, time taken, started at, submitted at, correct/wrong/blank.',
@@ -382,7 +389,7 @@ export default function ReportsTab() {
       </div>
 
       <div style={{ marginTop: 20, padding: '12px 16px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)', fontSize: 12, color: 'var(--muted)' }}>
-        <b style={{ color: 'var(--ink)' }}>Note:</b> Trainee Progress, At-Risk, Module Completion, Assessment Results, Attendance Log, and Q&A Activity exports respect the Batch/Classroom filters. Batch Summary and Broadcast Assignments export all records.
+        <b style={{ color: 'var(--ink)' }}>Note:</b> Trainee Progress, At-Risk, Module Completion, Assessment Results, Attendance Log, and Q&A Activity exports respect the Batch/Classroom filters. Batch Summary, Broadcast Assignments, and the Independent Module Reading Report export all records — Independent Modules aren't tied to a classroom.
       </div>
     </div>
   );
