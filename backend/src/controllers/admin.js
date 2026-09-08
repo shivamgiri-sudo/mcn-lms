@@ -3048,6 +3048,83 @@ export async function adminBulkAddTrainees(req, res) {
   }
 }
 
+// ── Enroll an existing trainee into a batch ────────────────────────────────────
+// adminBulkAddTrainees (above) only ever creates brand-new trainee_master rows —
+// it unconditionally errors "already exists" for anyone already in the system,
+// which is exactly who "Search & Enroll Existing Trainee" on the batch detail
+// page searches for. That made the admin-side enroll button a guaranteed no-op.
+// This mirrors the working coordinator-side /trainees/enroll-existing (see
+// routes/coordinatorStability.js) instead: transfer the existing trainee's
+// batch/branch/process/lob/classroom rather than trying to re-create them.
+export async function enrollExistingTraineeAdmin(req, res) {
+  try {
+    const { batchNo } = req.params;
+    const employeeId = String(req.body?.employeeId || '').trim().toUpperCase();
+    if (!employeeId) return res.status(400).json({ ok: false, message: 'Employee ID is required.' });
+
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (req.userBranch && batch.branch !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only enroll trainees into batches in your own branch.' });
+    }
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee || trainee.status === 'Deleted') return res.status(404).json({ ok: false, message: 'Active LMS trainee not found.' });
+    if (trainee.batchNo === batch.batchNo) return res.json({ ok: true, alreadyEnrolled: true, message: 'Trainee is already enrolled in this batch.' });
+    const previousBatchNo = trainee.batchNo;
+
+    await prisma.$transaction(async tx => {
+      await tx.traineeMaster.update({
+        where: { employeeId },
+        data: {
+          batchNo: batch.batchNo,
+          branch: batch.branch,
+          process: batch.process,
+          lob: batch.lob,
+          classroomId: batch.classroomId,
+          classroomName: batch.classroomName,
+          courseCompletionPct: 0,
+          assessmentAttemptPct: 0,
+          assessmentPassPct: 0,
+          attendancePct: 0,
+          riskStatus: 'HEALTHY',
+          riskReason: null,
+          ojtReady: false,
+          nestingStatus: 'Not Started',
+          certificationStatus: 'Not Certified',
+          handoverToOps: false,
+          status: 'Active',
+        },
+      });
+      await tx.userMaster.updateMany({
+        where: { employeeId },
+        data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
+      });
+      await tx.traineeClassroomMap.updateMany({ where: { employeeId }, data: { active: false } });
+      if (batch.classroomId) {
+        await tx.traineeClassroomMap.upsert({
+          where: { employeeId_classroomId: { employeeId, classroomId: batch.classroomId } },
+          create: { employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+          update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
+        });
+      }
+      await tx.batchMaster.update({ where: { batchNo: batch.batchNo }, data: { totalTrainees: { increment: 1 } } });
+      if (previousBatchNo) {
+        await tx.batchMaster.updateMany({
+          where: { batchNo: previousBatchNo, totalTrainees: { gt: 0 } },
+          data: { totalTrainees: { decrement: 1 } },
+        });
+      }
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ENROLL_EXISTING', module: 'Trainee', referenceId: employeeId, oldValue: { batchNo: previousBatchNo }, newValue: { batchNo: batch.batchNo } });
+    res.json({ ok: true, message: `${trainee.traineeName || employeeId} was enrolled in ${batch.batchNo}.` });
+  } catch (err) {
+    console.error('[admin] existing trainee enrolment failed:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
 // ── Content Sequential Lock Toggle ────────────────────────────────────────────
 export async function setContentLock(req, res) {
   try {
@@ -4011,6 +4088,15 @@ export async function bulkImportExecute(req, res) {
     if (req.userBranch) {
       for (const r of records) { r.branch = req.userBranch; }
     }
+    // trainee_master.batch_no is foreign-keyed to batch_master.batch_no. A typo'd
+    // or blank batchNo in the CSV used to reach the DB and fail there as an opaque
+    // FK-constraint error, identically for every row that named it — which reads
+    // as "0 added, N failed" with no indication of why. Check it up front instead
+    // so the error names the actual batch that's missing.
+    const batchNos = [...new Set(records.map(r => String(r.batchNo || '').trim()).filter(Boolean))];
+    const existingBatches = batchNos.length ? await prisma.batchMaster.findMany({ where: { batchNo: { in: batchNos } }, select: { batchNo: true } }) : [];
+    const validBatchNos = new Set(existingBatches.map(b => b.batchNo));
+
     const created = [];
     const skipped = [];
     const errors = [];
@@ -4018,6 +4104,11 @@ export async function bulkImportExecute(req, res) {
     for (const r of records) {
       try {
         const employeeId = r.employeeId || `LMS-${now}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+        const trimmedBatchNo = String(r.batchNo || '').trim();
+        if (trimmedBatchNo && !validBatchNos.has(trimmedBatchNo)) {
+          errors.push({ record: employeeId || r.traineeName, error: `Batch '${trimmedBatchNo}' does not exist. Check the batchNo column for typos or extra spaces.` });
+          continue;
+        }
         if (skipDuplicates) {
           const dup = await prisma.traineeMaster.findFirst({ where: { employeeId, status: { not: 'Deleted' } } });
           if (dup) { skipped.push(employeeId); continue; }
@@ -4029,17 +4120,17 @@ export async function bulkImportExecute(req, res) {
         const traineePayload = {
           employeeId, lmsId, traineeName: r.traineeName || r.name,
           email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null,
-          batchNo: r.batchNo, branch: r.branch, process: r.process, lob: r.lob,
+          batchNo: trimmedBatchNo || null, branch: r.branch, process: r.process, lob: r.lob,
           classroomId: r.classroomId, classroomName: r.classroomName,
           status: 'Active', source: 'BulkImport', empIdType: 'PERMANENT', createdBy: req.userId,
         };
         await prisma.$transaction(async tx => {
           await tx.traineeMaster.create({ data: traineePayload });
-          await tx.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName: r.traineeName || r.name, email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null, batchNo: r.batchNo, branch: r.branch, process: r.process, lob: r.lob, classroomId: r.classroomId, active: true, forcePasswordReset: true } });
+          await tx.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName: r.traineeName || r.name, email: r.email, mobile: r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-10) : null, batchNo: trimmedBatchNo || null, branch: r.branch, process: r.process, lob: r.lob, classroomId: r.classroomId, active: true, forcePasswordReset: true } });
           if (r.classroomId) {
             await tx.traineeClassroomMap.upsert({
               where: { employeeId_classroomId: { employeeId, classroomId: r.classroomId } },
-              create: { employeeId, classroomId: r.classroomId, batchNo: r.batchNo, assignedBy: req.userId },
+              create: { employeeId, classroomId: r.classroomId, batchNo: trimmedBatchNo || null, assignedBy: req.userId },
               update: {},
             });
           }
