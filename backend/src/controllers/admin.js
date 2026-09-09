@@ -3433,13 +3433,18 @@ export async function listPortalUsers(req, res) {
         select: { id: true, adminId: true, adminName: true, role: true, branch: true, active: true, locked: true, failedAttempts: true, lastLogin: true, createdAt: true },
       }),
     ]);
-    // Normalise admin_user_master rows to the same shape as role_access_matrix
+    // Normalise admin_user_master rows to the same shape as role_access_matrix.
+    // Report the row's real role — collapsing everyone to 'Admin' hid Super Admin
+    // accounts in this list, so an operator editing what looked like a plain Admin
+    // could set a branch on the real Super Admin row via the Branch field below,
+    // which silently fails requireSuperAdmin (role AND no branch) on every
+    // super-admin-gated route from then on (batch delete included).
     const adminRows = adminUsers.map(a => ({
       id: a.id,
       loginId: a.adminId,
       name: a.adminName,
-      role: 'Admin',
-      portalAccess: 'Admin',
+      role: a.role || 'Admin',
+      portalAccess: a.role || 'Admin',
       branch: a.branch || null,
       active: a.active,
       lastLogin: a.lastLogin,
@@ -3515,9 +3520,17 @@ export async function updatePortalUser(req, res) {
     // Check if this is an admin_user_master record
     const adminRecord = await prisma.adminUserMaster.findUnique({ where: { id } });
     if (adminRecord) {
+      const isSuperAdmin = ['Super Admin', 'SuperAdmin'].includes(adminRecord.role);
+      // requireSuperAdmin (middleware/auth.js) demands role === Super Admin AND no
+      // branch. Ever writing a branch onto a Super Admin row locks that account out
+      // of every super-admin-gated route (batch delete, portal users, org masters,
+      // comms/HRMS config) with a bare 403 the UI has no way to recover from.
+      if (isSuperAdmin && branch) {
+        return res.status(400).json({ ok: false, message: 'A Super Admin account cannot be scoped to a branch.' });
+      }
       const data = {};
       if (name !== undefined) data.adminName = name;
-      if (branch !== undefined) data.branch = branch || null;
+      if (branch !== undefined && !isSuperAdmin) data.branch = branch || null;
       if (active !== undefined) data.active = !!active;
       if (pin !== undefined && pin.length >= 4) {
         // generateSalt and hashPassword are statically imported at top of file
@@ -3596,6 +3609,13 @@ export async function changeUserRole(req, res) {
     const loginId = adminRecord ? adminRecord.adminId : coordRecord.loginId;
     const userName = adminRecord ? adminRecord.adminName : coordRecord.name;
     const isSourceAdmin = !!adminRecord;
+
+    // A Super Admin migrated out of admin_user_master (Case 3 below) loses
+    // requireSuperAdmin access permanently and silently, the same class of bug as
+    // the branch-write guard in updatePortalUser above.
+    if (adminRecord && ['Super Admin', 'SuperAdmin'].includes(adminRecord.role) && !isTargetAdmin) {
+      return res.status(400).json({ ok: false, message: 'A Super Admin account cannot be changed to a Coordinator-portal role from here.' });
+    }
 
     // Case 1: Non-Admin → Non-Admin (simple update)
     if (!isSourceAdmin && !isTargetAdmin) {
