@@ -167,12 +167,19 @@ router.post('/lms-users', ...auth, async (req, res) => {
     const duplicate = await prisma.traineeMaster.findFirst({ where: { status: { not: 'Deleted' }, OR: duplicateOr } });
     if (duplicate) return res.status(409).json({ ok: false, message: `User already exists: ${duplicate.employeeId}` });
 
+    // A soft-deleted trainee never frees its employeeId/lmsId/email at the DB level
+    // (deleteTraineeAccount only flips status to 'Deleted'), so re-creating the same
+    // person with a plain create() hits a P2002 unique-constraint error that used to
+    // surface as a generic "Unable to create LMS user." Reactivate that row instead.
+    const deletedMatch = await prisma.traineeMaster.findFirst({ where: { status: 'Deleted', OR: duplicateOr } });
+    const finalEmployeeId = deletedMatch ? deletedMatch.employeeId : employeeId;
+
     const tempPassword = clean(req.body?.tempPassword) || (mobile ? mobile.slice(-4) : '1234');
     const salt = generateSalt();
     const passwordHash = await hashPassword(tempPassword, salt);
 
     const payload = {
-      employeeId,
+      employeeId: finalEmployeeId,
       lmsId,
       traineeName,
       email,
@@ -190,17 +197,30 @@ router.post('/lms-users', ...auth, async (req, res) => {
       createdBy: req.userId,
     };
 
-    await prisma.$transaction([
-      prisma.traineeMaster.create({ data: payload }),
-      prisma.userMaster.create({ data: { employeeId, passwordHash, salt, traineeName, email, mobile, branch: payload.branch, process: payload.process, lob: payload.lob, batchNo: payload.batchNo, classroomId: payload.classroomId, active: true, forcePasswordReset: true } }),
-    ]);
+    const userPayload = { employeeId: finalEmployeeId, passwordHash, salt, traineeName, email, mobile, branch: payload.branch, process: payload.process, lob: payload.lob, batchNo: payload.batchNo, classroomId: payload.classroomId, active: true, forcePasswordReset: true };
 
-    const autoAssignments = await autoAssignModulesForNewUser({ employeeId, branch: payload.branch, process: payload.process, lob: payload.lob, createdBy: req.userId });
+    if (deletedMatch) {
+      await prisma.$transaction([
+        prisma.traineeMaster.update({ where: { employeeId: finalEmployeeId }, data: payload }),
+        prisma.userMaster.upsert({ where: { employeeId: finalEmployeeId }, create: userPayload, update: userPayload }),
+      ]);
+    } else {
+      await prisma.$transaction([
+        prisma.traineeMaster.create({ data: payload }),
+        prisma.userMaster.create({ data: userPayload }),
+      ]);
+    }
+
+    const autoAssignments = await autoAssignModulesForNewUser({ employeeId: finalEmployeeId, branch: payload.branch, process: payload.process, lob: payload.lob, createdBy: req.userId });
     const assignedCount = autoAssignments.filter(a => a.assigned).length;
 
-    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_INDEPENDENT_LMS_USER', module: 'Accounts', referenceId: employeeId, newValue: { lmsId, traineeName, assignedCount } });
-    return res.json({ ok: true, data: { employeeId, lmsId, traineeName, email, mobile, tempPassword, autoAssignments, assignedCount }, message: `LMS user created: ${employeeId}` });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_INDEPENDENT_LMS_USER', module: 'Accounts', referenceId: finalEmployeeId, newValue: { lmsId, traineeName, assignedCount, reactivated: !!deletedMatch } });
+    return res.json({ ok: true, data: { employeeId: finalEmployeeId, lmsId, traineeName, email, mobile, tempPassword, autoAssignments, assignedCount }, message: deletedMatch ? `LMS user reactivated: ${finalEmployeeId}` : `LMS user created: ${finalEmployeeId}` });
   } catch (err) {
+    if (err.code === 'P2002') {
+      console.error('[adminStability] create LMS user failed (unique constraint):', err.meta);
+      return res.status(409).json({ ok: false, message: 'A conflicting employee, LMS, email, or mobile identity already exists.' });
+    }
     console.error('[adminStability] create LMS user failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to create LMS user.' });
   }
