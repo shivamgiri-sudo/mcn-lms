@@ -100,16 +100,21 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
     const batchNo = batchRes.data?.batchNo;
 
     // 2. Add trainees if any
+    let addOutcome = null;
     if (trainees.length > 0) {
       const traineeRes = await api.post(`/admin/batches/${batchNo}/trainees/bulk`, { trainees }, 'admin');
       if (!traineeRes.ok) {
         setLoading(false);
         return setMsg(`Batch created (${batchNo}), but trainees could not be added: ${traineeRes.message || 'Upload failed.'}`);
       }
+      // The endpoint can report ok:true while only some (or none) of the queued
+      // rows actually landed (duplicates, validation errors, etc.) — always show
+      // what it actually reports, never assume every queued row succeeded.
+      addOutcome = traineeRes.data;
     }
 
     setLoading(false);
-    setCreated({ batchNo, batchName: batchRes.data?.batchName });
+    setCreated({ batchNo, batchName: batchRes.data?.batchName, addOutcome });
     setStep(5);
     onCreated?.();
   }
@@ -129,8 +134,16 @@ export default function BatchCreationWizard({ onClose, onCreated }) {
               {selectedClassrooms.length > 0 && (
                 <> · {selectedClassrooms.length === 1 ? 'Classroom' : 'Classrooms'}: <b style={{ color: 'var(--brand)' }}>{selectedClassrooms.map(c => c.classroomName).join(', ')}</b></>
               )}
-              {trainees.length > 0 && <> · {trainees.length} trainee(s) added</>}
+              {created?.addOutcome && <> · {created.addOutcome.success} trainee(s) added{created.addOutcome.failed > 0 ? `, ${created.addOutcome.failed} failed` : ''}</>}
             </p>
+            {created?.addOutcome?.failed > 0 && (
+              <div style={{ textAlign: 'left', background: 'rgba(217,119,6,.1)', border: '1px solid var(--warn)', borderRadius: 8, padding: '10px 14px', marginBottom: 20, fontSize: 12, color: 'var(--ink)' }}>
+                <b style={{ color: 'var(--warn)' }}>⚠ {created.addOutcome.failed} of {trainees.length} trainee(s) were not added:</b>
+                <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                  {(created.addOutcome.errors || []).map((e, i) => <li key={i}>{e}</li>)}
+                </ul>
+              </div>
+            )}
             <button className="btn" onClick={onClose} style={{ minWidth: 140 }}>Done</button>
           </div>
         </div>
