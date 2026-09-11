@@ -158,12 +158,20 @@ export function requireRole(...roles) {
 
 export function requireSuperAdmin(req, res, next) {
   if (req.userType !== 'admin') {
-    return res.status(403).json({ ok: false, message: 'Super administrator access required.' });
+    return res.status(403).json({ ok: false, code: 'SUPER_ADMIN_REQUIRED', message: 'Super administrator access required.' });
   }
 
   const role = req.adminInfo?.role ?? '';
-  if (req.userBranch || !['Super Admin', 'SuperAdmin'].includes(role)) {
-    return res.status(403).json({ ok: false, message: 'Super administrator access required.' });
+  if (!['Super Admin', 'SuperAdmin'].includes(role)) {
+    return res.status(403).json({ ok: false, code: 'SUPER_ADMIN_REQUIRED', message: 'Super administrator access required.' });
+  }
+  // A Super Admin account should never carry a branch (see updatePortalUser guard
+  // in controllers/admin.js), but if one slipped through before that guard existed,
+  // surface a distinct, actionable code instead of the same bare denial — this used
+  // to be indistinguishable from "you're not a Super Admin" and left a legitimately
+  // super-admin account with no way to understand or recover from the block.
+  if (req.userBranch) {
+    return res.status(403).json({ ok: false, code: 'SUPER_ADMIN_BRANCH_SCOPED', message: 'Your Super Admin account has a branch set, which blocks super-admin-only actions. Ask another Super Admin to clear the branch on your account.' });
   }
 
   return next();

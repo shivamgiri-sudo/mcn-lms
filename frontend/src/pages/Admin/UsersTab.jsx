@@ -32,6 +32,12 @@ function parseBulkUsersCsv(text) {
 }
 
 const ROLES = ['Coordinator', 'Manager', 'Trainer', 'Admin', 'Viewer'];
+// Super Admin accounts live in admin_user_master (same as 'Admin') and log into the
+// Admin portal the same way, but aren't a selectable role here — they're seeded
+// directly in the DB and must never be branch-scoped or demoted through this form
+// (see the matching guards in updatePortalUser/changeUserRole on the backend).
+const isAdminPortalRole = role => role === 'Admin' || role === 'Super Admin' || role === 'SuperAdmin';
+const isSuperAdminRole = role => role === 'Super Admin' || role === 'SuperAdmin';
 const PERMISSIONS = [
   { key: 'canCreateBatch', label: 'Create Batch' },
   { key: 'canOnboardTrainee', label: 'Onboard Trainee' },
@@ -185,7 +191,7 @@ export default function UsersTab() {
 
   async function submitPinReset(e) {
     e.preventDefault();
-    const isAdmin = resetTarget?.role === 'Admin';
+    const isAdmin = isAdminPortalRole(resetTarget?.role);
     if (!newPin || newPin.length < 4) return toast(`${isAdmin ? 'Password' : 'PIN'} must be at least 4 characters.`, false);
     const res = await api.post(`/admin/portal-users/${resetTarget.id}/reset-pin`, { pin: newPin }, 'admin');
     if (res.ok) { toast(`${isAdmin ? 'Password' : 'PIN'} reset successfully.`); setResetTarget(null); setNewPin(''); }
@@ -293,12 +299,12 @@ export default function UsersTab() {
                       </span>
                       <span style={{
                         fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                        background: u.role === 'Admin' ? 'rgba(139,92,246,.18)' : 'rgba(29,78,216,.18)',
-                        color: u.role === 'Admin' ? '#a78bfa' : '#60a5fa',
-                        border: `1px solid ${u.role === 'Admin' ? 'rgba(139,92,246,.3)' : 'rgba(29,78,216,.3)'}`,
+                        background: isAdminPortalRole(u.role) ? 'rgba(139,92,246,.18)' : 'rgba(29,78,216,.18)',
+                        color: isAdminPortalRole(u.role) ? '#a78bfa' : '#60a5fa',
+                        border: `1px solid ${isAdminPortalRole(u.role) ? 'rgba(139,92,246,.3)' : 'rgba(29,78,216,.3)'}`,
                         letterSpacing: '.04em',
                       }}>
-                        {u.role === 'Admin' ? 'Admin portal' : 'Coord portal'}
+                        {isAdminPortalRole(u.role) ? 'Admin portal' : 'Coord portal'}
                       </span>
                     </div>
                   </td>
@@ -320,8 +326,10 @@ export default function UsersTab() {
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
                       <button className="btn xs secondary" onClick={() => openEdit(u)}>Edit</button>
-                      <button className="btn xs secondary" onClick={() => openRoleChange(u)} title="Change role or promote to Admin">⇄ Role</button>
-                      <button className="btn xs secondary" onClick={() => { setResetTarget(u); setNewPin(''); }}>{u.role === 'Admin' ? 'Reset Password' : 'Reset PIN'}</button>
+                      {!isSuperAdminRole(u.role) && (
+                        <button className="btn xs secondary" onClick={() => openRoleChange(u)} title="Change role or promote to Admin">⇄ Role</button>
+                      )}
+                      <button className="btn xs secondary" onClick={() => { setResetTarget(u); setNewPin(''); }}>{isAdminPortalRole(u.role) ? 'Reset Password' : 'Reset PIN'}</button>
                       <button className="btn xs danger" onClick={() => deactivateUser(u)}>Deactivate</button>
                     </div>
                   </td>
@@ -432,13 +440,21 @@ export default function UsersTab() {
                 <div className="col-2">
                   <div className="field">
                     <label>Role *</label>
-                    <select className="select" value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value, portalAccess: e.target.value }))}>
-                      {ROLES.map(r => <option key={r}>{r}</option>)}
-                    </select>
+                    {isSuperAdminRole(form.role) ? (
+                      <input className="input" value={form.role} disabled title="Super Admin accounts are seeded directly in the database and can't be changed here." />
+                    ) : (
+                      <select className="select" value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value, portalAccess: e.target.value }))}>
+                        {ROLES.map(r => <option key={r}>{r}</option>)}
+                      </select>
+                    )}
                   </div>
                   <div className="field">
                     <label>Branch</label>
-                    <BranchSelect value={form.branch} onChange={next => setForm(p => ({ ...p, branch: next }))} />
+                    {isSuperAdminRole(form.role) ? (
+                      <input className="input" value="— (Super Admin accounts must have no branch)" disabled />
+                    ) : (
+                      <BranchSelect value={form.branch} onChange={next => setForm(p => ({ ...p, branch: next }))} />
+                    )}
                   </div>
                   <div className="field">
                     <label>Process</label>
@@ -553,13 +569,13 @@ export default function UsersTab() {
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setResetTarget(null)}>
           <div className="modal-box" style={{ maxWidth: 380 }}>
             <div className="modal-head">
-              <b>{resetTarget.role === 'Admin' ? 'Reset Password' : 'Reset PIN'} — {resetTarget.loginId}</b>
+              <b>{isAdminPortalRole(resetTarget.role) ? 'Reset Password' : 'Reset PIN'} — {resetTarget.loginId}</b>
               <button className="btn small secondary" onClick={() => setResetTarget(null)}>✕</button>
             </div>
             <div className="modal-body">
               <form onSubmit={submitPinReset} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="field">
-                  <label>{resetTarget.role === 'Admin' ? 'New Password *' : 'New PIN *'}</label>
+                  <label>{isAdminPortalRole(resetTarget.role) ? 'New Password *' : 'New PIN *'}</label>
                   <input
                     className="input"
                     type="password"
@@ -569,7 +585,7 @@ export default function UsersTab() {
                     required
                   />
                 </div>
-                <button className="btn" type="submit">Set New {resetTarget.role === 'Admin' ? 'Password' : 'PIN'}</button>
+                <button className="btn" type="submit">Set New {isAdminPortalRole(resetTarget.role) ? 'Password' : 'PIN'}</button>
               </form>
             </div>
           </div>
