@@ -1836,7 +1836,11 @@ export async function exportModuleCompletion(req, res) {
 
     const [progress, modules, contents] = await Promise.all([
       prisma.contentProgress.findMany({
-        where: { employeeId: { in: empIds }, ...(classroomId ? { classroomId } : {}) },
+        // Independent/broadcast content writes classroomId '' (it belongs to no
+        // classroom) — excluding that keeps this curriculum export from showing
+        // those rows with blank Module/Content Type. They're covered by the
+        // Independent Module Reading Report export instead.
+        where: { employeeId: { in: empIds }, classroomId: classroomId || { not: '' } },
         orderBy: [{ employeeId: 'asc' }, { dayNo: 'asc' }],
       }),
       prisma.moduleMaster.findMany({
