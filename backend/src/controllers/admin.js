@@ -2975,17 +2975,101 @@ export async function adminBulkAddTrainees(req, res) {
       } else {
         normEmpId = employeeId.trim().toUpperCase();
       }
+      const normEmail = email ? email.trim().toLowerCase() : null;
+      const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
 
+      // Look up ANY existing trainee_master row (active or soft-deleted) with this
+      // employeeId/email — a plain "already exists" reject here (the old behaviour)
+      // is exactly why re-uploading a CSV for an established batch like this one
+      // silently rejected every row: everyone already in the system, including
+      // previously removed trainees, got bounced instead of being (re-)enrolled.
       const existing = await prisma.traineeMaster.findFirst({
-        where: { OR: [{ employeeId: normEmpId }, ...(email ? [{ email: email.trim().toLowerCase() }] : [])].filter(Boolean) },
+        where: { OR: [{ employeeId: normEmpId }, ...(normEmail ? [{ email: normEmail }] : [])].filter(Boolean) },
       });
-      if (existing) { results.push({ ok: false, message: `${normEmpId} already exists.` }); continue; }
 
+      if (existing && existing.status !== 'Deleted') {
+        if (existing.batchNo === batch.batchNo) {
+          results.push({ ok: true, employeeId: existing.employeeId, alreadyEnrolled: true });
+          continue;
+        }
+        // Active trainee found in another (or no) batch — transfer them in, the
+        // same way "Search & Enroll Existing Trainee" does, instead of failing.
+        const previousBatchNo = existing.batchNo;
+        await prisma.$transaction(async (tx) => {
+          await tx.traineeMaster.update({
+            where: { employeeId: existing.employeeId },
+            data: {
+              batchNo: batch.batchNo,
+              branch: batch.branch,
+              process: batch.process,
+              lob: batch.lob,
+              classroomId: batch.classroomId,
+              classroomName: batch.classroomName,
+              status: 'Active',
+            },
+          });
+          await tx.userMaster.updateMany({
+            where: { employeeId: existing.employeeId },
+            data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
+          });
+          if (batch.classroomId) {
+            await tx.traineeClassroomMap.upsert({
+              where: { employeeId_classroomId: { employeeId: existing.employeeId, classroomId: batch.classroomId } },
+              create: { employeeId: existing.employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+              update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
+            });
+          }
+          if (previousBatchNo && previousBatchNo !== batch.batchNo) {
+            await tx.batchMaster.updateMany({ where: { batchNo: previousBatchNo, totalTrainees: { gt: 0 } }, data: { totalTrainees: { decrement: 1 } } });
+          }
+        });
+        results.push({ ok: true, employeeId: existing.employeeId, transferred: true });
+        continue;
+      }
+
+      if (existing && existing.status === 'Deleted') {
+        // Previously removed trainee — employeeId/lmsId/email are still occupied by
+        // this soft-deleted row, so reactivate it in place instead of creating a
+        // fresh one (which would 500 on the unique-constraint collision).
+        const tempPassword = cleanMobile ? cleanMobile.slice(-4) : '1234';
+        const salt = generateSalt();
+        const passwordHash = await hashPassword(tempPassword, salt);
+        await prisma.$transaction(async (tx) => {
+          await tx.traineeMaster.update({
+            where: { employeeId: existing.employeeId },
+            data: {
+              traineeName: traineeName || existing.traineeName,
+              email: normEmail || existing.email,
+              mobile: cleanMobile || existing.mobile,
+              batchNo: batch.batchNo,
+              branch: batch.branch,
+              process: batch.process,
+              lob: batch.lob,
+              classroomId: batch.classroomId,
+              classroomName: batch.classroomName,
+              certificationStatus: 'Not Certified',
+              status: 'Active',
+            },
+          });
+          const userPayload = { employeeId: existing.employeeId, traineeName: traineeName || existing.traineeName, email: normEmail || existing.email, mobile: cleanMobile || existing.mobile, batchNo: batch.batchNo, classroomId: batch.classroomId, passwordHash, salt, forcePasswordReset: true, active: true };
+          await tx.userMaster.upsert({ where: { employeeId: existing.employeeId }, create: userPayload, update: userPayload });
+          if (batch.classroomId) {
+            await tx.traineeClassroomMap.upsert({
+              where: { employeeId_classroomId: { employeeId: existing.employeeId, classroomId: batch.classroomId } },
+              create: { employeeId: existing.employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+              update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
+            });
+          }
+        });
+        results.push({ ok: true, employeeId: existing.employeeId, reactivated: true });
+        continue;
+      }
+
+      // Brand-new trainee — create from scratch.
       // Generate unique lmsId — use timestamp+random if collision risk
       let lmsId = `LMS${normEmpId.replace(/\D/g, '').padStart(6, '0').slice(-6)}`;
       const lmsIdExists = await prisma.traineeMaster.findFirst({ where: { lmsId } });
       if (lmsIdExists) lmsId = `LMS${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`.slice(0, 9);
-      const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
       const tempPassword = cleanMobile ? cleanMobile.slice(-4) : '1234';
       const salt = generateSalt();
       const passwordHash = await hashPassword(tempPassword, salt);
@@ -2996,7 +3080,7 @@ export async function adminBulkAddTrainees(req, res) {
             employeeId: normEmpId,
             lmsId,
             traineeName: traineeName || normEmpId,
-            email: email ? email.trim().toLowerCase() : null,
+            email: normEmail,
             mobile: cleanMobile,
             batchNo: batch.batchNo,
             branch: batch.branch,
@@ -3012,7 +3096,7 @@ export async function adminBulkAddTrainees(req, res) {
           data: {
             employeeId: normEmpId,
             traineeName: traineeName || normEmpId,
-            email: email ? email.trim().toLowerCase() : null,
+            email: normEmail,
             mobile: cleanMobile,
             batchNo: batch.batchNo,
             classroomId: batch.classroomId,
@@ -3034,13 +3118,21 @@ export async function adminBulkAddTrainees(req, res) {
 
     const success = results.filter(r => r.ok).length;
     const failed = results.filter(r => !r.ok);
-    if (success > 0) {
+    // Every ok row lands in this batch except "alreadyEnrolled" (no-op, already
+    // counted previously). New creates, transfers and reactivations all add one
+    // member here; the per-row transaction above already decremented whichever
+    // *previous* batch a transferred trainee came from.
+    const newlyAdded = results.filter(r => r.ok && !r.alreadyEnrolled).length;
+    if (newlyAdded > 0) {
       await prisma.batchMaster.update({
         where: { batchNo },
-        data: { totalTrainees: { increment: success } },
+        data: { totalTrainees: { increment: newlyAdded } },
       });
     }
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'BULK_ONBOARD', module: 'Trainee', referenceId: batchNo, newValue: { total: trainees.length, success } });
+    if (success === 0 && failed.length > 0) {
+      return res.status(422).json({ ok: false, data: { success, failed: failed.length, errors: failed.map(r => r.message) }, message: 'Bulk import failed for every row — see errors for details.' });
+    }
     res.json({ ok: true, data: { success, failed: failed.length, errors: failed.map(r => r.message) } });
   } catch (err) {
     console.error(err);

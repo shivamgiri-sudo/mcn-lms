@@ -95,8 +95,8 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
   async function enrollExisting(trainee) {
     setEnrolling(trainee.employeeId);
     // A search hit is, by definition, a trainee who already has a trainee_master
-    // row — /trainees/bulk only ever creates new ones and would reject them as
-    // "already exists". /trainees/enroll-existing transfers them into this batch.
+    // row. /trainees/bulk now transfers/reactivates existing trainees too, but this
+    // single-record flow still goes through the dedicated enroll-existing endpoint.
     const res = await api.post(`/admin/batches/${batchNo}/trainees/enroll-existing`, {
       employeeId: trainee.employeeId,
     }, 'admin');
