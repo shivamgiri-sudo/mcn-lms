@@ -3035,7 +3035,14 @@ export async function adminBulkAddTrainees(req, res) {
         // Previously removed trainee — employeeId/lmsId/email are still occupied by
         // this soft-deleted row, so reactivate it in place instead of creating a
         // fresh one (which would 500 on the unique-constraint collision).
-        const tempPassword = cleanMobile ? cleanMobile.slice(-4) : '1234';
+        // The password MUST be derived from the same effective mobile number that
+        // gets stored below (cleanMobile, falling back to the existing record's
+        // mobile when this row's CSV/JSON omitted it) — deriving it from cleanMobile
+        // alone left the stored mobile intact but silently reset the password to
+        // '1234' on any re-upload that didn't repeat the mobile column, so the
+        // trainee's real "last 4 digits of mobile" login stopped working.
+        const effectiveMobile = cleanMobile || existing.mobile;
+        const tempPassword = firstTimePassword(effectiveMobile);
         const salt = generateSalt();
         const passwordHash = await hashPassword(tempPassword, salt);
         await prisma.$transaction(async (tx) => {
@@ -3044,7 +3051,7 @@ export async function adminBulkAddTrainees(req, res) {
             data: {
               traineeName: traineeName || existing.traineeName,
               email: normEmail || existing.email,
-              mobile: cleanMobile || existing.mobile,
+              mobile: effectiveMobile,
               batchNo: batch.batchNo,
               branch: batch.branch,
               process: batch.process,
@@ -3055,7 +3062,7 @@ export async function adminBulkAddTrainees(req, res) {
               status: 'Active',
             },
           });
-          const userPayload = { employeeId: existing.employeeId, traineeName: traineeName || existing.traineeName, email: normEmail || existing.email, mobile: cleanMobile || existing.mobile, batchNo: batch.batchNo, classroomId: batch.classroomId, passwordHash, salt, forcePasswordReset: true, active: true };
+          const userPayload = { employeeId: existing.employeeId, traineeName: traineeName || existing.traineeName, email: normEmail || existing.email, mobile: effectiveMobile, batchNo: batch.batchNo, classroomId: batch.classroomId, passwordHash, salt, forcePasswordReset: true, active: true };
           await tx.userMaster.upsert({ where: { employeeId: existing.employeeId }, create: userPayload, update: userPayload });
           if (batch.classroomId) {
             await tx.traineeClassroomMap.upsert({
@@ -3074,7 +3081,7 @@ export async function adminBulkAddTrainees(req, res) {
       let lmsId = `LMS${normEmpId.replace(/\D/g, '').padStart(6, '0').slice(-6)}`;
       const lmsIdExists = await prisma.traineeMaster.findFirst({ where: { lmsId } });
       if (lmsIdExists) lmsId = `LMS${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`.slice(0, 9);
-      const tempPassword = cleanMobile ? cleanMobile.slice(-4) : '1234';
+      const tempPassword = firstTimePassword(cleanMobile);
       const salt = generateSalt();
       const passwordHash = await hashPassword(tempPassword, salt);
 
@@ -4230,7 +4237,7 @@ export async function bulkImportExecute(req, res) {
           if (dup) { skipped.push(employeeId); continue; }
         }
         const lmsId = r.lmsId || `LMS${String(created.length + 1).padStart(6, '0')}`;
-        const tempPassword = r.mobile ? String(r.mobile).replace(/\D/g, '').slice(-4) : '1234';
+        const tempPassword = firstTimePassword(r.mobile);
         const salt = generateSalt();
         const passwordHash = await hashPassword(tempPassword, salt);
         const traineePayload = {

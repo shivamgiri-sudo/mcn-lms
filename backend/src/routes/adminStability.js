@@ -4,7 +4,7 @@ import { prisma } from '../utils/db.js';
 import { requireSession, requireRole } from '../middleware/auth.js';
 import { audit } from '../utils/audit.js';
 import { getFormOptions } from '../services/formOptions.js';
-import { generateId, generateSalt, hashPassword } from '../utils/hash.js';
+import { generateId, generateSalt, hashPassword, firstTimePassword } from '../utils/hash.js';
 import { contentUpload } from '../utils/upload.js';
 import {
   autoAssignModulesForNewUser,
@@ -173,8 +173,13 @@ router.post('/lms-users', ...auth, async (req, res) => {
     // surface as a generic "Unable to create LMS user." Reactivate that row instead.
     const deletedMatch = await prisma.traineeMaster.findFirst({ where: { status: 'Deleted', OR: duplicateOr } });
     const finalEmployeeId = deletedMatch ? deletedMatch.employeeId : employeeId;
+    // Keep the reactivated record's mobile (and the password derived from it) when
+    // the request doesn't repeat it, instead of silently wiping a known mobile
+    // number and resetting the password to '1234' underneath it — the same
+    // storage/password fallback mismatch fixed in adminBulkAddTrainees.
+    const effectiveMobile = mobile || (deletedMatch ? deletedMatch.mobile : null);
 
-    const tempPassword = clean(req.body?.tempPassword) || (mobile ? mobile.slice(-4) : '1234');
+    const tempPassword = clean(req.body?.tempPassword) || firstTimePassword(effectiveMobile);
     const salt = generateSalt();
     const passwordHash = await hashPassword(tempPassword, salt);
 
@@ -183,7 +188,7 @@ router.post('/lms-users', ...auth, async (req, res) => {
       lmsId,
       traineeName,
       email,
-      mobile,
+      mobile: effectiveMobile,
       batchNo: clean(req.body?.batchNo),
       branch: clean(req.body?.branch),
       process: clean(req.body?.process),
@@ -197,7 +202,7 @@ router.post('/lms-users', ...auth, async (req, res) => {
       createdBy: req.userId,
     };
 
-    const userPayload = { employeeId: finalEmployeeId, passwordHash, salt, traineeName, email, mobile, branch: payload.branch, process: payload.process, lob: payload.lob, batchNo: payload.batchNo, classroomId: payload.classroomId, active: true, forcePasswordReset: true };
+    const userPayload = { employeeId: finalEmployeeId, passwordHash, salt, traineeName, email, mobile: effectiveMobile, branch: payload.branch, process: payload.process, lob: payload.lob, batchNo: payload.batchNo, classroomId: payload.classroomId, active: true, forcePasswordReset: true };
 
     if (deletedMatch) {
       await prisma.$transaction([
