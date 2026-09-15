@@ -1,0 +1,164 @@
+name: Deploy LMS to Production
+
+# Fires automatically after the main CI workflow passes on main.
+# Can also be triggered manually for a hotfix or re-deploy.
+on:
+  workflow_run:
+    workflows: ["LMS Security and Build CI"]
+    types: [completed]
+    branches: [main]
+
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Override image tag to deploy (leave blank for current HEAD)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: lms-deploy-production
+  cancel-in-progress: false   # never cancel a deploy mid-flight
+
+jobs:
+  deploy:
+    name: Build push and deploy to production
+    runs-on: ubuntu-latest
+    environment: production
+    # For workflow_run: only proceed when CI succeeded.
+    # For workflow_dispatch: always run.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    timeout-minutes: 25
+
+    steps:
+      # ── 1. Resolve the commit to deploy ────────────────────────────────────
+      - name: Resolve deploy SHA
+        id: sha
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout at deploy SHA
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.sha.outputs.sha }}
+
+      # ── 2. Build and push image to GHCR ────────────────────────────────────
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push Docker image
+        id: image
+        uses: docker/build-push-action@cb941d0b895b09c17fa011d41c411b33c752cf28
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}:main
+            ghcr.io/${{ github.repository }}:sha-${{ steps.sha.outputs.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ── 3. Deploy on the production server via SSH ──────────────────────────
+      - name: Deploy to production server
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          NEW_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ steps.sha.outputs.sha }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.LMS_GHCR_TOKEN }}
+          DEPLOY_PATH: ${{ secrets.LMS_PROD_DEPLOY_PATH }}
+        with:
+          host: ${{ secrets.LMS_PROD_HOST }}
+          username: ${{ secrets.LMS_PROD_USER }}
+          key: ${{ secrets.LMS_PROD_SSH_KEY }}
+          port: ${{ secrets.LMS_PROD_SSH_PORT || 22 }}
+          envs: NEW_IMAGE,GHCR_USER,GHCR_TOKEN,DEPLOY_PATH
+          timeout: 600s
+          script: |
+            set -euo pipefail
+
+            echo "==> Deploying $NEW_IMAGE"
+
+            # Pull fresh copy of deploy config from the server's checked-out repo
+            cd "$DEPLOY_PATH"
+            git fetch --quiet origin main
+            git checkout --quiet origin/main -- deploy/docker-compose.production.yml
+
+            # Authenticate to GHCR so the server can pull the image
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+
+            # Pull the new image before touching the running service
+            docker pull "$NEW_IMAGE"
+
+            # Export for docker compose
+            export LMS_IMAGE="$NEW_IMAGE"
+            export LMS_SERVICE_ENV_FILE="$DEPLOY_PATH/deploy/.env.production"
+            export COMPOSE_FILE="$DEPLOY_PATH/deploy/docker-compose.production.yml"
+
+            # Forward-only migrations (runs as ephemeral container, exits 0 on success)
+            docker compose \
+              --env-file "$LMS_SERVICE_ENV_FILE" \
+              -f "$COMPOSE_FILE" \
+              run --rm migrate
+
+            # Swap app and worker to new image without touching volumes or the DB container
+            docker compose \
+              --env-file "$LMS_SERVICE_ENV_FILE" \
+              -f "$COMPOSE_FILE" \
+              up -d --no-deps --pull never app worker
+
+            # Health check — wait up to 60 s for the app to become ready
+            echo "==> Waiting for readiness..."
+            for i in $(seq 1 12); do
+              if curl --fail --silent --max-time 5 \
+                  "http://127.0.0.1:${LMS_HTTP_PORT:-4000}/api/runtime/health/ready" \
+                  > /dev/null 2>&1; then
+                echo "==> Ready after $((i * 5))s"
+                break
+              fi
+              if [[ $i -eq 12 ]]; then
+                echo "ERROR: app did not become ready within 60s" >&2
+                docker compose --env-file "$LMS_SERVICE_ENV_FILE" -f "$COMPOSE_FILE" logs --tail=50 app
+                exit 1
+              fi
+              sleep 5
+            done
+
+            # Record deployed image in .env.production for next run's reference
+            sed -i "s|^LMS_IMAGE=.*|LMS_IMAGE=$NEW_IMAGE|" "$LMS_SERVICE_ENV_FILE" || true
+
+            echo "==> Deploy complete: $NEW_IMAGE"
+            docker compose --env-file "$LMS_SERVICE_ENV_FILE" -f "$COMPOSE_FILE" ps
+
+      # ── 4. Annotate the deployment in GitHub ───────────────────────────────
+      - name: Create deployment summary
+        if: always()
+        shell: bash
+        run: |
+          echo "## LMS Production Deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Commit | \`${{ steps.sha.outputs.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Image | \`ghcr.io/${{ github.repository }}:sha-${{ steps.sha.outputs.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Triggered by | ${{ github.event_name }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Actor | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"

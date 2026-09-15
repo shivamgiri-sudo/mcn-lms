@@ -1,6 +1,6 @@
 import { prisma } from '../utils/db.js';
 import { generateBatchNo } from '../utils/batchNaming.js';
-import { hashPassword, generateSalt, normalize } from '../utils/hash.js';
+import { hashPassword, generateSalt, normalize, firstTimePassword } from '../utils/hash.js';
 import { audit } from '../utils/audit.js';
 import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { awardCertification } from '../utils/leaderboardEngine.js';
@@ -400,10 +400,10 @@ async function onboardSingleTrainee(data, batch, coordinatorLoginId) {
     if (!exists) break;
     lmsId = `LMS${normEmpId.replace(/\D/g, '').slice(-4).padStart(4, '0')}${randomInt(100, 999)}`;
   }
-  const tempPassword = randomInt(100000, 999999).toString();
+  const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
+  const tempPassword = firstTimePassword(cleanMobile);
   const salt = generateSalt();
   const passwordHash = await hashPassword(tempPassword, salt);
-  const cleanMobile = mobile ? mobile.replace(/\D/g, '').slice(-10) : null;
 
   let trainee;
   try {
