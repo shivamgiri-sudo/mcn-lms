@@ -9,15 +9,9 @@ on:
     branches: [main]
 
   workflow_dispatch:
-    inputs:
-      image_tag:
-        description: "Override image tag to deploy (leave blank for current HEAD)"
-        required: false
-        type: string
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
   group: lms-deploy-production
@@ -25,140 +19,90 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build push and deploy to production
+    name: Deploy to production server
     runs-on: ubuntu-latest
     environment: production
-    # For workflow_run: only proceed when CI succeeded.
-    # For workflow_dispatch: always run.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
-    timeout-minutes: 25
+    timeout-minutes: 20
 
     steps:
-      # ── 1. Resolve the commit to deploy ────────────────────────────────────
-      - name: Resolve deploy SHA
-        id: sha
-        shell: bash
-        run: |
-          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
-            echo "sha=${{ github.event.workflow_run.head_sha }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "sha=${{ github.sha }}" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout at deploy SHA
-        uses: actions/checkout@v7
-        with:
-          ref: ${{ steps.sha.outputs.sha }}
-
-      # ── 2. Build and push image to GHCR ────────────────────────────────────
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@65b78e6e13532edd9afa3aa52ac7964289d1a9c1
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build and push Docker image
-        id: image
-        uses: docker/build-push-action@cb941d0b895b09c17fa011d41c411b33c752cf28
-        with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}:main
-            ghcr.io/${{ github.repository }}:sha-${{ steps.sha.outputs.sha }}
-          labels: |
-            org.opencontainers.image.revision=${{ steps.sha.outputs.sha }}
-            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      # ── 3. Deploy on the production server via SSH ──────────────────────────
-      - name: Deploy to production server
+      - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
-        env:
-          NEW_IMAGE: ghcr.io/${{ github.repository }}:sha-${{ steps.sha.outputs.sha }}
-          GHCR_USER: ${{ github.actor }}
-          GHCR_TOKEN: ${{ secrets.LMS_GHCR_TOKEN }}
-          DEPLOY_PATH: ${{ secrets.LMS_PROD_DEPLOY_PATH }}
         with:
           host: ${{ secrets.LMS_PROD_HOST }}
           username: ${{ secrets.LMS_PROD_USER }}
-          key: ${{ secrets.LMS_PROD_SSH_KEY }}
-          port: ${{ secrets.LMS_PROD_SSH_PORT || 22 }}
-          envs: NEW_IMAGE,GHCR_USER,GHCR_TOKEN,DEPLOY_PATH
+          password: ${{ secrets.LMS_PROD_SSH_PASS }}
+          port: 22
           timeout: 600s
           script: |
             set -euo pipefail
+            DEPLOY_DIR=/var/www/mcn-lms
+            NODE_BIN=/usr/bin
 
-            echo "==> Deploying $NEW_IMAGE"
+            echo "==> Pulling latest code"
+            cd "$DEPLOY_DIR"
+            git fetch origin main
+            git reset --hard origin/main
 
-            # Pull fresh copy of deploy config from the server's checked-out repo
-            cd "$DEPLOY_PATH"
-            git fetch --quiet origin main
-            git checkout --quiet origin/main -- deploy/docker-compose.production.yml
+            echo "==> Installing backend dependencies"
+            cd "$DEPLOY_DIR/backend"
+            "$NODE_BIN/npm" ci --ignore-scripts --omit=dev
 
-            # Authenticate to GHCR so the server can pull the image
-            echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            echo "==> Generating Prisma client"
+            "$NODE_BIN/npx" prisma generate
 
-            # Pull the new image before touching the running service
-            docker pull "$NEW_IMAGE"
+            echo "==> Running database migrations"
+            "$NODE_BIN/npx" prisma migrate deploy
 
-            # Export for docker compose
-            export LMS_IMAGE="$NEW_IMAGE"
-            export LMS_SERVICE_ENV_FILE="$DEPLOY_PATH/deploy/.env.production"
-            export COMPOSE_FILE="$DEPLOY_PATH/deploy/docker-compose.production.yml"
+            echo "==> Building frontend"
+            cd "$DEPLOY_DIR/frontend"
+            "$NODE_BIN/npm" ci --ignore-scripts
+            "$NODE_BIN/npm" run build
 
-            # Forward-only migrations (runs as ephemeral container, exits 0 on success)
-            docker compose \
-              --env-file "$LMS_SERVICE_ENV_FILE" \
-              -f "$COMPOSE_FILE" \
-              run --rm migrate
+            echo "==> Restarting LMS backend via PM2"
+            sudo fuser -k 8000/tcp || true
+            sleep 1
+            "$NODE_BIN/pm2" delete mcn-lms-backend 2>/dev/null || true
+            "$NODE_BIN/pm2" start "$DEPLOY_DIR/backend/src/server.js" \
+              --name mcn-lms-backend \
+              --cwd "$DEPLOY_DIR/backend" \
+              --log "$DEPLOY_DIR/backend/lms-out.log" \
+              --error "$DEPLOY_DIR/backend/lms-err.log"
+            "$NODE_BIN/pm2" save
 
-            # Swap app and worker to new image without touching volumes or the DB container
-            docker compose \
-              --env-file "$LMS_SERVICE_ENV_FILE" \
-              -f "$COMPOSE_FILE" \
-              up -d --no-deps --pull never app worker
-
-            # Health check — wait up to 60 s for the app to become ready
-            echo "==> Waiting for readiness..."
+            echo "==> Waiting for health check"
             for i in $(seq 1 12); do
               if curl --fail --silent --max-time 5 \
-                  "http://127.0.0.1:${LMS_HTTP_PORT:-4000}/api/runtime/health/ready" \
+                  "http://127.0.0.1:8000/api/runtime/health/ready" \
                   > /dev/null 2>&1; then
                 echo "==> Ready after $((i * 5))s"
                 break
               fi
               if [[ $i -eq 12 ]]; then
-                echo "ERROR: app did not become ready within 60s" >&2
-                docker compose --env-file "$LMS_SERVICE_ENV_FILE" -f "$COMPOSE_FILE" logs --tail=50 app
+                echo "ERROR: LMS did not become ready within 60s" >&2
+                "$NODE_BIN/pm2" logs mcn-lms-backend --lines 30 --nostream
                 exit 1
               fi
               sleep 5
             done
 
-            # Record deployed image in .env.production for next run's reference
-            sed -i "s|^LMS_IMAGE=.*|LMS_IMAGE=$NEW_IMAGE|" "$LMS_SERVICE_ENV_FILE" || true
+            echo "==> Deploy complete"
+            "$NODE_BIN/pm2" show mcn-lms-backend
 
-            echo "==> Deploy complete: $NEW_IMAGE"
-            docker compose --env-file "$LMS_SERVICE_ENV_FILE" -f "$COMPOSE_FILE" ps
-
-      # ── 4. Annotate the deployment in GitHub ───────────────────────────────
-      - name: Create deployment summary
+      - name: Deployment summary
         if: always()
-        shell: bash
         run: |
           echo "## LMS Production Deploy" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "| Field | Value |" >> "$GITHUB_STEP_SUMMARY"
           echo "|---|---|" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Commit | \`${{ steps.sha.outputs.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
-          echo "| Image | \`ghcr.io/${{ github.repository }}:sha-${{ steps.sha.outputs.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "${{ github.event_name }}" == "workflow_run" ]]; then
+            echo "| Commit | \`${{ github.event.workflow_run.head_sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "| Commit | \`${{ github.sha }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          fi
           echo "| Triggered by | ${{ github.event_name }} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| Actor | ${{ github.actor }} |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Status | ${{ job.status }} |" >> "$GITHUB_STEP_SUMMARY"
