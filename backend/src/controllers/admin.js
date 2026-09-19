@@ -110,7 +110,7 @@ export async function getAdminDashboard(req, res) {
     }
 
     const [classrooms, trainees, batches, openQueries, atRisk] = await Promise.all([
-      prisma.classroomMaster.count({ where: { active: true, ...branchFilter } }),
+      prisma.classroomMaster.count({ where: req.userBranch ? { active: true, OR: [{ branch: req.userBranch }, { branch: null }] } : { active: true } }),
       prisma.traineeMaster.count({ where: { status: 'Active', ...branchFilter } }),
       prisma.batchMaster.count({ where: { batchStatus: 'Active', ...branchFilter } }),
       prisma.traineeQueryLog.count({ where: queryLogWhere }),
@@ -176,8 +176,12 @@ export async function listClassrooms(req, res) {
   try {
     const { branch } = req.query;
     const where = { active: true };
-    if (branch) where.branch = branch;
-    else if (req.userBranch) where.branch = req.userBranch;
+    if (branch) {
+      where.branch = branch;
+    } else if (req.userBranch) {
+      // Branch admins see their own branch + classrooms not yet assigned to any branch
+      where.OR = [{ branch: req.userBranch }, { branch: null }];
+    }
     const classrooms = await prisma.classroomMaster.findMany({
       where,
       orderBy: { createdAt: 'desc' },
