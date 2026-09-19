@@ -434,8 +434,17 @@ async function learnerAssessmentAccess(employeeId, assessmentId) {
   if (!trainee) throw new AssessmentIntelligenceError('TRAINEE_NOT_FOUND', 'Trainee not found.', 404);
   if (!assessment || !assessment.active) throw new AssessmentIntelligenceError('ASSESSMENT_NOT_FOUND', 'Assessment not found.', 404);
 
-  let classroomAccess = trainee.classroomId === assessment.classroomId;
-  if (!classroomAccess) {
+  // assessment.classroomId is nullable (a standalone assessment created via the
+  // Broadcast tab's "Assign a specific Assessment" flow has none until an admin
+  // later attaches it to a classroom), but TraineeClassroomMap.classroomId is a
+  // required scalar column — passing null into that filter isn't "match nothing",
+  // Prisma 6 throws PrismaClientValidationError, which isn't an
+  // AssessmentIntelligenceError so it falls through to a bare 500 for every
+  // normally-enrolled trainee opening a standalone assessment. Guard it and let a
+  // null-classroom assessment fall through to the broadcast-access check below,
+  // same as the (now-dead) traineeStability.js version of this check already did.
+  let classroomAccess = Boolean(assessment.classroomId) && trainee.classroomId === assessment.classroomId;
+  if (!classroomAccess && assessment.classroomId) {
     const mapping = await prisma.traineeClassroomMap.findFirst({
       where: { employeeId, classroomId: assessment.classroomId, active: true },
       select: { id: true },
