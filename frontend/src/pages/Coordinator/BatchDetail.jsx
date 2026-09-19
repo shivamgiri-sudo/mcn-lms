@@ -1157,7 +1157,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
 
   if (!traineeRow) return null;
 
-  const presentDays = detail?.attendance?.filter(a => a.status === 'Present').length || 0;
+  const presentDays = detail?.attendance?.filter(a => a.finalAttendance === 'Present').length || 0;
   const totalAttDays = detail?.attendance?.length || 0;
 
   const drawerStyle = {
@@ -1307,13 +1307,13 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                       {[...detail.attendance].reverse().map(a => {
-                        const present = a.status === 'Present';
+                        const present = a.finalAttendance === 'Present';
                         return (
-                          <span key={a.date} title={`${a.date} — ${a.status}`}
+                          <span key={a.date} title={`${a.date} — ${a.finalAttendance}`}
                             style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, fontWeight: 600, cursor: 'default',
                               background: present ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.12)',
                               color: present ? '#4ade80' : '#f87171' }}>
-                            {String(a.date || '').slice(5)}
+                            {new Date(a.date).toLocaleDateString('en-GB', { day:'2-digit', month:'short' })}
                           </span>
                         );
                       })}
@@ -1333,7 +1333,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                   return (
                     <div key={r.id} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{r.assessment?.title || r.assessmentId}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text, #e2e8f0)" }}>{r.assessment?.assessmentName || r.assessmentId}</div>
                         <span style={pillOk(passed)}>{r.result}</span>
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>

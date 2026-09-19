@@ -632,7 +632,7 @@ router.get('/batches/:batchNo/trainees/:employeeId/detail', ...auth, async (req,
       }),
       prisma.assessmentResult.findMany({
         where: { employeeId },
-        include: { assessment: { select: { title: true, assessmentId: true } } },
+        include: { assessment: { select: { assessmentName: true, assessmentId: true } } },
         orderBy: { lastAttemptAt: 'desc' },
       }),
       prisma.contentProgress.findMany({
