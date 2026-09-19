@@ -272,9 +272,23 @@ model ClassroomMaster {
   modules              ModuleMaster[]
   assessments          AssessmentMaster[]
   traineeClassroomMaps TraineeClassroomMap[]
+  branchMaps           ClassroomBranchMap[]
 
   @@index([branch])
   @@map("classroom_master")
+}
+
+model ClassroomBranchMap {
+  id          String          @id @default(uuid())
+  classroomId String          @map("classroom_id")
+  branch      String
+  createdAt   DateTime        @default(now()) @map("created_at")
+  classroom   ClassroomMaster @relation(fields: [classroomId], references: [classroomId], onDelete: Cascade)
+
+  @@unique([classroomId, branch])
+  @@index([classroomId])
+  @@index([branch])
+  @@map("classroom_branch_map")
 }
 
 model ModuleMaster {

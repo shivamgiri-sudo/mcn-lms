@@ -159,7 +159,7 @@ export default function AdminConsole({ user, onLogout }) {
 
         <div className="admin-main">
           {activeId === 'dashboard' && <DashboardPage navigate={navigate} />}
-          {activeId === 'curriculum' && <CurriculumTab />}
+          {activeId === 'curriculum' && <CurriculumTab isSuper={isSuper} user={user} />}
           {activeId === 'live-training' && <TrainingCalendarEntryCard role="admin" />}
           {activeId === 'content-repository' && <ContentRepositoryTab />}
           {activeId === 'independent-modules' && <IndependentModulesTab />}

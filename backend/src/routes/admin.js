@@ -4,6 +4,7 @@ import { validate, classroomSchema, moduleSchema, assessmentSchema, batchSchema 
 import {
   getAdminDashboard,
   listClassrooms, createClassroom, updateClassroom, deleteClassroom,
+  copyClassroom, getClassroomBranches, setClassroomBranches,
   listModules, createModule, updateModule, deleteModule,
   listContents, createContent, updateContent, deleteContent,
   listFaqs, createFaq, bulkUploadFaqs, updateFaq, deleteFaq,
@@ -62,6 +63,9 @@ router.get('/classrooms', ...auth, listClassrooms);
 router.post('/classrooms', ...auth, validate(classroomSchema), createClassroom);
 router.put('/classrooms/:classroomId', ...auth, updateClassroom);
 router.delete('/classrooms/:classroomId', ...superElevatedAuth, deleteClassroom);
+router.post('/classrooms/:classroomId/copy', ...auth, copyClassroom);
+router.get('/classrooms/:classroomId/branches', ...auth, getClassroomBranches);
+router.put('/classrooms/:classroomId/branches', ...superAuth, setClassroomBranches);
 
 router.get('/classrooms/:classroomId/modules', ...auth, listModules);
 router.post('/classrooms/:classroomId/modules', ...auth, validate(moduleSchema), createModule);
