@@ -1162,9 +1162,19 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
 function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onScoreRecorded }) {
   const [detail, setDetail] = useState(null);
   const [tab, setTab] = useState('overview');
-  const [scoreForm, setScoreForm] = useState({ evidenceType: 'mock_call', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' });
+  const [scoreForm, setScoreForm] = useState({ evidenceType: '', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' });
   const [scoreSaving, setScoreSaving] = useState(false);
   const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    // Set evidenceType to first available criterion when rule is available
+    if (rule) {
+      const options = entryOptionsForRule(rule);
+      if (options.length > 0 && !scoreForm.evidenceType) {
+        setScoreForm(f => ({ ...f, evidenceType: options[0].value }));
+      }
+    }
+  }, [rule]);
 
   useEffect(() => {
     if (!traineeRow) return;
