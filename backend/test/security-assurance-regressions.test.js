@@ -121,9 +121,13 @@ test('continuous security workflows are pinned scoped and fail closed', () => {
 test('multipart upload dependency remains on the fully remediated release', () => {
   const manifest = JSON.parse(read('backend/package.json'));
   const lock = JSON.parse(read('backend/package-lock.json'));
-  assert.equal(manifest.dependencies.multer, '2.2.0');
-  assert.equal(lock.packages[''].dependencies.multer, '2.2.0');
-  assert.equal(lock.packages['node_modules/multer'].version, '2.2.0');
+  // 2.2.0 was "fully remediated" when this test was written; four further high/low
+  // severity advisories (GHSA-wc9g-mqfw-jrwm, GHSA-qfvm-cv95-jqjf, GHSA-qvfw-j98x-7q72,
+  // GHSA-535w-7cp7-47q4) have since been disclosed against versions <2.3.0. 2.4.0 is
+  // the current fully remediated release.
+  assert.equal(manifest.dependencies.multer, '2.4.0');
+  assert.equal(lock.packages[''].dependencies.multer, '2.4.0');
+  assert.equal(lock.packages['node_modules/multer'].version, '2.4.0');
 });
 
 test('production environment templates expose CSP and browser-session controls', () => {
