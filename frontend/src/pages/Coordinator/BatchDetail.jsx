@@ -1162,11 +1162,11 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
 
   const drawerStyle = {
     position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(640px, 100vw)',
-    background: 'var(--card, #1e2433)', color: 'var(--text, #f1f5f9)',
+    background: '#1a2035', color: '#e8eaf0',
     boxShadow: '-4px 0 32px rgba(0,0,0,.45)', zIndex: 9999,
     display: 'flex', flexDirection: 'column', overflowY: 'auto',
   };
-  const sectionLabel = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: 8, marginTop: 18 };
+  const sectionLabel = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8892a4', marginBottom: 8, marginTop: 18 };
   const pillOk = ok => ({
     display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700,
     background: ok ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)',
@@ -1184,7 +1184,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
         <div style={{ padding: '18px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 17 }}>{traineeRow.traineeName || traineeRow.employeeId}</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+            <div style={{ fontSize: 12, color: '#8892a4', marginTop: 2 }}>
               {traineeRow.employeeId} &nbsp;|&nbsp; {traineeRow.process || '—'} / {traineeRow.lob || '—'}
             </div>
             <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
@@ -1196,7 +1196,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
               )}
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: 'var(--muted)', lineHeight: 1, padding: 4 }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#8892a4', lineHeight: 1, padding: 4 }}>
             &#x2715;
           </button>
         </div>
@@ -1205,7 +1205,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
         <div style={{ display: 'flex', gap: 0, padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,.08)', flexShrink: 0, flexWrap: 'wrap' }}>
           {TABS.map(([id, label]) => (
             <button key={id} onClick={() => setTab(id)}
-              style={{ padding: '9px 14px', fontSize: 13, cursor: 'pointer', border: 'none', borderBottom: tab === id ? '2px solid #6366f1' : '2px solid transparent', background: 'none', color: tab === id ? '#818cf8' : 'var(--muted)', fontWeight: tab === id ? 700 : 400, marginBottom: -1 }}>
+              style={{ padding: '9px 14px', fontSize: 13, cursor: 'pointer', border: 'none', borderBottom: tab === id ? '2px solid #6366f1' : '2px solid transparent', background: 'none', color: tab === id ? '#818cf8' : '#8892a4', fontWeight: tab === id ? 700 : 400, marginBottom: -1 }}>
               {label}
             </button>
           ))}
@@ -1233,7 +1233,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                 ].map(([label, value, ok]) => (
                   <div key={label} style={{ background: 'rgba(255,255,255,.05)', borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
                     <div style={{ fontSize: 22, fontWeight: 700, color: ok ? '#4ade80' : '#f87171' }}>{value}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
+                    <div style={{ fontSize: 11, color: '#8892a4', marginTop: 2 }}>{label}</div>
                   </div>
                 ))}
               </div>
@@ -1260,7 +1260,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                       const met = cResult?.met;
                       return (
                         <div key={c.criterionKey} style={{ background: 'rgba(255,255,255,.05)', borderRadius: 8, padding: '8px 12px', minWidth: 140 }}>
-                          <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.label}</div>
+                          <div style={{ fontSize: 11, color: '#8892a4' }}>{c.label}</div>
                           <div style={{ fontSize: 13, fontWeight: 700, color: met ? '#4ade80' : '#f87171', marginTop: 3 }}>
                             {cResult
                               ? (cResult.measure === 'completion'
@@ -1268,7 +1268,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                                 : `${formatCriterionValue(cResult.value, cResult.unit)} / ${formatCriterionValue(cResult.target, cResult.unit)}`)
                               : 'No data'}
                           </div>
-                          {cResult?.entries === 0 && <div style={{ fontSize: 10, color: 'var(--muted)' }}>Not recorded yet</div>}
+                          {cResult?.entries === 0 && <div style={{ fontSize: 10, color: '#8892a4' }}>Not recorded yet</div>}
                         </div>
                       );
                     })}
@@ -1279,15 +1279,17 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
               <div style={sectionLabel}>Trainee Info</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
                 {[
-                  ['Batch', traineeRow.batchNo],
-                  ['Branch', traineeRow.branch || '—'],
-                  ['Status', traineeRow.status],
-                  ['DOJ', traineeRow.doj ? formatDate(traineeRow.doj) : '—'],
-                  ['Email', traineeRow.email || '—'],
-                  ['Mobile', traineeRow.mobile || '—'],
+                  ['Batch', detail.trainee?.batchNo || traineeRow.batchNo],
+                  ['Branch', detail.trainee?.branch || traineeRow.branch || '—'],
+                  ['Status', detail.trainee?.status || traineeRow.status || '—'],
+                  ['DOJ', detail.trainee?.doj ? formatDate(detail.trainee.doj) : '—'],
+                  ['Email', detail.trainee?.email || '—'],
+                  ['Mobile', detail.trainee?.mobile || '—'],
+                  ['Designation', detail.trainee?.designation || '—'],
+                  ['Process', detail.trainee?.process || '—'],
                 ].map(([k, v]) => (
                   <div key={k} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 6, padding: '6px 10px' }}>
-                    <span style={{ color: 'var(--muted)' }}>{k}: </span><span>{v}</span>
+                    <span style={{ color: '#8892a4' }}>{k}: </span><span>{v}</span>
                   </div>
                 ))}
               </div>
@@ -1298,12 +1300,12 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
             <div>
               <div style={sectionLabel}>Attendance Records (Last 60 days)</div>
               {detail.attendance.length === 0
-                ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No attendance records found.</div>
+                ? <div style={{ color: '#8892a4', fontSize: 13 }}>No attendance records found.</div>
                 : (
                   <>
                     <div style={{ marginBottom: 10, fontSize: 13 }}>
                       <b style={{ color: '#4ade80' }}>{presentDays}</b> present out of <b>{totalAttDays}</b> tracked days
-                      {totalAttDays > 0 && <span style={{ color: 'var(--muted)' }}> ({Math.round(presentDays / totalAttDays * 100)}%)</span>}
+                      {totalAttDays > 0 && <span style={{ color: '#8892a4' }}> ({Math.round(presentDays / totalAttDays * 100)}%)</span>}
                     </div>
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                       {[...detail.attendance].reverse().map(a => {
@@ -1327,16 +1329,16 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
             <div>
               <div style={sectionLabel}>Assessment Results</div>
               {detail.assessmentResults.length === 0
-                ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No MCQ results found.</div>
+                ? <div style={{ color: '#8892a4', fontSize: 13 }}>No MCQ results found.</div>
                 : detail.assessmentResults.map(r => {
                   const passed = r.result === 'Pass';
                   return (
                     <div key={r.id} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text, #e2e8f0)" }}>{r.assessment?.assessmentName || r.assessmentId}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e8eaf0' }}>{r.assessment?.assessmentName || r.assessmentId}</div>
                         <span style={pillOk(passed)}>{r.result}</span>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 12, color: '#8892a4', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                         <span>Best: <b style={{ color: passed ? '#4ade80' : '#f87171' }}>{Number(r.bestPercentage || 0).toFixed(1)}%</b></span>
                         <span>Attempts: <b>{r.totalAttempts}</b></span>
                         {r.lastAttemptAt && <span>Last: {formatDate(r.lastAttemptAt)}</span>}
@@ -1352,7 +1354,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
               <div style={sectionLabel}>Recorded Certification Scores</div>
               {detail.evidence.length === 0
                 ? (
-                  <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+                  <div style={{ color: '#8892a4', fontSize: 13 }}>
                     No scores have been recorded yet.{canEdit && ' Use the “Record Score” tab to add one.'}
                   </div>
                 )
@@ -1365,7 +1367,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                         <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
                         <span style={pillOk(passed)}>{ev.result} — {ev.scorePct}%</span>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 12, color: '#8892a4', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
                         {ev.conductedBy && <span>By: {ev.conductedBy}</span>}
                         {ev.conductedAt && <span>{formatDateTime(ev.conductedAt)}</span>}
                         {ev.remarks && <span>&ldquo;{ev.remarks}&rdquo;</span>}
@@ -1390,7 +1392,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                 </div>
               )}
               {entryOptionsForRule(rule).length === 0
-                ? <div style={{ color: 'var(--muted)', fontSize: 13 }}>No manual score criteria are configured for this process. Contact admin to set up certification criteria.</div>
+                ? <div style={{ color: '#8892a4', fontSize: 13 }}>No manual score criteria are configured for this process. Contact admin to set up certification criteria.</div>
                 : (
                   <form onSubmit={saveScore} style={{ display: 'grid', gap: 12 }}>
                     <div className="field">
