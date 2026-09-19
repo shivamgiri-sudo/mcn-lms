@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, uploadFile } from '../../../utils/api.js';
-import { BranchSelect, ProcessSelect, LobSelect } from '../../../components/OrgSelect.jsx';
+import { BranchSelect, ProcessSelect, LobSelect, useOrgOptions } from '../../../components/OrgSelect.jsx';
 
 function parseCsvRows(rawCsv) {
   const rows = [];
@@ -22,10 +22,14 @@ function parseCsvRows(rawCsv) {
   return rows;
 }
 
-export default function EditClassroomModal({ classroom, onClose, onSaved }) {
+export default function EditClassroomModal({ classroom, onClose, onSaved, isSuper = false }) {
   const [modules, setModules] = useState([]);
   const [selectedMod, setSelectedMod] = useState(null);
   const [tab, setTab] = useState('modules');
+  const { branches: allBranches } = useOrgOptions('admin');
+  const [extraBranches, setExtraBranches] = useState([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [branchesMsg, setBranchesMsg] = useState({ text: '', ok: true });
   const [msg, setMsg] = useState({ text: '', ok: true });
   const [loading, setLoading] = useState(false);
 
@@ -61,7 +65,23 @@ export default function EditClassroomModal({ classroom, onClose, onSaved }) {
   const [faqMode, setFaqMode] = useState('single');
   const [faqForm, setFaqForm] = useState({ question: '', answer: '', sortOrder: '' });
 
-  useEffect(() => { loadModules(); loadAssessments(); }, []);
+  useEffect(() => { loadModules(); loadAssessments(); if (isSuper) loadBranches(); }, []);
+
+  async function loadBranches() {
+    const r = await api.get(`/admin/classrooms/${classroom.classroomId}/branches`, 'admin');
+    if (r.ok) setExtraBranches(r.data || []);
+  }
+
+  async function saveBranches() {
+    setBranchesLoading(true); setBranchesMsg({ text: '', ok: true });
+    const r = await api.put(`/admin/classrooms/${classroom.classroomId}/branches`, { branches: extraBranches }, 'admin');
+    setBranchesLoading(false);
+    setBranchesMsg({ text: r.ok ? 'Branches saved.' : (r.message || 'Failed.'), ok: r.ok });
+  }
+
+  function toggleBranch(b) {
+    setExtraBranches(prev => prev.includes(b) ? prev.filter(x => x !== b) : [...prev, b]);
+  }
 
   function toast(text, ok = true) { setMsg({ text, ok }); setTimeout(() => setMsg({ text: '', ok: true }), 5000); }
 
@@ -262,6 +282,7 @@ export default function EditClassroomModal({ classroom, onClose, onSaved }) {
     { id: 'scorm', label: '📦 SCORM Upload' },
     { id: 'mcq', label: '❓ MCQ Upload' },
     { id: 'faq', label: '📎 FAQ / SOP' },
+    ...(isSuper ? [{ id: 'branches', label: '🌿 Branches' }] : []),
   ];
 
   return (
@@ -730,6 +751,30 @@ export default function EditClassroomModal({ classroom, onClose, onSaved }) {
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {tab === 'branches' && isSuper && (
+            <div style={{ padding: '16px 0' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4 }}>Multi-Branch Visibility</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                Primary branch: <b>{classroom.branch || '— unassigned'}</b>.
+                Tick additional branches below so this classroom also appears to their admins.
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 8, marginBottom: 16 }}>
+                {allBranches.filter(b => b !== classroom.branch).map(b => (
+                  <label key={b} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, cursor: 'pointer', padding: '8px 10px', borderRadius: 8, background: extraBranches.includes(b) ? 'rgba(37,99,235,.18)' : 'var(--card)', border: `1px solid ${extraBranches.includes(b) ? '#2563eb' : 'var(--line)'}` }}>
+                    <input type="checkbox" checked={extraBranches.includes(b)} onChange={() => toggleBranch(b)} />
+                    <span style={{ color: extraBranches.includes(b) ? '#60a5fa' : 'var(--ink)' }}>{b}</span>
+                  </label>
+                ))}
+              </div>
+              {branchesMsg.text && (
+                <div style={{ fontSize: 12, marginBottom: 10, color: branchesMsg.ok ? '#34d399' : '#f87171' }}>{branchesMsg.text}</div>
+              )}
+              <button className="btn" style={{ background: '#1d4ed8' }} onClick={saveBranches} disabled={branchesLoading}>
+                {branchesLoading ? 'Saving…' : 'Save Branch Visibility'}
+              </button>
             </div>
           )}
         </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, uploadFile } from '../../utils/api.js';
+import { useOrgOptions } from '../../components/OrgSelect.jsx';
 import ClassroomWizard from './ClassroomWizard.jsx';
 import EditClassroomModal from './curriculum/EditClassroomModal.jsx';
 import ContentCard from './curriculum/ContentCard.jsx';
@@ -103,7 +104,7 @@ function ModuleCard({ mod, selected, onSelect, onDelete }) {
   );
 }
 
-export default function CurriculumTab() {
+export default function CurriculumTab({ isSuper = false, user = null }) {
   const [classrooms, setClassrooms] = useState([]);
   const [selectedCl, setSelectedCl] = useState(null);
   const [modules, setModules] = useState([]);
@@ -118,7 +119,8 @@ export default function CurriculumTab() {
   const [msg, setMsg] = useState('');
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('content');
-  const [deleteClModal, setDeleteClModal] = useState(null); // classroom to delete
+  const [deleteClModal, setDeleteClModal] = useState(null);
+  const [copyClModal, setCopyClModal] = useState(null); // { cl }
   const [clSearch, setClSearch] = useState({ name: '', process: '', branch: '' });
 
   const [modForm, setModForm] = useState({ dayNo: '', moduleTitle: '', moduleOrder: '', description: '' });
@@ -381,6 +383,14 @@ export default function CurriculumTab() {
                   </button>
                   <button
                     className="btn xs"
+                    style={{ background: 'rgba(16,163,127,.15)', color: '#34d399', border: '1px solid rgba(16,163,127,.35)', borderRadius: 8, fontSize: 11, padding: '4px 8px' }}
+                    onClick={() => setCopyClModal({ cl })}
+                    title="Copy to another branch"
+                  >
+                    ⎘
+                  </button>
+                  <button
+                    className="btn xs"
                     style={{ background: 'rgba(220,38,38,.15)', color: '#f87171', border: '1px solid rgba(220,38,38,.35)', borderRadius: 8, fontSize: 11, padding: '4px 8px' }}
                     onClick={() => setDeleteClModal({ cl, confirmName: '', step: 1, error: '' })}
                     title="Delete classroom permanently"
@@ -618,6 +628,7 @@ export default function CurriculumTab() {
       {editingClassroom && (
         <EditClassroomModal
           classroom={editingClassroom}
+          isSuper={isSuper}
           onClose={() => setEditingClassroom(null)}
           onSaved={() => { loadClassrooms(); if (selectedCl) loadModules(selectedCl.classroomId); }}
         />
@@ -869,6 +880,76 @@ export default function CurriculumTab() {
           error={deleteClModal.error}
         />
       )}
+
+      {copyClModal && (
+        <CopyClassroomModal
+          classroom={copyClModal.cl}
+          isSuper={isSuper}
+          userBranch={user?.branch || null}
+          onClose={() => setCopyClModal(null)}
+          onCopied={() => { setCopyClModal(null); loadClassrooms(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Copy Classroom Modal ──────────────────────────────────────────────────────
+function CopyClassroomModal({ classroom, isSuper, userBranch, onClose, onCopied }) {
+  const { branches } = useOrgOptions('admin');
+  const [targetBranch, setTargetBranch] = useState('');
+  const [newName, setNewName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function handleCopy() {
+    if (!targetBranch) return setErr('Select a target branch.');
+    setLoading(true); setErr('');
+    const res = await api.post(`/admin/classrooms/${classroom.classroomId}/copy`, { targetBranch, newName: newName.trim() || undefined }, 'admin');
+    setLoading(false);
+    if (res.ok) onCopied();
+    else setErr(res.message || 'Copy failed.');
+  }
+
+  const availableBranches = isSuper ? branches : (userBranch ? [userBranch] : branches);
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div style={{ background: 'var(--card-solid)', borderRadius: 18, padding: 28, width: 420, maxWidth: '95vw', boxShadow: '0 8px 40px rgba(0,0,0,.4)' }}>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>Copy Classroom</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+          Copies <b>{classroom.classroomName}</b> — all modules, content and FAQs — into a new classroom assigned to the target branch.
+        </div>
+
+        <div style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Target Branch *</label>
+            <select className="select" value={targetBranch} onChange={e => setTargetBranch(e.target.value)}>
+              <option value="">— select branch —</option>
+              {availableBranches.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>New Classroom Name (optional)</label>
+            <input
+              className="input"
+              placeholder={targetBranch ? `${classroom.classroomName} (${targetBranch})` : `${classroom.classroomName} (branch)`}
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+            />
+            <div style={{ fontSize: 11, color: 'var(--muted-2)', marginTop: 3 }}>Leave blank to auto-generate from classroom name + branch.</div>
+          </div>
+        </div>
+
+        {err && <div style={{ marginTop: 12, fontSize: 12, color: '#f87171', background: 'rgba(220,38,38,.12)', padding: '8px 12px', borderRadius: 8 }}>{err}</div>}
+
+        <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
+          <button className="btn secondary" onClick={onClose} disabled={loading}>Cancel</button>
+          <button className="btn" style={{ background: '#1d4ed8' }} onClick={handleCopy} disabled={loading || !targetBranch}>
+            {loading ? 'Copying…' : '⎘ Copy'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

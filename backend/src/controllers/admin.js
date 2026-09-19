@@ -179,8 +179,12 @@ export async function listClassrooms(req, res) {
     if (branch) {
       where.branch = branch;
     } else if (req.userBranch) {
-      // Branch admins see their own branch + classrooms not yet assigned to any branch
-      where.OR = [{ branch: req.userBranch }, { branch: null }];
+      // Branch admins see: their primary branch, unassigned, or multi-branch mapped
+      where.OR = [
+        { branch: req.userBranch },
+        { branch: null },
+        { branchMaps: { some: { branch: req.userBranch } } },
+      ];
     }
     const classrooms = await prisma.classroomMaster.findMany({
       where,
@@ -199,8 +203,10 @@ export async function createClassroom(req, res) {
     if (!classroomName) return res.status(400).json({ ok: false, message: 'Classroom name required.' });
 
     const classroomId = `CL-${generateId()}`;
+    // Branch admins auto-own classrooms they create; super admins use the explicit branch field.
+    const effectiveBranch = branch || req.userBranch || null;
     const cl = await prisma.classroomMaster.create({
-      data: { classroomId, classroomName, process, lob, branch: branch || null, description, driveFolderId, driveFolderUrl },
+      data: { classroomId, classroomName, process, lob, branch: effectiveBranch, description, driveFolderId, driveFolderUrl },
     });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_CLASSROOM', module: 'Curriculum', referenceId: classroomId });
     res.json({ ok: true, data: cl });
@@ -269,6 +275,137 @@ export async function deleteClassroom(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
+// ── Copy classroom ────────────────────────────────────────────────────────────
+export async function copyClassroom(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const { targetBranch, newName } = req.body;
+    if (!targetBranch) return res.status(400).json({ ok: false, message: 'targetBranch is required.' });
+    if (req.userBranch && targetBranch !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only copy to your own branch.' });
+    }
+
+    const source = await prisma.classroomMaster.findUnique({
+      where: { classroomId },
+      include: {
+        modules: {
+          include: { contents: true, faqs: true },
+          orderBy: { moduleOrder: 'asc' },
+        },
+      },
+    });
+    if (!source) return res.status(404).json({ ok: false, message: 'Classroom not found.' });
+
+    const newClassroomId = `CL-${generateId()}`;
+    const finalName = newName?.trim() || `${source.classroomName} (${targetBranch})`;
+
+    const newCl = await prisma.$transaction(async tx => {
+      const cl = await tx.classroomMaster.create({
+        data: {
+          classroomId: newClassroomId,
+          classroomName: finalName,
+          process: source.process,
+          lob: source.lob,
+          branch: targetBranch,
+          description: source.description,
+          driveFolderId: source.driveFolderId,
+          driveFolderUrl: source.driveFolderUrl,
+        },
+      });
+
+      for (const mod of source.modules) {
+        const newModId = `MOD-${generateId()}`;
+        const newMod = await tx.moduleMaster.create({
+          data: {
+            moduleId: newModId,
+            classroomId: newClassroomId,
+            dayNo: mod.dayNo,
+            moduleTitle: mod.moduleTitle,
+            moduleOrder: mod.moduleOrder,
+            required: mod.required,
+            active: mod.active,
+            description: mod.description,
+          },
+        });
+        for (const c of mod.contents) {
+          await tx.contentMaster.create({
+            data: {
+              contentId: `CNT-${generateId()}`,
+              moduleId: newMod.moduleId,
+              contentType: c.contentType,
+              contentTitle: c.contentTitle,
+              driveFileId: c.driveFileId,
+              driveUrl: c.driveUrl,
+              directMediaUrl: c.directMediaUrl,
+              localFilePath: c.localFilePath,
+              playerMode: c.playerMode,
+              contentOrder: c.contentOrder,
+              required: c.required,
+              active: c.active,
+              locked: c.locked,
+              estimatedMins: c.estimatedMins,
+              completionRulePct: c.completionRulePct,
+              description: c.description,
+            },
+          });
+        }
+        for (const f of mod.faqs) {
+          await tx.faqMaster.create({
+            data: {
+              faqId: `FAQ-${generateId()}`,
+              moduleId: newMod.moduleId,
+              question: f.question,
+              answer: f.answer,
+              active: f.active,
+              sortOrder: f.sortOrder,
+            },
+          });
+        }
+      }
+      return cl;
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'COPY_CLASSROOM', module: 'Curriculum', referenceId: newClassroomId, details: `Copied from ${classroomId} to branch ${targetBranch}` });
+    res.json({ ok: true, data: newCl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
+// ── Multi-branch map ──────────────────────────────────────────────────────────
+export async function getClassroomBranches(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const maps = await prisma.classroomBranchMap.findMany({ where: { classroomId } });
+    res.json({ ok: true, data: maps.map(m => m.branch) });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function setClassroomBranches(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const { branches } = req.body;
+    if (!Array.isArray(branches)) return res.status(400).json({ ok: false, message: 'branches must be an array.' });
+
+    await prisma.$transaction(async tx => {
+      await tx.classroomBranchMap.deleteMany({ where: { classroomId } });
+      if (branches.length) {
+        await tx.classroomBranchMap.createMany({
+          data: branches.map(b => ({ id: `CBM-${generateId()}`, classroomId, branch: b })),
+          skipDuplicates: true,
+        });
+      }
+    });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'SET_CLASSROOM_BRANCHES', module: 'Curriculum', referenceId: classroomId, details: branches.join(', ') });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
 
