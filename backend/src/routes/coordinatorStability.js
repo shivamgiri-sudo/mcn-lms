@@ -612,4 +612,50 @@ router.get('/form-options', ...auth, async (req, res) => {
   }
 });
 
+// ── Trainee detail for certification drill-down ───────────────────────────────
+// Visible to any coordinator in the same branch; write actions still require
+// being the assigned coordinator (getWritableBatch).
+router.get('/batches/:batchNo/trainees/:employeeId/detail', ...auth, async (req, res) => {
+  try {
+    const batch = await getVisibleBatch(req.params.batchNo, req);
+    if (!batch) return res.status(403).json({ ok: false, message: 'Batch not visible.' });
+    const { employeeId } = req.params;
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee || trainee.batchNo !== batch.batchNo)
+      return res.status(404).json({ ok: false, message: 'Trainee not in this batch.' });
+
+    const [attendance, assessmentResults, contentProgress, evidence, eligibility] = await Promise.all([
+      prisma.attendanceInference.findMany({
+        where: { employeeId },
+        orderBy: { date: 'desc' },
+        take: 60,
+      }),
+      prisma.assessmentResult.findMany({
+        where: { employeeId },
+        include: { assessment: { select: { title: true, assessmentId: true } } },
+        orderBy: { lastAttemptAt: 'desc' },
+      }),
+      prisma.contentProgress.findMany({
+        where: { employeeId },
+        orderBy: [{ dayNo: 'asc' }, { updatedAt: 'desc' }],
+        take: 100,
+      }),
+      prisma.certificationEvidence.findMany({
+        where: { employeeId, batchNo: batch.batchNo },
+        orderBy: { conductedAt: 'desc' },
+      }),
+      evaluateCertification(trainee, batch.batchNo),
+    ]);
+
+    return res.json({
+      ok: true,
+      data: { trainee, attendance, assessmentResults, contentProgress, evidence, eligibility },
+    });
+  } catch (error) {
+    console.error('[coordinatorStability] trainee detail failed:', error);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+});
+
+
 export default router;
