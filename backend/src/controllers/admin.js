@@ -110,7 +110,7 @@ export async function getAdminDashboard(req, res) {
     }
 
     const [classrooms, trainees, batches, openQueries, atRisk] = await Promise.all([
-      prisma.classroomMaster.count({ where: req.userBranch ? { active: true, OR: [{ branch: req.userBranch }, { branch: null }] } : { active: true } }),
+      prisma.classroomMaster.count({ where: req.userBranch ? { active: true, OR: [{ branch: req.userBranch }, { branchMaps: { some: { branch: req.userBranch } } }] } : { active: true } }),
       prisma.traineeMaster.count({ where: { status: 'Active', ...branchFilter } }),
       prisma.batchMaster.count({ where: { batchStatus: 'Active', ...branchFilter } }),
       prisma.traineeQueryLog.count({ where: queryLogWhere }),
@@ -179,10 +179,9 @@ export async function listClassrooms(req, res) {
     if (branch) {
       where.branch = branch;
     } else if (req.userBranch) {
-      // Branch admins see: their primary branch, unassigned, or multi-branch mapped
+      // Branch admins see only their branch (primary or multi-branch mapped); Super Admins see all
       where.OR = [
         { branch: req.userBranch },
-        { branch: null },
         { branchMaps: { some: { branch: req.userBranch } } },
       ];
     }

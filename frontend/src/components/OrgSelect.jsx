@@ -83,3 +83,29 @@ export function LobSelect({ portal = 'admin', value, onChange, process, placehol
   }, [lobs, processLob, process]);
   return <Select label="LOB" value={value} onChange={onChange} options={scoped} placeholder={placeholder} {...rest} />;
 }
+
+const DESIGNATIONS = [
+  'ASSISTANT MANAGER','BUSINESS DEVELOPER','CHAIRMAN','CHIEF EXECUTIVE OFFICER',
+  'CHIEF OPERATIONS OFFICER','Customer Service Agent','DATA-ANALYST','DRIVER',
+  'DY. GENERAL MANAGER','DY. MANAGER','EXECUTIVE','EXECUTIVE - BACKEND',
+  'EXECUTIVE - FIELD','EXECUTIVE - IT','EXECUTIVE - VOICE','Finance Executive',
+  'HR Manager','MANAGER','OFFICE ASSISTANT','OPERATION MANAGER','Operations Manager',
+  'PROCESS MANAGER','Quality Analyst','QUALITY AUDITOR','Recruiter','RTM',
+  'SR. EXECUTIVE','SR. EXECUTIVE - HR','SR. EXECUTIVE - IT','SR. EXECUTIVE - MIS',
+  'SR. EXECUTIVE - VOICE','SR. MANAGER','SR. QUALITY AUDITOR','SR. TEAM LEADER',
+  'SR.EXECUTIVE - FIELD','TEAM LEADER','TEAM LEADER - FIELD','TRAINER','VICE PRESIDENT',
+];
+
+const DEPARTMENTS = [
+  'ADMINISTRATION','DIALER & WFM','FINANCE & ACCOUNTS',
+  'HUMAN RESOURCE AND DEVELOPMENT','INFORMATION TECHNOLOGY','MANAGEMENT',
+  'OPERATIONS','PROJECTS & COMPLIANCE','SALES & MARKETING','TRAINING AND QUALITY',
+];
+
+export function DesignationSelect({ value, onChange, placeholder = 'Select designation', ...rest }) {
+  return <Select label="Designation" value={value} onChange={onChange} options={DESIGNATIONS} placeholder={placeholder} {...rest} />;
+}
+
+export function DepartmentSelect({ value, onChange, placeholder = 'Select department', ...rest }) {
+  return <Select label="Department" value={value} onChange={onChange} options={DEPARTMENTS} placeholder={placeholder} {...rest} />;
+}

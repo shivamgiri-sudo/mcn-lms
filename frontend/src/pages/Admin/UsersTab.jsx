@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { api } from '../../utils/api.js';
-import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
+import { BranchSelect, ProcessSelect, LobSelect, DesignationSelect, DepartmentSelect } from '../../components/OrgSelect.jsx';
 
 const BULK_CSV_TEMPLATE = 'loginId,name,pin,role,branch,process,lob,designation,department,employeeCode,canCreateBatch,canOnboardTrainee,canUploadLmsReport,canOverrideAttendance,canCloseBatch,canViewManagementDashboard\nCOORD001,John Doe,1234,Coordinator,Bangalore,Collections,LOB1,Training Coordinator,Training,,true,true,false,false,false,false\n';
 
@@ -376,11 +376,11 @@ export default function UsersTab() {
                   </div>
                   <div className="field">
                     <label>Designation</label>
-                    <input className="input" placeholder="e.g. Training Coordinator" value={form.designation} onChange={e => setForm(p => ({ ...p, designation: e.target.value }))} />
+                    <DesignationSelect value={form.designation} onChange={next => setForm(p => ({ ...p, designation: next }))} className="input" />
                   </div>
                   <div className="field">
                     <label>Department</label>
-                    <input className="input" placeholder="e.g. Training & Development" value={form.department} onChange={e => setForm(p => ({ ...p, department: e.target.value }))} />
+                    <DepartmentSelect value={form.department} onChange={next => setForm(p => ({ ...p, department: next }))} className="input" />
                   </div>
                   <div className="field">
                     <label>Employee Code</label>
