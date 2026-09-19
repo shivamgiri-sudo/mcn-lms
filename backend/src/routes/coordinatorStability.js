@@ -8,6 +8,7 @@ import { audit } from '../utils/audit.js';
 import { getFormOptions, scopeFormOptions } from '../services/formOptions.js';
 import { evaluateCriteria, parseEvidenceType } from '../services/certificationCriteria.js';
 import { notifyCertification, notifyOnboarding, notifyBatchAssignment } from '../utils/notify.js';
+import { queryHrms } from '../utils/hrmsDb.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('coordinator')];
@@ -647,9 +648,21 @@ router.get('/batches/:batchNo/trainees/:employeeId/detail', ...auth, async (req,
       evaluateCertification(trainee, batch.batchNo),
     ]);
 
+    // Fetch designation from HRMS (live lookup)
+    let hrmsDesignation = null;
+    try {
+      const hrmsRows = await queryHrms(
+        'SELECT d.designation_name FROM employees e LEFT JOIN designation_master d ON e.designation_id = d.id WHERE UPPER(e.employee_code) = UPPER(?) LIMIT 1',
+        [employeeId]
+      );
+      hrmsDesignation = hrmsRows?.[0]?.designation_name || null;
+    } catch (hrmsErr) {
+      console.warn('[coordinatorStability] HRMS designation lookup failed:', hrmsErr.message);
+    }
+
     return res.json({
       ok: true,
-      data: { trainee, attendance, assessmentResults, contentProgress, evidence, eligibility },
+      data: { trainee: { ...trainee, hrmsDesignation }, attendance, assessmentResults, contentProgress, evidence, eligibility },
     });
   } catch (error) {
     console.error('[coordinatorStability] trainee detail failed:', error);

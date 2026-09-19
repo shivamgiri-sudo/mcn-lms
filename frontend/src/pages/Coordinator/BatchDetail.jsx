@@ -1365,7 +1365,7 @@ function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onSc
                   ['DOJ', detail.trainee?.doj ? formatDate(detail.trainee.doj) : '—'],
                   ['Email', detail.trainee?.email || '—'],
                   ['Mobile', detail.trainee?.mobile || '—'],
-                  ['Designation', detail.trainee?.designation || '—'],
+                  ['Designation', detail.trainee?.hrmsDesignation || detail.trainee?.designation || '—'],
                   ['Process', detail.trainee?.process || '—'],
                 ].map(([k, v]) => (
                   <div key={k} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 6, padding: '6px 10px' }}>
