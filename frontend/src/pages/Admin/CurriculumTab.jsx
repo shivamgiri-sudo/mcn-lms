@@ -207,14 +207,15 @@ export default function CurriculumTab({ isSuper = false, user = null }) {
   }
 
   async function deleteClassroomConfirmed(classroomId, confirmName) {
-    // Pass confirmName in body — use a custom fetch since api.delete doesn't support body
-    const token = localStorage.getItem('lms_token_admin') || '';
-    const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
-    const r = await fetch(`${BASE}/admin/classrooms/${classroomId}`, {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ confirmName }),
-    }).then(x => x.json()).catch(() => ({ ok: false, message: 'Network error' }));
+    // Pass confirmName in the body via the shared api client (deleteWithBody), not a
+    // hand-rolled fetch() — that bespoke fetch sent a fake `Authorization: Bearer
+    // <localStorage marker>` header instead of the real httpOnly session cookie (no
+    // credentials: 'include', no X-LMS-Role/X-CSRF-Token), so requireSession rejected
+    // it with a bare 401 "Unauthorized" before the request ever reached the
+    // super-admin/elevation checks — indistinguishable from an actual auth failure,
+    // even for a legitimately elevated Super Admin. api.deleteWithBody goes through
+    // the same cookie+CSRF+elevation-aware pipeline as every other admin action.
+    const r = await api.deleteWithBody(`/admin/classrooms/${classroomId}`, { confirmName }, 'admin');
     if (r.ok) {
       setDeleteClModal(null);
       setSelectedCl(null);
