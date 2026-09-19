@@ -411,6 +411,28 @@ export default function BatchDetail({ batchNo, user, onBack }) {
                   </div>
                 </div>
               )}
+      {/* Threshold warning: 0 eligible but there are trainees */}
+      {eligibleCount === 0 && traineeList.length > 0 && data.rule && (() => {
+        const avgMcq = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.assessmentPassPct || 0), 0) / traineeList.length)
+          : 0;
+        const mcqThresh = data.rule.mcqPassPctMin || 0;
+        const courseThresh = data.rule.courseCompletionMin || 0;
+        const avgCourse = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.courseCompletionPct || 0), 0) / traineeList.length)
+          : 0;
+        const gapMcq = mcqThresh - avgMcq;
+        const gapCourse = courseThresh - avgCourse;
+        if (gapMcq <= 0 && gapCourse <= 0) return null;
+        return (
+          <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.35)', borderRadius: 8, padding: '12px 16px', marginBottom: 14, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: '#b45309', marginBottom: 6 }}>⚠ 0 trainees eligible — rule thresholds may need review</div>
+            {gapMcq > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>MCQ threshold is <b>{mcqThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgMcq}%</b> (gap: {gapMcq}%)</div>}
+            {gapCourse > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>Course threshold is <b>{courseThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgCourse}%</b> (gap: {gapCourse}%)</div>}
+            <div style={{ color: '#6b7280', marginTop: 6, fontSize: 12 }}>Ask your admin to review cert rule thresholds in Admin → Certification Rules.</div>
+          </div>
+        );
+      })()}
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button className="btn" onClick={bulkAddFromCsv} disabled={loading || !csvPreview || csvPreview.length === 0}>
@@ -987,6 +1009,28 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
           )}
         </div>
       )}
+      {/* Threshold warning: 0 eligible but there are trainees */}
+      {eligibleCount === 0 && traineeList.length > 0 && data.rule && (() => {
+        const avgMcq = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.assessmentPassPct || 0), 0) / traineeList.length)
+          : 0;
+        const mcqThresh = data.rule.mcqPassPctMin || 0;
+        const courseThresh = data.rule.courseCompletionMin || 0;
+        const avgCourse = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.courseCompletionPct || 0), 0) / traineeList.length)
+          : 0;
+        const gapMcq = mcqThresh - avgMcq;
+        const gapCourse = courseThresh - avgCourse;
+        if (gapMcq <= 0 && gapCourse <= 0) return null;
+        return (
+          <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.35)', borderRadius: 8, padding: '12px 16px', marginBottom: 14, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: '#b45309', marginBottom: 6 }}>⚠ 0 trainees eligible — rule thresholds may need review</div>
+            {gapMcq > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>MCQ threshold is <b>{mcqThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgMcq}%</b> (gap: {gapMcq}%)</div>}
+            {gapCourse > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>Course threshold is <b>{courseThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgCourse}%</b> (gap: {gapCourse}%)</div>}
+            <div style={{ color: '#6b7280', marginTop: 6, fontSize: 12 }}>Ask your admin to review cert rule thresholds in Admin → Certification Rules.</div>
+          </div>
+        );
+      })()}
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="table-wrap">
         <table>
