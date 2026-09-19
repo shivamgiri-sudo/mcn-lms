@@ -962,6 +962,32 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
         ))}
       </div>
 
+      {/* Visual certification pipeline */}
+      {traineeList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: '#e5e7eb' }}>
+            {handedOverCount > 0 && (
+              <div style={{ width: `${(handedOverCount / traineeList.length) * 100}%`, background: '#3b82f6' }} title={`${handedOverCount} handed over`} />
+            )}
+            {(certifiedCount - (handedOverCount || 0)) > 0 && (
+              <div style={{ width: `${((certifiedCount - handedOverCount) / traineeList.length) * 100}%`, background: '#22c55e' }} title={`${certifiedCount - handedOverCount} certified`} />
+            )}
+            {(eligibleCount - certifiedCount) > 0 && (
+              <div style={{ width: `${((eligibleCount - certifiedCount) / traineeList.length) * 100}%`, background: '#a3e635' }} title={`${eligibleCount - certifiedCount} eligible`} />
+            )}
+            {attritionCount > 0 && (
+              <div style={{ width: `${(attritionCount / traineeList.length) * 100}%`, background: '#ef4444' }} title={`${attritionCount} attrition`} />
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginTop: 4 }}>
+            <span>In Training</span>
+            <span>→ Eligible</span>
+            <span>→ Certified</span>
+            <span>→ Handed Over</span>
+          </div>
+        </div>
+      )}
+
       {/* Bulk actions */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
         {pendingCertify > 0 && (
