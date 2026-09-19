@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../utils/api.js';
 import { formatDate, formatDateTime } from '../../utils/format.js';
+import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 
 const POSTING_PILL = { OPEN: 'ok', CLOSED: 'info', FILLED: 'accent' };
 const APPLICATION_PILL = { APPLIED: 'info', SHORTLISTED: 'warn', SELECTED: 'ok', REJECTED: 'bad', WITHDRAWN: 'info' };
@@ -53,15 +54,31 @@ function CreatePostingForm({ onCreated, portalType }) {
         <div className="col-3">
           <div className="field">
             <label>Target Branch (blank = open to all)</label>
-            <input className="input" value={form.targetBranch} onChange={set('targetBranch')} placeholder="e.g. Pune" />
+            <BranchSelect
+              portal="coordinator"
+              value={form.targetBranch}
+              onChange={v => setForm(f => ({ ...f, targetBranch: v, targetProcess: '', targetLob: '' }))}
+              placeholder="All branches"
+            />
           </div>
           <div className="field">
             <label>Target Process (blank = open to all)</label>
-            <input className="input" value={form.targetProcess} onChange={set('targetProcess')} placeholder="e.g. KYC" />
+            <ProcessSelect
+              portal="coordinator"
+              value={form.targetProcess}
+              onChange={v => setForm(f => ({ ...f, targetProcess: v, targetLob: '' }))}
+              placeholder="All processes"
+            />
           </div>
           <div className="field">
             <label>Target LOB (blank = open to all)</label>
-            <input className="input" value={form.targetLob} onChange={set('targetLob')} />
+            <LobSelect
+              portal="coordinator"
+              process={form.targetProcess}
+              value={form.targetLob}
+              onChange={v => setForm(f => ({ ...f, targetLob: v }))}
+              placeholder="All LOBs"
+            />
           </div>
         </div>
         <div className="col-3">
