@@ -4272,7 +4272,63 @@ export async function generateCertificate(req, res) {
     if (!['Certified', 'HandedOver'].includes(trainee.certificationStatus)) {
       return res.status(400).json({ ok: false, message: 'Trainee is not certified.' });
     }
-    const batch = trainee.batchNo ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } }) : null;
+    const batch = trainee.batchNo
+      ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } })
+      : null;
+
+    // Fetch the actual assessed scores for this trainee — used in the score breakdown row.
+    // Only pull data that was actually recorded; never invent or default missing criteria.
+    const [evidence, assessmentResults, attendance] = await Promise.all([
+      trainee.batchNo
+        ? prisma.certificationEvidence.findMany({
+            where: { employeeId, batchNo: trainee.batchNo },
+            orderBy: { conductedAt: 'asc' },
+          })
+        : Promise.resolve([]),
+      prisma.assessmentResult.findMany({
+        where: { employeeId },
+        orderBy: { lastAttemptAt: 'desc' },
+      }),
+      prisma.attendanceInference.findMany({
+        where: { employeeId },
+      }),
+    ]);
+
+    // Derive the 3 standard metrics only if data exists — no fallback defaults
+    const presentDays = attendance.filter(a => a.finalAttendance === 'Present').length;
+    const totalDays = attendance.length;
+    const attendancePct = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : null;
+
+    const passedMcq = assessmentResults.filter(r => r.result === 'Pass').length;
+    const totalMcq = assessmentResults.length;
+    const mcqPct = totalMcq > 0 ? Math.round((passedMcq / totalMcq) * 100) : null;
+
+    // Course completion comes from trainee record
+    const coursePct = trainee.courseCompletionPct != null
+      ? Math.round(Number(trainee.courseCompletionPct))
+      : null;
+
+    // Evidence items: use the criterion label (from the process rule if available),
+    // falling back to the evidenceType key. Best-of-multiple entries per criterion.
+    const evidenceByCriterion = {};
+    for (const ev of evidence) {
+      const key = ev.evidenceType;
+      if (!evidenceByCriterion[key] || Number(ev.scorePct) > Number(evidenceByCriterion[key].scorePct)) {
+        evidenceByCriterion[key] = ev;
+      }
+    }
+    const evidenceRows = Object.values(evidenceByCriterion).map(ev => ({
+      label: ev.label || ev.evidenceType,
+      scorePct: ev.scorePct != null ? Math.round(Number(ev.scorePct)) : null,
+      result: ev.result || '',
+    }));
+
+    // Overall final score = average of all recorded evidence scores (if any)
+    const allScores = evidenceRows.filter(r => r.scorePct != null).map(r => r.scorePct);
+    const finalScore = allScores.length > 0
+      ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
+      : null;
+
     const cert = await issueCertificate({
       employeeId,
       certificateType: 'TRAINING',
@@ -4282,10 +4338,26 @@ export async function generateCertificate(req, res) {
       batchNo: trainee.batchNo,
       process: trainee.process,
       lob: trainee.lob,
+      scorePct: finalScore,
       issuedBy: req.userId || null,
     });
+
+    // Pass enriched data to renderer — renderer only shows what was actually recorded
+    const enriched = {
+      ...cert,
+      course_pct: coursePct,
+      mcq_pct: mcqPct,
+      attendance_pct: attendancePct,
+      attendance_present: presentDays,
+      attendance_total: totalDays,
+      evidence: evidenceRows,
+      doj: trainee.doj || null,
+      department: trainee.department || trainee.lob || null,
+      branch: trainee.branch || null,
+    };
+
     res.setHeader('Content-Type', 'text/html');
-    return res.send(renderCertificateHtml(cert));
+    return res.send(renderCertificateHtml(enriched));
   } catch (err) {
     console.error('[admin] certificate generation failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to generate the certificate.' });
