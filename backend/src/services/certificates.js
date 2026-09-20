@@ -132,216 +132,185 @@ export function renderCertificateHtml(cert, { verifyUrl = '' } = {}) {
   const logo = logoDataUri();
   const issued = new Date(cert.issued_at || Date.now())
     .toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+  const issueYear = new Date(cert.issued_at || Date.now()).getFullYear();
   const isAssessment = cert.certificate_type === 'ASSESSMENT';
-  const certKind = isAssessment ? 'Certificate of Achievement' : 'Certificate of Completion';
-  const scorePct = cert.score_pct !== null && cert.score_pct !== undefined ? Math.round(Number(cert.score_pct)) : null;
-  // Donut maths: r=30, circumference=188.5, fill = score/100 * 188.5
-  const dashFill = scorePct !== null ? (scorePct / 100 * 188.5).toFixed(1) : '0';
-  const dashGap = (188.5 - Number(dashFill)).toFixed(1);
-  const logoTag = logo ? `<img class="hlogo" src="${logo}" alt="MCN">` : '<div style="width:48px"></div>';
+  const scorePct = cert.score_pct != null ? Math.round(Number(cert.score_pct)) : null;
+  const grade = scorePct == null ? null : scorePct >= 90 ? 'A+' : scorePct >= 80 ? 'A' : scorePct >= 70 ? 'B+' : scorePct >= 60 ? 'B' : 'C';
+  const perf = scorePct == null ? '' : scorePct >= 90 ? 'Outstanding' : scorePct >= 80 ? 'Excellent' : scorePct >= 70 ? 'Good' : 'Completed';
+  const dashFill = scorePct != null ? (scorePct / 100 * 188.5).toFixed(1) : '0';
+  const dashGap  = (188.5 - Number(dashFill)).toFixed(1);
+  const logoTag  = logo ? `<img class="hlogo" src="${logo}" alt="MCN">` : '<div style="width:50px"></div>';
   const photoDataUri = employeePhotoDataUri(cert.photo_url || null);
   const initials = (cert.trainee_name || cert.employee_id || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
-  const photoTag = photoDataUri
-    ? `<img style="width:100%;height:100%;object-fit:cover;" src="${photoDataUri}" alt="${esc(cert.trainee_name || '')}">`
-    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0d3c72;font-family:Montserrat,sans-serif;font-size:28px;font-weight:900;color:#c9a84c;">${initials}</div>`;
-  // Grade from score
-  const grade = scorePct === null ? '' : scorePct >= 90 ? 'A+' : scorePct >= 80 ? 'A' : scorePct >= 70 ? 'B+' : scorePct >= 60 ? 'B' : 'C';
+  const photoContent = photoDataUri
+    ? `<img src="${photoDataUri}" style="width:100%;height:100%;object-fit:cover;display:block" alt="${esc(cert.trainee_name || '')}">`
+    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0d3c72;font-family:Montserrat,sans-serif;font-size:28px;font-weight:900;color:#c9a84c">${initials}</div>`;
+  const doj = cert.doj ? new Date(cert.doj).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' }) : '—';
+  const certKind = isAssessment ? 'ACHIEVEMENT' : 'COMPLETION';
+  // Build dynamic score tiles from actual evidence — only what was actually assessed
+  const scoreBlocks = (() => {
+    const tiles = [];
+    if (cert.course_pct != null) tiles.push({ lbl:'Course', val:Math.round(Number(cert.course_pct)), cls:'blue', color:'#267abd', sub:'Completed' });
+    if (cert.mcq_pct != null) tiles.push({ lbl:'MCQ Score', val:Math.round(Number(cert.mcq_pct)), cls:'green', color:'#16a34a', sub:'Tests passed' });
+    if (cert.attendance_pct != null) {
+      const present = cert.attendance_present || '—';
+      const total   = cert.attendance_total || '—';
+      tiles.push({ lbl:'Attendance', val:Math.round(Number(cert.attendance_pct)), cls:'blue', color:'#267abd', sub:`${present} / ${total} days` });
+    }
+    (cert.evidence || []).forEach(ev => {
+      if (ev.scorePct == null) return;
+      const lbl = String(ev.label || ev.evidenceType || 'Assessment').replace(/_/g,' ');
+      tiles.push({ lbl: lbl.length > 13 ? lbl.slice(0,12)+'…' : lbl, val:Math.round(Number(ev.scorePct)), cls:'red', color:'#dc363a', sub: ev.result || '' });
+    });
+    if (scorePct != null) tiles.push({ lbl:'Final Score', val:scorePct, cls:'gold', color:'linear-gradient(90deg,#c9a84c,#e8b84b)', sub:`Grade: ${grade}` });
+    return tiles.map(t =>
+      `<div class="sd-item ${t.cls}">
+        <span class="sd-label">${esc(t.lbl)}</span>
+        <span class="sd-val ${t.cls}">${t.val}%</span>
+        <div class="sd-bar"><div class="sd-fill" style="width:${t.val}%;background:${t.color}"></div></div>
+        <span class="sd-sub">${esc(t.sub)}</span>
+      </div>`
+    ).join('');
+  })();
+
+  const department = esc(cert.department || cert.lob || '—');
+  const process_   = esc(cert.process || '—');
+  const branch_    = esc(cert.branch || '—');
+  const empId_     = esc(cert.employee_id || '—');
 
   return `<!DOCTYPE html><html><head><meta charset="utf-8">
-<title>${esc(cert.certificate_no)} - ${esc(cert.trainee_name || cert.employee_id)}</title>
-<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;600;700;800;900&family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<title>${esc(cert.certificate_no)} — ${esc(cert.trainee_name || cert.employee_id)}</title>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Playfair+Display:ital,wght@0,700;0,900;1,400&family=Montserrat:wght@400;600;700;800;900&family=Poppins:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  @page{size:A4 landscape;margin:0}
-  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
-  body{width:297mm;height:210mm;display:flex;align-items:center;justify-content:center;
-    font-family:"Inter","Segoe UI",Arial,sans-serif;background:#dde4ec;
-    -webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .cert{width:285mm;height:200mm;position:relative;overflow:hidden;background:#fff;
-    border-radius:10px;box-shadow:0 16px 56px rgba(0,0,0,.22)}
-  .hband{position:absolute;top:0;left:0;right:0;height:74px;
-    background:linear-gradient(135deg,#267abd 0%,#1a5a9a 45%,#0d3c72 100%);z-index:4;overflow:hidden}
-  .hcontent{position:absolute;top:0;left:0;right:0;height:74px;
-    display:flex;align-items:center;padding:0 28px;z-index:5}
-  .hlogo{height:48px;width:auto;object-fit:contain;filter:brightness(0) invert(1);flex-shrink:0}
-  .horg{margin-left:14px}
-  .horg-name{font-family:"Montserrat",sans-serif;font-size:20px;font-weight:800;color:#fff;letter-spacing:.4px}
-  .horg-sub{font-size:9.5px;color:rgba(255,255,255,.72);letter-spacing:1.2px;text-transform:uppercase;margin-top:2px}
-  .hcno{margin-left:auto;text-align:right}
-  .hcno-label{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:rgba(255,255,255,.6)}
-  .hcno-val{font-family:"Montserrat",monospace;font-size:12.5px;font-weight:700;color:#fff;margin-top:2px}
-  .tristrip{position:absolute;top:74px;left:0;right:0;height:6px;z-index:4;
-    background:linear-gradient(90deg,#267abd 0%,#267abd 33.3%,#76c053 33.3%,#76c053 66.6%,#dc363a 66.6%,#dc363a 100%)}
-  .lpanel{position:absolute;top:80px;left:0;bottom:0;width:196px;
-    background:linear-gradient(180deg,#f3f8fd 0%,#e8f2fb 100%);
-    border-right:1px solid #cce0f5;
-    display:flex;flex-direction:column;align-items:center;padding:16px 12px 12px}
-  .grad-card{width:132px;background:#fff;border-radius:12px;
-    box-shadow:0 4px 16px rgba(38,122,189,.18);padding:10px 8px 8px;text-align:center;
-    border:1.5px solid #cce0f5;margin-bottom:12px}
-  .grad-title{font-size:8.5px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#267abd;margin-bottom:6px}
-  .stat-row{display:flex;gap:6px;width:100%;margin-bottom:10px}
-  .stat-box{flex:1;background:#fff;border-radius:8px;padding:7px 4px;text-align:center;
-    border:1px solid #e0eef7;box-shadow:0 2px 6px rgba(38,122,189,.1)}
-  .sv{font-family:"Montserrat",sans-serif;font-size:16px;font-weight:900}
-  .sl{font-size:7.5px;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;margin-top:1px}
-  .sv.blue{color:#267abd}.sv.green{color:#76c053}.sv.red{color:#dc363a}
-  .vbadge{width:100%;padding:6px 0;border-radius:8px;text-align:center;
-    background:linear-gradient(135deg,#76c053,#4a9930);color:#fff;
-    font-size:9.5px;font-weight:800;letter-spacing:2px;text-transform:uppercase;
-    box-shadow:0 3px 10px rgba(118,192,83,.35);margin-bottom:10px}
-  .ldiv{width:85%;height:1.5px;background:linear-gradient(90deg,transparent,#cce0f5,transparent);margin:8px 0}
-  .eid-box{width:100%;background:#fff;border-radius:8px;padding:7px 10px;
-    border:1px solid #cce0f5;text-align:center}
-  .eid-lbl{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:#9ca3af}
-  .eid-val{font-family:"Montserrat",sans-serif;font-size:13px;font-weight:800;color:#267abd;margin-top:2px}
-  .rmain{position:absolute;top:80px;left:196px;right:0;bottom:0;padding:18px 28px 12px 22px;display:flex;flex-direction:column}
-  .ckind{font-size:9.5px;letter-spacing:5px;text-transform:uppercase;color:#267abd;font-weight:700;margin-bottom:5px}
-  .ctitle{font-family:"Playfair Display",Georgia,serif;font-size:21px;font-weight:700;
-    color:#0d3c72;margin-bottom:10px;line-height:1.25;max-width:490px}
-  .presented{font-size:11px;color:#6b7280;font-style:italic;margin-bottom:3px}
-  .tname{font-family:"Playfair Display",Georgia,serif;font-size:32px;font-weight:900;
-    color:#0d3c72;margin:2px 0 6px;line-height:1.1}
-  .name-ul{width:300px;height:3px;border-radius:2px;margin-bottom:12px;
-    background:linear-gradient(90deg,#267abd 33%,#76c053 33% 66%,#dc363a 66%)}
-  .detail{font-size:12px;color:#374151;line-height:1.9}
-  .detail b{color:#0d3c72;font-weight:600}
-  .badge-row{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;align-items:center}
-  .badge{display:inline-flex;align-items:center;gap:6px;padding:5px 16px;border-radius:22px;
-    font-family:"Montserrat",sans-serif;font-size:11.5px;font-weight:800;letter-spacing:.3px}
-  .badge.primary{background:linear-gradient(135deg,#267abd,#0d3c72);color:#fff;
-    box-shadow:0 4px 12px rgba(38,122,189,.38)}
-  .badge.green{background:linear-gradient(135deg,#76c053,#4a9930);color:#fff;
-    box-shadow:0 4px 12px rgba(118,192,83,.35)}
-  .bdot{width:7px;height:7px;border-radius:50%;background:rgba(255,255,255,.7)}
-  .stars{font-size:15px;color:#76c053;letter-spacing:3px;margin-top:5px}
-  .seal{position:absolute;right:22px;bottom:32px;width:76px;height:76px;border-radius:50%;
-    background:radial-gradient(circle,#fff 55%,#f0f8ff 100%);
-    border:2.5px solid #267abd;outline:4px solid rgba(38,122,189,.16);
-    display:flex;flex-direction:column;align-items:center;justify-content:center;
-    box-shadow:0 4px 14px rgba(38,122,189,.22)}
-  .seal-icon{font-size:20px;line-height:1}
-  .seal-text{font-size:7px;font-weight:800;color:#267abd;letter-spacing:.5px;text-transform:uppercase;line-height:1.4;text-align:center;margin-top:2px}
-  .seal-year{font-size:10.5px;font-weight:900;color:#dc363a}
-  .footer{margin-top:auto;display:flex;align-items:flex-end;justify-content:space-between;
-    border-top:1px solid #e5e7eb;padding-top:8px}
-  .fm{font-size:8.5px;color:#9ca3af;line-height:1.9}.fm b{color:#374151}
-  .sig-block{text-align:center}
-  .sig-line{width:150px;height:1px;background:#c4c9d4;margin:0 auto 4px}
-  .sig-label{font-size:8.5px;color:#6b7280;letter-spacing:.5px}
-  .fv{font-size:8.5px;color:#9ca3af;text-align:right;line-height:1.9}.fv b{color:#374151}
-  .gem{position:absolute;width:14px;height:14px;
-    clip-path:polygon(50% 0%,100% 50%,50% 100%,0% 50%);
-    background:linear-gradient(135deg,#267abd,#76c053)}
-  .gem.tl{top:82px;left:6px}.gem.tr{top:82px;right:6px}
-  .gem.bl{bottom:6px;left:6px}.gem.br{bottom:6px;right:6px}
-  @media print{body{background:#fff}.cert{box-shadow:none}}
+@page{size:A4 landscape;margin:0}
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+html{min-height:100vh;width:100%;background-color:#04091a;
+  background-image:radial-gradient(circle,rgba(38,122,189,.15) 1px,transparent 1px),radial-gradient(ellipse 70% 55% at 15% 40%,rgba(38,122,189,.5) 0%,transparent 70%),radial-gradient(ellipse 55% 45% at 88% 15%,rgba(118,192,83,.4) 0%,transparent 65%),radial-gradient(ellipse 45% 40% at 75% 85%,rgba(220,54,58,.35) 0%,transparent 60%),radial-gradient(ellipse 60% 50% at 50% 50%,rgba(15,60,114,.55) 0%,transparent 70%);
+  background-size:28px 28px,100% 100%,100% 100%,100% 100%,100% 100%;
+  -webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{width:297mm;height:210mm;display:flex;align-items:center;justify-content:center;background:transparent;margin:auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.cert{width:285mm;height:200mm;position:relative;overflow:hidden;background:#fff;border-radius:4px;box-shadow:0 0 0 1.5px rgba(38,122,189,.35),0 0 60px rgba(38,122,189,.3),0 32px 80px rgba(0,0,0,.6)}
+.frame-out{position:absolute;inset:5px;border:3px solid #0d3c72;z-index:12;pointer-events:none;border-radius:2px}
+.frame-in{position:absolute;inset:10px;border:1px solid #c9a84c;z-index:12;pointer-events:none;border-radius:1px}
+.cpanel{position:absolute;width:88px;height:88px;z-index:13;overflow:visible;pointer-events:none}
+.cpanel.tl{top:5px;left:5px}.cpanel.tr{top:5px;right:5px;transform:scaleX(-1)}.cpanel.bl{bottom:5px;left:5px;transform:scaleY(-1)}.cpanel.br{bottom:5px;right:5px;transform:scale(-1,-1)}
+.hband{position:absolute;top:0;left:0;right:0;height:78px;background:#fff;border-bottom:2px solid #f0f4f8;z-index:4;overflow:hidden}
+.hband::after{content:'';position:absolute;right:0;top:0;bottom:0;width:250px;background:linear-gradient(135deg,transparent 20%,#f0f7ff 100%)}
+.hdots{position:absolute;right:10px;top:50%;transform:translateY(-50%);opacity:.07}
+.hcontent{position:absolute;top:0;left:0;right:0;height:78px;display:flex;align-items:center;padding:0 24px 0 100px;z-index:14;gap:14px}
+.hlogo{height:50px;width:auto;object-fit:contain;flex-shrink:0}
+.hdiv{width:2px;height:38px;background:linear-gradient(180deg,#267abd,#76c053);flex-shrink:0;border-radius:1px}
+.horg-name{font-family:"Montserrat",sans-serif;font-size:19px;font-weight:900;color:#0d3c72;letter-spacing:.3px}
+.horg-sub{font-size:9.5px;color:#6b7280;letter-spacing:1.2px;text-transform:uppercase;margin-top:2px;font-weight:500}
+.hcno{margin-left:auto;text-align:right;padding-right:68px}
+.hcno-lbl{font-size:8px;letter-spacing:2px;text-transform:uppercase;color:#9ca3af;font-weight:600}
+.hcno-val{font-family:"Montserrat",monospace;font-size:12.5px;font-weight:800;color:#267abd;margin-top:3px}
+.tristrip{position:absolute;top:78px;left:0;right:0;height:5px;z-index:4;background:linear-gradient(90deg,#267abd 0% 33.3%,#76c053 33.3% 66.6%,#dc363a 66.6% 100%)}
+.lpanel{position:absolute;top:83px;left:0;bottom:0;width:192px;background:linear-gradient(180deg,#f5f9ff 0%,#e8f2fc 100%);border-right:1.5px solid #d6e8f8;display:flex;flex-direction:column;align-items:center;padding:14px 12px 12px}
+.lphoto-wrap{width:132px;height:132px;border-radius:12px;overflow:hidden;flex-shrink:0;margin-bottom:8px;border:3px solid #c9a84c;outline:3px solid rgba(201,168,76,.2);box-shadow:0 6px 20px rgba(13,60,114,.22)}
+.lphoto-name{font-family:"Montserrat",sans-serif;font-size:10.5px;font-weight:800;color:#0d3c72;text-align:center;margin-bottom:8px;line-height:1.3;max-width:160px}
+.stat-row{display:flex;gap:6px;width:100%;margin-bottom:8px}
+.stat-box{flex:1;background:#fff;border-radius:8px;padding:7px 4px;text-align:center;border:1.5px solid #e0eef7}
+.sv{font-family:"Montserrat",sans-serif;font-size:19px;font-weight:900}
+.sl{font-size:8px;color:#9ca3af;letter-spacing:1px;text-transform:uppercase;margin-top:1px;font-weight:600}
+.sv.blue{color:#267abd}.sv.green{color:#76c053}
+.vbadge{width:100%;padding:7px 0;border-radius:9px;text-align:center;background:linear-gradient(135deg,#76c053,#4a9930);color:#fff;font-size:10px;font-weight:800;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px}
+.ldiv{width:85%;height:1.5px;background:linear-gradient(90deg,transparent,#cce0f5,transparent);margin:4px 0}
+.eid-box{width:100%;background:#fff;border-radius:8px;padding:7px 8px;border:1.5px solid #d6e8f8;text-align:center}
+.eid-lbl{font-size:8px;letter-spacing:1.5px;text-transform:uppercase;color:#9ca3af;font-weight:600}
+.eid-val{font-family:"Montserrat",sans-serif;font-size:14px;font-weight:900;color:#267abd;margin-top:2px}
+.rmain{position:absolute;top:83px;left:192px;right:0;bottom:36px;padding:0 20px;display:flex;flex-direction:column;align-items:center;justify-content:space-evenly;text-align:center}
+.cert-big{font-family:"Cinzel",serif;font-size:44px;font-weight:900;color:#0d3c72;letter-spacing:10px;text-indent:10px;line-height:1}
+.cert-rule-row{display:flex;align-items:center;gap:12px;width:100%;margin-top:4px}
+.crule{flex:1;height:1.5px;background:linear-gradient(90deg,transparent,#c9a84c)}
+.crule.r{background:linear-gradient(90deg,#c9a84c,transparent)}
+.cert-of{font-family:"Cinzel",serif;font-size:13px;font-weight:600;color:#0d3c72;letter-spacing:7px;text-indent:7px;white-space:nowrap}
+.presented{display:block;font-size:11.5px;color:#6b7280;font-style:italic;font-family:"Playfair Display",serif;margin-bottom:4px}
+.tname{font-family:"Playfair Display",Georgia,serif;font-size:46px;font-weight:900;color:#0d3c72;line-height:1.05;letter-spacing:.2px;margin-bottom:5px}
+.name-ul{width:360px;height:4px;border-radius:2px;margin:0 auto;background:linear-gradient(90deg,#267abd 33%,#76c053 33% 66%,#dc363a 66%)}
+.ctitle{font-family:"Poppins",sans-serif;font-size:14.5px;font-weight:700;color:#0d3c72;line-height:1.35;margin-bottom:5px}
+.cert-stmt{font-size:12px;color:#4b5563;line-height:1.75;font-family:"Poppins",sans-serif;font-weight:400}
+.cert-stmt b{color:#0d3c72;font-weight:700}
+.fields{display:grid;grid-template-columns:repeat(3,1fr);gap:6px 7px;width:100%}
+.fi{background:#f0f6ff;border:1.5px solid #cce0f5;border-radius:9px;padding:7px 8px;text-align:center}
+.fl{display:block;font-size:8px;letter-spacing:.9px;text-transform:uppercase;color:#9ca3af;margin-bottom:3px;font-weight:700}
+.fv2{font-size:13.5px;font-weight:800;color:#0d3c72;font-family:"Poppins",sans-serif}
+.score-detail{display:flex;gap:6px;width:100%}
+.sd-item{flex:1;border-radius:9px;padding:8px 4px 7px;text-align:center;border:1.5px solid transparent}
+.sd-item.blue{background:#edf4ff;border-color:#bfdbfe}.sd-item.green{background:#eaf8ef;border-color:#bbf7d0}
+.sd-item.red{background:#fff0f1;border-color:#fecdd3}.sd-item.gold{background:#fffbeb;border-color:#fde68a}
+.sd-label{display:block;font-size:8.5px;font-weight:700;letter-spacing:.7px;text-transform:uppercase;margin-bottom:3px}
+.sd-item.blue .sd-label{color:#1d4ed8}.sd-item.green .sd-label{color:#15803d}.sd-item.red .sd-label{color:#dc2626}.sd-item.gold .sd-label{color:#b45309}
+.sd-val{display:block;font-family:"Montserrat",sans-serif;font-size:22px;font-weight:900;line-height:1}
+.sd-val.blue{color:#267abd}.sd-val.green{color:#16a34a}.sd-val.red{color:#dc363a}.sd-val.gold{color:#d97706}
+.sd-bar{width:70%;height:3px;background:rgba(0,0,0,.08);border-radius:2px;margin:4px auto 3px;overflow:hidden}
+.sd-fill{height:100%;border-radius:2px}
+.sd-sub{display:block;font-size:8.5px;color:#6b7280;font-weight:600}
+.fbar{position:absolute;bottom:0;left:192px;right:0;height:36px;background:#f0f6ff;border-top:1.5px solid #d6e8f8;display:flex;align-items:center;justify-content:center;gap:6px;z-index:6}
+.fbar-certno{font-family:"Montserrat",monospace;font-size:9.5px;font-weight:800;color:#0d3c72;letter-spacing:2px}
+.fbar-sep{color:#d6e8f8;font-size:14px}
+.fbar-verify{font-size:8px;color:#9ca3af;letter-spacing:1px;font-family:"Poppins",sans-serif}
+@media print{body{background:#fff!important}html{background:#fff!important}.cert{box-shadow:none}}
 </style></head><body>
 <div class="cert">
-<div class="hband">
-  <svg style="position:absolute;right:0;top:0;height:100%;opacity:.1" viewBox="0 0 300 74" width="300" height="74">
-    <g fill="white">
-      <polygon points="20,5 35,14 35,32 20,41 5,32 5,14"/><polygon points="60,5 75,14 75,32 60,41 45,32 45,14"/>
-      <polygon points="100,5 115,14 115,32 100,41 85,32 85,14"/><polygon points="140,5 155,14 155,32 140,41 125,32 125,14"/>
-      <polygon points="180,5 195,14 195,32 180,41 165,32 165,14"/><polygon points="220,5 235,14 235,32 220,41 205,32 205,14"/>
-      <polygon points="260,5 275,14 275,32 260,41 245,32 245,14"/>
-      <polygon points="40,32 55,41 55,59 40,68 25,59 25,41"/><polygon points="80,32 95,41 95,59 80,68 65,59 65,41"/>
-      <polygon points="120,32 135,41 135,59 120,68 105,59 105,41"/><polygon points="160,32 175,41 175,59 160,68 145,59 145,41"/>
-      <polygon points="200,32 215,41 215,59 200,68 185,59 185,41"/><polygon points="240,32 255,41 255,59 240,68 225,59 225,41"/>
-    </g>
-  </svg>
-</div>
+<div class="frame-out"></div><div class="frame-in"></div>
+${['tl','tr','bl','br'].map(pos => `<div class="cpanel ${pos}"><svg width="88" height="88" viewBox="0 0 88 88" fill="none"><polygon points="0,0 88,0 0,88" fill="#0d3c72" opacity=".9"/><line x1="12" y1="0" x2="0" y2="12" stroke="#c9a84c" stroke-width="2.5"/><line x1="24" y1="0" x2="0" y2="24" stroke="#c9a84c" stroke-width="1.2" opacity=".7"/><line x1="38" y1="0" x2="0" y2="38" stroke="#c9a84c" stroke-width="1" opacity=".45"/><line x1="54" y1="0" x2="0" y2="54" stroke="#c9a84c" stroke-width=".8" opacity=".3"/><rect x="5" y="5" width="14" height="14" fill="none" stroke="#c9a84c" stroke-width="1.5"/><rect x="9" y="9" width="6" height="6" fill="#c9a84c" opacity=".45"/></svg></div>`).join('')}
+<div class="hband"><svg class="hdots" viewBox="0 0 200 60" width="200" height="60"><g fill="#267abd">${Array.from({length:30},(_,i)=>`<circle cx="${(i%10)*20+10}" cy="${Math.floor(i/10)*20+10}" r="2.5"/>`).join('')}</g></svg></div>
 <div class="hcontent">
   ${logoTag}
-  <div class="horg">
-    <div class="horg-name">MAS Callnet</div>
-    <div class="horg-sub">Training &amp; Quality &middot; Learning Management System</div>
-  </div>
-  <div class="hcno">
-    <div class="hcno-label">Certificate No</div>
-    <div class="hcno-val">${esc(cert.certificate_no)}</div>
-  </div>
+  <div class="hdiv"></div>
+  <div><div class="horg-name">MAS Callnet Pvt. Ltd.</div><div class="horg-sub">Training &amp; Quality &middot; Learning Management System</div></div>
+  <div class="hcno"><div class="hcno-lbl">Certificate No</div><div class="hcno-val">${esc(cert.certificate_no)}</div></div>
 </div>
 <div class="tristrip"></div>
 <div class="lpanel">
-  <div class="grad-card">
-    <div class="grad-title">Achievement</div>
-    <svg width="88" height="88" viewBox="0 0 90 90" fill="none" style="display:block;margin:0 auto">
-      <circle cx="45" cy="45" r="43" fill="#edf4ff" stroke="#cce0f5" stroke-width="1.5"/>
-      <ellipse cx="45" cy="28" rx="22" ry="6" fill="#267abd"/>
-      <polygon points="45,16 23,28 45,36 67,28" fill="#1a5e99"/>
-      <rect x="60" y="28" width="3" height="13" rx="1.5" fill="#dc363a"/>
-      <circle cx="61.5" cy="42" r="3.5" fill="#dc363a"/>
-      <circle cx="45" cy="50" r="10" fill="#fde8d0" stroke="#f5c5a0" stroke-width="1"/>
-      <path d="M27,78 Q28,60 45,62 Q62,60 63,78" fill="#267abd"/>
-      <path d="M31,64 L24,82 L33,76 Z M59,64 L66,82 L57,76 Z" fill="#1a5e99"/>
-      <rect x="37" y="68" width="16" height="10" rx="2.5" fill="#fffde7" stroke="#267abd" stroke-width="1.5"/>
-      <line x1="39" y1="72" x2="51" y2="72" stroke="#267abd" stroke-width="1.2" opacity=".6"/>
-      <line x1="39" y1="75" x2="49" y2="75" stroke="#267abd" stroke-width="1.2" opacity=".6"/>
-      <text x="14" y="24" font-size="10" fill="#76c053" opacity=".8">&#9733;</text>
-      <text x="68" y="22" font-size="8" fill="#dc363a" opacity=".7">&#9733;</text>
-    </svg>
-  </div>
+  <div class="lphoto-wrap">${photoContent}</div>
+  <div class="lphoto-name">${esc(cert.trainee_name || cert.employee_id)}</div>
   <div class="stat-row">
-    <div class="stat-box">
-      <div class="sv blue">${scorePct !== null ? scorePct : '—'}</div>
-      <div class="sl">Score%</div>
-    </div>
-    <div class="stat-box">
-      <div class="sv green">${grade || '—'}</div>
-      <div class="sl">Grade</div>
-    </div>
+    <div class="stat-box"><div class="sv blue">${scorePct ?? '—'}</div><div class="sl">Score%</div></div>
+    <div class="stat-box"><div class="sv green">${grade ?? '—'}</div><div class="sl">Grade</div></div>
   </div>
-  <svg width="78" height="78" viewBox="0 0 80 80" style="margin-bottom:8px">
-    <circle cx="40" cy="40" r="30" fill="none" stroke="#e5e7eb" stroke-width="9"/>
-    <circle cx="40" cy="40" r="30" fill="none" stroke="#267abd" stroke-width="9"
+  <svg width="76" height="76" viewBox="0 0 80 80" style="margin-bottom:8px">
+    <circle cx="40" cy="40" r="30" fill="none" stroke="#e5e7eb" stroke-width="8"/>
+    <circle cx="40" cy="40" r="30" fill="none" stroke="#267abd" stroke-width="8"
       stroke-dasharray="${dashFill} ${dashGap}" stroke-dashoffset="47.1" stroke-linecap="round"
       transform="rotate(-90 40 40)"/>
-    <text x="40" y="45" text-anchor="middle" font-size="14" font-weight="900" fill="#267abd" font-family="Montserrat,sans-serif">${scorePct !== null ? scorePct + '%' : '—'}</text>
+    <text x="40" y="45" text-anchor="middle" font-size="14" font-weight="900" fill="#267abd" font-family="Montserrat,sans-serif">${scorePct != null ? scorePct + '%' : '—'}</text>
   </svg>
   <div class="vbadge">&#10003; CERTIFIED</div>
   <div class="ldiv"></div>
-  <div class="eid-box">
-    <div class="eid-lbl">Employee ID</div>
-    <div class="eid-val">${esc(cert.employee_id)}</div>
-  </div>
+  <div class="eid-box"><div class="eid-lbl">Employee ID</div><div class="eid-val">${empId_}</div></div>
 </div>
 <div class="rmain">
-  <div class="ckind">&#127941; &nbsp; ${certKind}</div>
-  <div class="ctitle">${esc(cert.title)}</div>
-  <div class="presented">This is to proudly certify that</div>
-  <div class="tname">${esc(cert.trainee_name || cert.employee_id)}</div>
-  <div class="name-ul"></div>
-  <div class="detail">
-    ${isAssessment ? 'has successfully passed the assessment named above' : 'has successfully completed all required modules, assessments &amp; evaluations'}<br>
-    ${cert.process ? `Process: <b>${esc(cert.process)}</b>` : ''}${cert.lob ? ` &nbsp;&middot;&nbsp; LOB: <b>${esc(cert.lob)}</b>` : ''}
-    ${cert.batch_no ? `&nbsp;&middot;&nbsp; Batch: <b>${esc(cert.batch_no)}</b>` : ''}
+  <div style="width:100%">
+    <div class="cert-big">CERTIFICATE</div>
+    <div class="cert-rule-row"><div class="crule"></div><div class="cert-of">OF ${certKind}</div><div class="crule r"></div></div>
   </div>
-  <div class="badge-row">
-    ${scorePct !== null ? `<div class="badge primary"><span class="bdot"></span> Score: ${scorePct}% &nbsp;&middot;&nbsp; ${scorePct >= 90 ? 'Outstanding' : scorePct >= 80 ? 'Excellent' : scorePct >= 70 ? 'Good' : 'Completed'}</div>` : ''}
-    <div class="badge green"><span class="bdot"></span> Ops Ready</div>
+  <div style="width:100%">
+    <span class="presented">This certificate is proudly presented to</span>
+    <div class="tname">${esc(cert.trainee_name || cert.employee_id)}</div>
+    <div class="name-ul"></div>
   </div>
-  <div class="stars">&#9733;&#9733;&#9733;&#9733;&#9734;</div>
-  <div class="seal">
-    <div class="seal-icon">&#127941;</div>
-    <div class="seal-text">T&amp;Q<br>VERIFIED</div>
-    <div class="seal-year">${new Date(cert.issued_at || Date.now()).getFullYear()}</div>
+  <div style="width:100%">
+    <div class="ctitle">${esc(cert.title)}</div>
+    <div class="cert-stmt">has successfully completed all required training modules, knowledge assessments,
+    practical evaluations &amp; process quality checks and is hereby declared
+    <b>Operations Ready</b> by <b>MAS Callnet Pvt. Ltd.</b></div>
   </div>
-  <div class="footer">
-    <div class="fm">
-      <div>Issued: <b>${esc(issued)}</b></div>
-      <div>Code: <b>${esc(cert.verification_code)}</b></div>
-    </div>
-    <div class="sig-block">
-      <div class="sig-line"></div>
-      <div class="sig-label">Training &amp; Quality, MAS Callnet</div>
-    </div>
-    <div class="fv">
-      ${verifyUrl ? `<div>Verify: <b>${esc(verifyUrl)}</b></div>` : ''}
-      <div><b>mcnlms.teammas.in</b></div>
-    </div>
+  <div class="fields">
+    <div class="fi"><span class="fl">Department</span><span class="fv2">${department}</span></div>
+    <div class="fi"><span class="fl">Process</span><span class="fv2">${process_}</span></div>
+    <div class="fi"><span class="fl">Branch</span><span class="fv2">${branch_}</span></div>
+    <div class="fi"><span class="fl">Date of Joining</span><span class="fv2">${doj}</span></div>
+    <div class="fi"><span class="fl">Issue Date</span><span class="fv2">${esc(issued)}</span></div>
+    <div class="fi"><span class="fl">LOB</span><span class="fv2">${esc(cert.lob || '—')}</span></div>
   </div>
+  <div class="score-detail">${scoreBlocks || `<div class="sd-item blue" style="flex:1"><span class="sd-label">Final Score</span><span class="sd-val blue">${scorePct != null ? scorePct + '%' : '—'}</span></div>`}</div>
 </div>
-<div class="gem tl"></div><div class="gem tr"></div>
-<div class="gem bl"></div><div class="gem br"></div>
+<div class="fbar">
+  <span class="fbar-certno">${esc(cert.certificate_no)}</span>
+  <span class="fbar-sep">|</span>
+  <span class="fbar-verify">VERIFY: ${verifyUrl || 'mcnlms.teammas.in/verify'} &nbsp;&middot;&nbsp; CODE: ${esc(cert.verification_code)}</span>
+</div>
 </div></body></html>`;
 }

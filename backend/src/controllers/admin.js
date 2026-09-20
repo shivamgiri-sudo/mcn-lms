@@ -2,6 +2,7 @@ import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId, hashCredential, firstTimePassword } from '../utils/hash.js';
 import { parseEvidenceType } from '../services/certificationCriteria.js';
 import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from '../services/certificates.js';
+import { sendCertificateEmail } from '../utils/mailer.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
@@ -4357,6 +4358,18 @@ export async function generateCertificate(req, res) {
       photo_url: trainee.photoUrl || trainee.photo_url || null,
     };
 
+    // Send email to trainee — fire-and-forget, never block the response
+    if (trainee.email) {
+      sendCertificateEmail({
+        to: trainee.email,
+        trainee_name: trainee.traineeName,
+        certificate_no: cert.certificate_no,
+        title: cert.title,
+        process: trainee.process,
+        score_pct: finalScore,
+        lms_url: process.env.LMS_TRAINEE_URL || 'https://mcnlms.teammas.in/trainee',
+      }).catch(e => console.warn('[cert-email] failed:', e.message));
+    }
     res.setHeader('Content-Type', 'text/html');
     return res.send(renderCertificateHtml(enriched));
   } catch (err) {

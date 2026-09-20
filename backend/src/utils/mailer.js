@@ -171,3 +171,66 @@ Thank you for your dedication throughout the training programme.
 
   console.log(`[MAILER] Certification email sent to ${email} (${employeeId}).`);
 }
+
+export async function sendCertificateEmail({ to, trainee_name, certificate_no, title, process, score_pct, lms_url }) {
+  if (!to || !to.includes('@')) return { ok: false, reason: 'No valid email address' };
+  try {
+    const t = createTransporter();
+    const score = score_pct != null ? `${Math.round(score_pct)}%` : null;
+    const portalUrl = lms_url || 'https://mcnlms.teammas.in/trainee';
+    await t.sendMail({
+      from: `"MAS Callnet T&Q" <${process.env.SMTP_USER}>`,
+      to,
+      subject: `🎓 Certificate of Completion — ${title || 'Training Programme'}`,
+      html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif">
+<div style="max-width:560px;margin:32px auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.1)">
+  <!-- Header -->
+  <div style="background:linear-gradient(135deg,#267abd,#0d3c72);padding:28px 32px">
+    <div style="font-size:22px;font-weight:900;color:#fff;letter-spacing:.3px">MAS Callnet Pvt. Ltd.</div>
+    <div style="font-size:11px;color:rgba(255,255,255,.7);letter-spacing:1.2px;text-transform:uppercase;margin-top:3px">Training &amp; Quality · Learning Management System</div>
+  </div>
+  <!-- Gold accent strip -->
+  <div style="height:4px;background:linear-gradient(90deg,#267abd 33%,#76c053 33% 66%,#dc363a 66%)"></div>
+  <!-- Body -->
+  <div style="padding:32px">
+    <div style="font-size:13px;color:#6b7280;margin-bottom:6px">Dear <strong style="color:#0d3c72">${trainee_name || 'Trainee'}</strong>,</div>
+    <div style="font-size:15px;color:#1e293b;line-height:1.7;margin-bottom:20px">
+      Congratulations! You have successfully completed your training programme and earned your
+      <strong>Certificate of Completion</strong> from MAS Callnet Pvt. Ltd.
+    </div>
+    <!-- Certificate card -->
+    <div style="background:linear-gradient(135deg,#edf4ff,#f0f4ff);border:1.5px solid #bfdbfe;border-radius:10px;padding:20px 24px;margin-bottom:24px">
+      <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:#267abd;margin-bottom:8px">Certificate Details</div>
+      <table style="width:100%;border-collapse:collapse">
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280;width:40%">Certificate No</td><td style="padding:5px 0;font-size:13px;font-weight:700;color:#0d3c72;font-family:monospace">${certificate_no}</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Programme</td><td style="padding:5px 0;font-size:13px;font-weight:700;color:#0d3c72">${title || '—'}</td></tr>
+        ${process ? `<tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Process</td><td style="padding:5px 0;font-size:13px;font-weight:700;color:#0d3c72">${process}</td></tr>` : ''}
+        ${score ? `<tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Final Score</td><td style="padding:5px 0;font-size:16px;font-weight:900;color:#267abd">${score}</td></tr>` : ''}
+        <tr><td style="padding:5px 0;font-size:13px;color:#6b7280">Issued</td><td style="padding:5px 0;font-size:13px;font-weight:700;color:#0d3c72">${new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'long',year:'numeric'})}</td></tr>
+      </table>
+    </div>
+    <!-- Download button -->
+    <div style="text-align:center;margin-bottom:24px">
+      <a href="${portalUrl}" style="display:inline-block;background:linear-gradient(135deg,#267abd,#0d3c72);color:#fff;text-decoration:none;padding:12px 32px;border-radius:8px;font-size:14px;font-weight:700;letter-spacing:.3px">
+        🎓 View &amp; Download Certificate
+      </a>
+    </div>
+    <div style="font-size:12px;color:#9ca3af;line-height:1.7">
+      Log in to the LMS portal to view, download, or print your certificate at any time.<br>
+      This certificate is verifiable at <a href="https://mcnlms.teammas.in/verify" style="color:#267abd">mcnlms.teammas.in/verify</a>
+    </div>
+  </div>
+  <!-- Footer -->
+  <div style="padding:16px 32px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:11px;color:#9ca3af;text-align:center">
+    MAS Callnet Pvt. Ltd. · Training &amp; Quality Division<br>
+    This is an automated email from MCN LMS. Please do not reply.
+  </div>
+</div>
+</body></html>`,
+    });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err.message };
+  }
+}
