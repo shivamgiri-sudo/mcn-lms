@@ -110,67 +110,137 @@ export function renderCertificateHtml(cert, { verifyUrl = '' } = {}) {
   const issued = new Date(cert.issued_at || Date.now())
     .toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
   const isAssessment = cert.certificate_type === 'ASSESSMENT';
-  const accent = isAssessment ? '#0f766e' : '#1a56db';
+  const certKind = isAssessment ? 'Certificate of Achievement' : 'Certificate of Completion';
+  const accentGold = '#c9a84c';
+  const accentNavy = '#0f2347';
 
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(cert.certificate_no)} - ${esc(cert.trainee_name)}</title>
+  const logoTag = logo ? `<img src="${logo}" alt="MCN" style="height:50px;width:auto;object-fit:contain;">` : '<div style="width:50px;height:50px;"></div>';
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>${esc(cert.certificate_no)} - ${esc(cert.trainee_name)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 <style>
   @page { size: A4 landscape; margin: 0; }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body { width: 297mm; height: 210mm; display: flex; align-items: center; justify-content: center;
-    font-family: 'Segoe UI', Roboto, Arial, sans-serif; background: #eef1f5; }
-  .cert { width: 275mm; height: 185mm; background: #fff; border-radius: 12px; padding: 34px 54px;
-    box-shadow: 0 8px 32px rgba(0,0,0,.15); border: 6px double ${accent};
-    display: flex; flex-direction: column; position: relative; }
-  .head { display: flex; align-items: center; gap: 16px; border-bottom: 2px solid #e5e7eb; padding-bottom: 14px; }
-  .head img { height: 58px; width: auto; object-fit: contain; }
-  .head .org { font-size: 20px; font-weight: 800; color: ${accent}; letter-spacing: .5px; }
-  .head .sub { font-size: 12px; color: #6b7280; }
-  .body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-  .kind { font-size: 13px; letter-spacing: 3px; text-transform: uppercase; color: ${accent}; font-weight: 700; }
-  .title { font-size: 30px; font-weight: 800; color: #111827; margin: 4px 0 18px; }
-  .presented { font-size: 14px; color: #4b5563; }
-  .name { font-size: 40px; font-weight: 800; color: #111827; margin: 6px 0 10px; }
-  .detail { font-size: 14px; color: #4b5563; line-height: 1.8; }
-  .score { margin-top: 12px; font-size: 15px; font-weight: 700; color: ${accent}; }
-  .foot { display: flex; justify-content: space-between; align-items: flex-end;
-    border-top: 2px solid #e5e7eb; padding-top: 12px; font-size: 11px; color: #6b7280; }
-  .foot b { color: #374151; }
-  .sign { text-align: center; }
-  .sign .line { width: 190px; border-top: 1px solid #9ca3af; margin-bottom: 4px; }
-  .stamp { position: absolute; bottom: 74px; right: 62px; width: 92px; height: 92px; border: 2px solid ${accent};
-    border-radius: 50%; display: flex; align-items: center; justify-content: center; text-align: center;
-    font-size: 9px; font-weight: 700; color: ${accent}; transform: rotate(-14deg); line-height: 1.4; }
+    font-family: 'Inter', 'Segoe UI', Arial, sans-serif; background: #f0f4f8;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .cert { width: 281mm; height: 196mm; background: #fff; border-radius: 8px; position: relative;
+    overflow: hidden; box-shadow: 0 12px 48px rgba(0,0,0,.18); }
+  .cert::before { content: ''; position: absolute; inset: 10px; border: 1.5px solid ${accentGold};
+    border-radius: 4px; pointer-events: none; z-index: 10; }
+  .ribbon { position: absolute; left: 0; top: 0; bottom: 0; width: 56px;
+    background: linear-gradient(180deg, #1a3a6b 0%, ${accentNavy} 100%);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0; }
+  .ribbon-text { font-size: 9.5px; font-weight: 700; letter-spacing: 4px; color: ${accentGold};
+    text-transform: uppercase; writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap; }
+  .ribbon-line { width: 1px; height: 36px; background: rgba(201,168,76,.4); margin: 8px 0; }
+  .content { margin-left: 56px; padding: 24px 42px 18px 32px; height: 100%; display: flex; flex-direction: column; position: relative; }
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+  .org-block { display: flex; align-items: center; gap: 14px; }
+  .logo-wrap { width: 52px; height: 52px; border-radius: 50%; background: linear-gradient(135deg, #1a3a6b, ${accentNavy});
+    display: flex; align-items: center; justify-content: center; border: 2px solid ${accentGold}; overflow: hidden; flex-shrink: 0; }
+  .org-name { font-size: 19px; font-weight: 800; color: ${accentNavy}; letter-spacing: .5px; }
+  .org-sub { font-size: 10px; color: #6b7280; letter-spacing: .3px; margin-top: 1px; }
+  .cert-no-block { text-align: right; }
+  .cert-no-label { font-size: 8.5px; letter-spacing: 2px; text-transform: uppercase; color: #9ca3af; }
+  .cert-no { font-size: 12.5px; font-weight: 700; color: ${accentNavy}; font-family: 'Courier New', monospace; margin-top: 2px; }
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, ${accentGold} 20%, ${accentGold} 80%, transparent); margin-bottom: 13px; }
+  .body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; position: relative; }
+  .watermark { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    font-family: 'Playfair Display', Georgia, serif; font-size: 120px; font-weight: 900;
+    color: rgba(26,58,107,.03); pointer-events: none; user-select: none; letter-spacing: 8px; }
+  .cert-kind { font-size: 10px; letter-spacing: 5px; text-transform: uppercase; color: ${accentGold}; font-weight: 700; margin-bottom: 5px; }
+  .cert-title { font-family: 'Playfair Display', Georgia, serif; font-size: 25px; font-weight: 700;
+    color: ${accentNavy}; margin-bottom: 14px; line-height: 1.2; max-width: 500px; }
+  .presented { font-size: 11.5px; color: #6b7280; font-style: italic; margin-bottom: 3px; }
+  .trainee-name { font-family: 'Playfair Display', Georgia, serif; font-size: 36px; font-weight: 900;
+    color: ${accentNavy}; margin: 2px 0 12px; line-height: 1.1; }
+  .detail-row { font-size: 12px; color: #374151; line-height: 2; }
+  .detail-row b { color: ${accentNavy}; font-weight: 600; }
+  .score-badge { display: inline-block; margin-top: 10px; padding: 4px 22px; border-radius: 20px;
+    background: linear-gradient(135deg, #1a3a6b, ${accentNavy}); color: ${accentGold};
+    font-size: 13px; font-weight: 700; letter-spacing: 1px; }
+  .seal { position: absolute; bottom: 44px; right: 0; width: 84px; height: 84px; border-radius: 50%;
+    border: 2px solid ${accentGold}; outline: 4px solid rgba(201,168,76,.2);
+    display: flex; align-items: center; justify-content: center; flex-direction: column;
+    background: radial-gradient(circle, #fff 60%, #fdfbf0 100%); }
+  .seal-inner { font-size: 8px; font-weight: 800; color: ${accentNavy}; line-height: 1.5; letter-spacing: .5px; text-transform: uppercase; }
+  .seal-year { font-size: 12px; font-weight: 900; color: ${accentGold}; }
+  .corner { position: absolute; width: 32px; height: 32px; }
+  .corner::before, .corner::after { content: ''; position: absolute; background: ${accentGold}; }
+  .corner-tl { top: 17px; left: 64px; } .corner-tr { top: 17px; right: 17px; }
+  .corner-bl { bottom: 17px; left: 64px; } .corner-br { bottom: 17px; right: 17px; }
+  .corner::before { width: 100%; height: 1.5px; top: 0; left: 0; }
+  .corner::after { width: 1.5px; height: 100%; top: 0; left: 0; }
+  .corner-tr::after { left: auto; right: 0; }
+  .corner-bl::before { top: auto; bottom: 0; }
+  .corner-br::before { top: auto; bottom: 0; }
+  .corner-br::after { left: auto; right: 0; }
+  .footer { display: flex; align-items: flex-end; justify-content: space-between;
+    border-top: 1px solid #e5e7eb; padding-top: 9px; margin-top: 4px; }
+  .footer-meta { font-size: 9px; color: #9ca3af; line-height: 1.9; }
+  .footer-meta b { color: #374151; }
+  .signature-block { text-align: center; }
+  .sig-line { width: 170px; height: 1px; background: #9ca3af; margin-bottom: 4px; }
+  .sig-label { font-size: 9px; color: #6b7280; letter-spacing: .5px; }
+  .footer-verify { font-size: 9px; color: #9ca3af; text-align: right; line-height: 1.9; }
+  .footer-verify b { color: #374151; }
   @media print { body { background: #fff; } .cert { box-shadow: none; } }
 </style></head><body>
 <div class="cert">
-  <div class="head">
-    ${logo ? `<img src="${logo}" alt="MCN">` : ''}
-    <div><div class="org">MAS Callnet</div><div class="sub">Training &amp; Quality &middot; MCN Learning Management System</div></div>
+  <div class="corner corner-tl"></div><div class="corner corner-tr"></div>
+  <div class="corner corner-bl"></div><div class="corner corner-br"></div>
+  <div class="ribbon">
+    <div class="ribbon-text">MAS CALLNET</div>
+    <div class="ribbon-line"></div>
+    <div class="ribbon-text">CERTIFIED</div>
   </div>
-  <div class="body">
-    <div class="kind">${isAssessment ? 'Certificate of Achievement' : 'Certificate of Completion'}</div>
-    <div class="title">${esc(cert.title)}</div>
-    <div class="presented">This is to certify that</div>
-    <div class="name">${esc(cert.trainee_name || cert.employee_id)}</div>
-    <div class="detail">
-      ${isAssessment
-        ? 'has successfully passed the assessment named above'
-        : 'has successfully completed the training programme named above'}<br>
-      ${cert.process ? `Process: <b>${esc(cert.process)}</b>` : ''}${cert.lob ? ` &middot; LOB: <b>${esc(cert.lob)}</b>` : ''}
-      ${cert.batch_no ? `<br>Batch: <b>${esc(cert.batch_no)}</b>` : ''}
-      <br>Employee ID: <b>${esc(cert.employee_id)}</b>
+  <div class="content">
+    <div class="header">
+      <div class="org-block">
+        <div class="logo-wrap">${logoTag}</div>
+        <div>
+          <div class="org-name">MAS Callnet</div>
+          <div class="org-sub">Training &amp; Quality &middot; MCN Learning Management System</div>
+        </div>
+      </div>
+      <div class="cert-no-block">
+        <div class="cert-no-label">Certificate No</div>
+        <div class="cert-no">${esc(cert.certificate_no)}</div>
+      </div>
     </div>
-    ${cert.score_pct !== null && cert.score_pct !== undefined ? `<div class="score">Score: ${Math.round(Number(cert.score_pct))}%</div>` : ''}
-  </div>
-  <div class="foot">
-    <div>
-      <div>Certificate No: <b>${esc(cert.certificate_no)}</b></div>
-      <div>Verification Code: <b>${esc(cert.verification_code)}</b></div>
-      ${verifyUrl ? `<div>Verify at: ${esc(verifyUrl)}</div>` : ''}
+    <div class="divider"></div>
+    <div class="body">
+      <div class="watermark">MCN</div>
+      <div class="cert-kind">${certKind}</div>
+      <div class="cert-title">${esc(cert.title)}</div>
+      <div class="presented">This is to certify that</div>
+      <div class="trainee-name">${esc(cert.trainee_name || cert.employee_id)}</div>
+      <div class="detail-row">
+        ${isAssessment ? 'has successfully passed the assessment named above' : 'has successfully completed the training programme named above'}<br>
+        ${cert.process ? `Process: <b>${esc(cert.process)}</b>` : ''}${cert.lob ? ` &middot; LOB: <b>${esc(cert.lob)}</b>` : ''}
+        ${cert.batch_no ? `<br>Batch: <b>${esc(cert.batch_no)}</b>` : ''}
+        <br>Employee ID: <b>${esc(cert.employee_id)}</b>
+      </div>
+      ${cert.score_pct !== null && cert.score_pct !== undefined ? `<div class="score-badge">Score: ${Math.round(Number(cert.score_pct))}%</div>` : ''}
+      <div class="seal"><div class="seal-inner">T&amp;Q<br>VERIFIED</div><div class="seal-year">${new Date(cert.issued_at || Date.now()).getFullYear()}</div></div>
     </div>
-    <div class="sign"><div class="line"></div>Training &amp; Quality, MAS Callnet</div>
-    <div>Issued: <b>${esc(issued)}</b></div>
+    <div class="footer">
+      <div class="footer-meta">
+        <div>Issued: <b>${esc(issued)}</b></div>
+        <div>Verification Code: <b>${esc(cert.verification_code)}</b></div>
+      </div>
+      <div class="signature-block">
+        <div class="sig-line"></div>
+        <div class="sig-label">Training &amp; Quality, MAS Callnet</div>
+      </div>
+      <div class="footer-verify">
+        ${verifyUrl ? `<div>Verify at: <b>${esc(verifyUrl)}</b></div>` : ''}
+        <div><b>mcnlms.teammas.in</b></div>
+      </div>
+    </div>
   </div>
-  <div class="stamp">MAS CALLNET<br>T&amp;Q<br>VERIFIED</div>
 </div></body></html>`;
 }
