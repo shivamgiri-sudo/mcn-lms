@@ -803,6 +803,21 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     load();
   }
 
+
+  // Mini progress bar — green ≥ thresh, amber within 15%, red below
+  function PctBar({ value, threshold = 0 }) {
+    const n = Number(value || 0);
+    const color = n >= threshold ? '#22c55e' : n >= threshold - 15 ? '#f59e0b' : '#ef4444';
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 64 }}>
+        <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(0,0,0,.08)', overflow: 'hidden' }}>
+          <div style={{ width: `${Math.min(100, n)}%`, height: '100%', background: color, borderRadius: 2, transition: 'width .3s' }} />
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 34, textAlign: 'right' }}>{Math.round(n)}%</span>
+      </div>
+    );
+  }
+
   if (!data) return <div className="spinner" />;
 
   const traineeList = data.trainees || [];
@@ -946,18 +961,19 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      {/* Progress summary */}
+      {/* KPI tile row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10, marginBottom: 16 }}>
         {[
-          [traineeList.length, 'Total', ''],
-          [eligibleCount, 'Eligible', 'ok'],
-          [certifiedCount, 'Certified', 'ok'],
-          [attritionCount, 'Attrition', 'bad'],
-          [handedOverCount, 'Handed Over', 'info'],
-        ].map(([n, l, cls]) => (
-          <div key={l} className={`stat ${cls}`} style={{ textAlign: 'center' }}>
-            <div className="num" style={{ fontSize: 28 }}>{n}</div>
-            <div className="label">{l}</div>
+          { n: traineeList.length,  label: 'Total Trainees', bg: '#edf4ff', border: '#dce8fb', val: '#0b63e5', sub: '100%' },
+          { n: eligibleCount,       label: 'Eligible',        bg: '#eaf8ef', border: '#d7f0df', val: '#15803d', sub: traineeList.length ? `${Math.round(eligibleCount/traineeList.length*100)}%` : '\u2014' },
+          { n: certifiedCount,      label: 'Certified',       bg: '#eaf8ef', border: '#d7f0df', val: '#15803d', sub: traineeList.length ? `${Math.round(certifiedCount/traineeList.length*100)}%` : '\u2014' },
+          { n: attritionCount,      label: 'Attrition',       bg: '#fff0f1', border: '#ffdadd', val: '#dc2626', sub: traineeList.length ? `${Math.round(attritionCount/traineeList.length*100)}%` : '\u2014' },
+          { n: handedOverCount,     label: 'Handed Over',     bg: '#edf4ff', border: '#dce8fb', val: '#0b63e5', sub: traineeList.length ? `${Math.round(handedOverCount/traineeList.length*100)}%` : '\u2014' },
+        ].map(({ n, label, bg, border, val, sub }) => (
+          <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: val, lineHeight: 1.1 }}>{n}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginTop: 3 }}>{label}</div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{sub}</div>
           </div>
         ))}
       </div>
@@ -979,11 +995,12 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
               <div style={{ width: `${(attritionCount / traineeList.length) * 100}%`, background: '#ef4444' }} title={`${attritionCount} attrition`} />
             )}
           </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#6b7280', marginTop: 4 }}>
-            <span>In Training</span>
-            <span>→ Eligible</span>
-            <span>→ Certified</span>
-            <span>→ Handed Over</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            {[['#a3e635','In Training'],['#22c55e','Certified'],['#3b82f6','Handed Over'],['#ef4444','Attrition']].map(([c,l]) => (
+              <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: 'inline-block' }} />{l}
+              </span>
+            ))}
           </div>
         </div>
       )}
@@ -1011,11 +1028,19 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
       </div>
 
       {data.rule && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <b>Certification Rule: {data.rule.process} / {data.rule.lob}</b>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
-            Course: {data.rule.courseCompletionMin}% &nbsp;|&nbsp; MCQ: {data.rule.mcqPassPctMin}% &nbsp;|&nbsp; Attendance: {data.rule.attendancePctMin}%
-          </p>
+        <div style={{ background: 'linear-gradient(135deg,#edf4ff 0%,#f0f4ff 100%)', border: '1px solid #dce8fb', borderRadius: 12, padding: '12px 16px', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#0b63e5' }}>Certification Rule</span>
+            <span style={{ fontSize: 12, color: '#374151' }}>{data.rule.process} / {data.rule.lob}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 0 }}>
+            {[['Course', data.rule.courseCompletionMin],['MCQ Pass', data.rule.mcqPassPctMin],['Attendance', data.rule.attendancePctMin]].map(([label, val]) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{label}:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0b63e5' }}>{val}% min</span>
+              </div>
+            ))}
+          </div>
           {/* The manual gates come from this process's own criteria, so the card
               always matches what the table and the entry form offer. */}
           {shownCriteria.length > 0 && (
@@ -1063,12 +1088,13 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
           <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{shownCriteria.map(c => <th key={c.criterionKey}>{c.label}</th>)}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
           <tbody>
             {traineeList.map(t => (
-              <tr key={t.employeeId} onClick={() => setDrawerTrainee(t)} style={{ cursor: 'pointer' }} className="clickable-row">
-                <td><b>{t.employeeId}</b></td>
-                <td>{t.traineeName || '—'}</td>
-                <td>{pct(t.courseCompletionPct)}</td>
-                <td>{pct(t.assessmentPassPct)}</td>
-                <td>{pct(t.attendancePct)}</td>
+              <tr key={t.employeeId} style={{ cursor: 'pointer' }} className="clickable-row"
+                onClick={e => { if (e.target.closest('button,select')) return; setDrawerTrainee(t); }}>
+                <td><b style={{ fontSize: 12 }}>{t.employeeId}</b></td>
+                <td style={{ fontSize: 13 }}>{t.traineeName || '—'}</td>
+                <td><PctBar value={t.courseCompletionPct} threshold={data.rule?.courseCompletionMin || 80} /></td>
+                <td><PctBar value={t.assessmentPassPct} threshold={data.rule?.mcqPassPctMin || 60} /></td>
+                <td><PctBar value={t.attendancePct} threshold={data.rule?.attendancePctMin || 70} /></td>
                 {shownCriteria.map(c => <td key={c.criterionKey}>{criterionCell(t, c)}</td>)}
                 <td>{evidenceCell(t)}</td>
                 <td>
@@ -1080,7 +1106,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
                   )}
                 </td>
                 <td>{statusPill(t)}</td>
-                <td>{actionButtons(t)}</td>
+                <td onClick={e => e.stopPropagation()}>{actionButtons(t)}</td>
               </tr>
             ))}
           </tbody>
