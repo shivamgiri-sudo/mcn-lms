@@ -29,6 +29,29 @@ function logoDataUri() {
   return cachedLogo;
 }
 
+
+import { readFileSync, existsSync } from 'fs';
+import { resolve } from 'path';
+
+const HRMS_UPLOADS = resolve('/var/www/HRMS2/backend/uploads');
+
+function employeePhotoDataUri(photoUrl) {
+  if (!photoUrl) return null;
+  try {
+    // photoUrl is like /api/files/employee-photos/<uuid>.jpg
+    const filename = photoUrl.split('/').pop();
+    if (!filename) return null;
+    const filePath = resolve(HRMS_UPLOADS, 'employee-photos', filename);
+    if (!existsSync(filePath)) return null;
+    const data = readFileSync(filePath);
+    const ext = filename.split('.').pop().toLowerCase();
+    const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg';
+    return `data:${mime};base64,${data.toString('base64')}`;
+  } catch {
+    return null;
+  }
+}
+
 export async function ensureCertificateTable() {
   await prisma.$executeRawUnsafe(`
     CREATE TABLE IF NOT EXISTS certificate_issue (
@@ -116,6 +139,11 @@ export function renderCertificateHtml(cert, { verifyUrl = '' } = {}) {
   const dashFill = scorePct !== null ? (scorePct / 100 * 188.5).toFixed(1) : '0';
   const dashGap = (188.5 - Number(dashFill)).toFixed(1);
   const logoTag = logo ? `<img class="hlogo" src="${logo}" alt="MCN">` : '<div style="width:48px"></div>';
+  const photoDataUri = employeePhotoDataUri(cert.photo_url || null);
+  const initials = (cert.trainee_name || cert.employee_id || '?').split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+  const photoTag = photoDataUri
+    ? `<img style="width:100%;height:100%;object-fit:cover;" src="${photoDataUri}" alt="${esc(cert.trainee_name || '')}">`
+    : `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#0d3c72;font-family:Montserrat,sans-serif;font-size:28px;font-weight:900;color:#c9a84c;">${initials}</div>`;
   // Grade from score
   const grade = scorePct === null ? '' : scorePct >= 90 ? 'A+' : scorePct >= 80 ? 'A' : scorePct >= 70 ? 'B+' : scorePct >= 60 ? 'B' : 'C';
 

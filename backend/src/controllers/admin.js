@@ -4354,6 +4354,7 @@ export async function generateCertificate(req, res) {
       doj: trainee.doj || null,
       department: trainee.department || trainee.lob || null,
       branch: trainee.branch || null,
+      photo_url: trainee.photoUrl || trainee.photo_url || null,
     };
 
     res.setHeader('Content-Type', 'text/html');
