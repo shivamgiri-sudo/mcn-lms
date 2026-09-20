@@ -1,0 +1,140 @@
+/**
+ * MCN LMS Design Tokens
+ * Phase 1: UI Foundation
+ * 
+ * Usage: Import in main.jsx or App.jsx
+ * These tokens are additive — existing styles unchanged
+ */
+
+:root {
+  /* ═══ BRAND COLORS ═══════════════════════════════════════════════════════ */
+  --lms-primary: #0D9488;
+  --lms-primary-hover: #0F766E;
+  --lms-primary-light: #5EEAD4;
+  --lms-secondary: #2DD4BF;
+  --lms-accent: #D97706;
+  --lms-accent-hover: #B45309;
+  
+  /* MCN Brand */
+  --lms-mcn-blue: #267abd;
+  --lms-mcn-green: #76c053;
+  --lms-mcn-red: #dc363a;
+  
+  /* ═══ SEMANTIC COLORS ════════════════════════════════════════════════════ */
+  --lms-success: #16a34a;
+  --lms-success-light: #bbf7d0;
+  --lms-success-bg: #f0fdf4;
+  
+  --lms-warning: #d97706;
+  --lms-warning-light: #fde68a;
+  --lms-warning-bg: #fffbeb;
+  
+  --lms-error: #dc2626;
+  --lms-error-light: #fecaca;
+  --lms-error-bg: #fef2f2;
+  
+  --lms-info: #0ea5e9;
+  --lms-info-light: #bae6fd;
+  --lms-info-bg: #f0f9ff;
+  
+  /* ═══ SURFACES ═══════════════════════════════════════════════════════════ */
+  --lms-bg: #F0FDFA;
+  --lms-bg-card: #ffffff;
+  --lms-bg-muted: #E8F1F4;
+  --lms-bg-elevated: #ffffff;
+  
+  /* ═══ BORDERS ════════════════════════════════════════════════════════════ */
+  --lms-border: #5EEAD4;
+  --lms-border-muted: #d1d5db;
+  --lms-border-focus: #0D9488;
+  
+  /* ═══ TEXT ═══════════════════════════════════════════════════════════════ */
+  --lms-text: #134E4A;
+  --lms-text-secondary: #4b5563;
+  --lms-text-muted: #6b7280;
+  --lms-text-inverse: #ffffff;
+  
+  /* ═══ SHADOWS ════════════════════════════════════════════════════════════ */
+  --lms-shadow-xs: 0 1px 2px rgba(13,148,136,0.04);
+  --lms-shadow-sm: 0 1px 3px rgba(13,148,136,0.06), 0 1px 2px rgba(13,148,136,0.04);
+  --lms-shadow: 0 4px 6px rgba(13,148,136,0.07), 0 2px 4px rgba(13,148,136,0.05);
+  --lms-shadow-md: 0 6px 12px rgba(13,148,136,0.08), 0 3px 6px rgba(13,148,136,0.06);
+  --lms-shadow-lg: 0 10px 25px rgba(13,148,136,0.1), 0 5px 10px rgba(13,148,136,0.06);
+  --lms-shadow-glow: 0 0 20px rgba(13,148,136,0.25);
+  
+  /* ═══ SPACING ════════════════════════════════════════════════════════════ */
+  --lms-space-1: 4px;
+  --lms-space-2: 8px;
+  --lms-space-3: 12px;
+  --lms-space-4: 16px;
+  --lms-space-5: 20px;
+  --lms-space-6: 24px;
+  --lms-space-8: 32px;
+  --lms-space-10: 40px;
+  --lms-space-12: 48px;
+  
+  /* ═══ RADIUS ═════════════════════════════════════════════════════════════ */
+  --lms-radius-sm: 6px;
+  --lms-radius: 10px;
+  --lms-radius-md: 12px;
+  --lms-radius-lg: 16px;
+  --lms-radius-xl: 20px;
+  --lms-radius-full: 9999px;
+  
+  /* ═══ TYPOGRAPHY ═════════════════════════════════════════════════════════ */
+  --lms-font: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --lms-font-mono: 'Fira Code', 'Consolas', monospace;
+  
+  --lms-text-xs: 11px;
+  --lms-text-sm: 13px;
+  --lms-text-base: 14px;
+  --lms-text-lg: 16px;
+  --lms-text-xl: 18px;
+  --lms-text-2xl: 22px;
+  --lms-text-3xl: 28px;
+  
+  --lms-leading-tight: 1.25;
+  --lms-leading-normal: 1.5;
+  --lms-leading-relaxed: 1.75;
+  
+  /* ═══ TRANSITIONS ════════════════════════════════════════════════════════ */
+  --lms-transition-fast: 150ms ease;
+  --lms-transition: 200ms ease;
+  --lms-transition-slow: 300ms ease;
+  
+  /* ═══ Z-INDEX ════════════════════════════════════════════════════════════ */
+  --lms-z-dropdown: 100;
+  --lms-z-sticky: 200;
+  --lms-z-modal: 300;
+  --lms-z-toast: 400;
+  --lms-z-tooltip: 500;
+}
+
+/* ═══ DARK MODE ══════════════════════════════════════════════════════════════ */
+[data-theme=dark] {
+  --lms-bg: #0f172a;
+  --lms-bg-card: #1e293b;
+  --lms-bg-muted: #334155;
+  --lms-bg-elevated: #1e293b;
+  
+  --lms-border: #475569;
+  --lms-border-muted: #334155;
+  
+  --lms-text: #f1f5f9;
+  --lms-text-secondary: #cbd5e1;
+  --lms-text-muted: #94a3b8;
+  
+  --lms-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --lms-shadow: 0 4px 6px rgba(0,0,0,0.4);
+  --lms-shadow-md: 0 6px 12px rgba(0,0,0,0.5);
+  --lms-shadow-lg: 0 10px 25px rgba(0,0,0,0.6);
+}
+
+/* ═══ REDUCED MOTION ═════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lms-transition-fast: 0ms;
+    --lms-transition: 0ms;
+    --lms-transition-slow: 0ms;
+  }
+}
