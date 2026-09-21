@@ -26,7 +26,7 @@ import {
   getRiskLevel,
   uploadQuestionsCSV,
   adminCreateBatch, adminUpdateBatch, adminUpdateBatchCoordinator, listAllCoordinators, closeBatch, deleteBatch,
-  adminBulkAddTrainees, enrollExistingTraineeAdmin, resetAdminPassword,
+  adminBulkAddTrainees, enrollExistingTraineeAdmin, adminChangeTraineeBatch, resetAdminPassword,
   setContentLock, unlockContentForTrainee,
   listBranches, getBranchDetail,
   listPortalUsers, createPortalUser, updatePortalUser, changeUserRole, deletePortalUser, resetPortalUserPin,
@@ -118,6 +118,10 @@ router.get('/reports/content-reading', ...auth, exportContentReading);
 router.get('/reports/qa-activity', ...auth, exportQAActivity);
 router.post('/trainees/:employeeId/reset-password', ...auth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);
+// Super Admin only, not superElevatedAuth: this transfers a trainee the same way
+// enroll-existing does, not a role/org/comms/HRMS change — requireRecentElevation
+// would 403 with no UI re-entry prompt (see CLAUDE.md's auth notes).
+router.post('/trainees/:employeeId/change-batch', ...superAuth, adminChangeTraineeBatch);
 router.delete('/trainees/:employeeId', ...superElevatedAuth, deleteTraineeAccount);
 router.get('/trainees/:empId/detail', ...auth, getTraineeDetail);
 

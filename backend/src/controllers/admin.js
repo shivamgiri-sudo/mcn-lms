@@ -3300,6 +3300,57 @@ export async function adminBulkAddTrainees(req, res) {
 // This mirrors the working coordinator-side /trainees/enroll-existing (see
 // routes/coordinatorStability.js) instead: transfer the existing trainee's
 // batch/branch/process/lob/classroom rather than trying to re-create them.
+// Shared batch-transfer transaction — used by enrollExistingTraineeAdmin (Batch
+// Detail's "Search & Enroll Existing Trainee") and adminChangeTraineeBatch (Trainee
+// Accounts' "Edit batch") so totalTrainees, classroom membership, and the
+// progress/risk/certification reset stay consistent in exactly one place instead of
+// two copies drifting apart.
+async function transferTraineeToBatch({ employeeId, batch, previousBatchNo, req }) {
+  await prisma.$transaction(async tx => {
+    await tx.traineeMaster.update({
+      where: { employeeId },
+      data: {
+        batchNo: batch.batchNo,
+        branch: batch.branch,
+        process: batch.process,
+        lob: batch.lob,
+        classroomId: batch.classroomId,
+        classroomName: batch.classroomName,
+        courseCompletionPct: 0,
+        assessmentAttemptPct: 0,
+        assessmentPassPct: 0,
+        attendancePct: 0,
+        riskStatus: 'HEALTHY',
+        riskReason: null,
+        ojtReady: false,
+        nestingStatus: 'Not Started',
+        certificationStatus: 'Not Certified',
+        handoverToOps: false,
+        status: 'Active',
+      },
+    });
+    await tx.userMaster.updateMany({
+      where: { employeeId },
+      data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
+    });
+    await tx.traineeClassroomMap.updateMany({ where: { employeeId }, data: { active: false } });
+    if (batch.classroomId) {
+      await tx.traineeClassroomMap.upsert({
+        where: { employeeId_classroomId: { employeeId, classroomId: batch.classroomId } },
+        create: { employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+        update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
+      });
+    }
+    await tx.batchMaster.update({ where: { batchNo: batch.batchNo }, data: { totalTrainees: { increment: 1 } } });
+    if (previousBatchNo && previousBatchNo !== batch.batchNo) {
+      await tx.batchMaster.updateMany({
+        where: { batchNo: previousBatchNo, totalTrainees: { gt: 0 } },
+        data: { totalTrainees: { decrement: 1 } },
+      });
+    }
+  });
+}
+
 export async function enrollExistingTraineeAdmin(req, res) {
   try {
     const { batchNo } = req.params;
@@ -3317,54 +3368,44 @@ export async function enrollExistingTraineeAdmin(req, res) {
     if (trainee.batchNo === batch.batchNo) return res.json({ ok: true, alreadyEnrolled: true, message: 'Trainee is already enrolled in this batch.' });
     const previousBatchNo = trainee.batchNo;
 
-    await prisma.$transaction(async tx => {
-      await tx.traineeMaster.update({
-        where: { employeeId },
-        data: {
-          batchNo: batch.batchNo,
-          branch: batch.branch,
-          process: batch.process,
-          lob: batch.lob,
-          classroomId: batch.classroomId,
-          classroomName: batch.classroomName,
-          courseCompletionPct: 0,
-          assessmentAttemptPct: 0,
-          assessmentPassPct: 0,
-          attendancePct: 0,
-          riskStatus: 'HEALTHY',
-          riskReason: null,
-          ojtReady: false,
-          nestingStatus: 'Not Started',
-          certificationStatus: 'Not Certified',
-          handoverToOps: false,
-          status: 'Active',
-        },
-      });
-      await tx.userMaster.updateMany({
-        where: { employeeId },
-        data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
-      });
-      await tx.traineeClassroomMap.updateMany({ where: { employeeId }, data: { active: false } });
-      if (batch.classroomId) {
-        await tx.traineeClassroomMap.upsert({
-          where: { employeeId_classroomId: { employeeId, classroomId: batch.classroomId } },
-          create: { employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
-          update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
-        });
-      }
-      await tx.batchMaster.update({ where: { batchNo: batch.batchNo }, data: { totalTrainees: { increment: 1 } } });
-      if (previousBatchNo) {
-        await tx.batchMaster.updateMany({
-          where: { batchNo: previousBatchNo, totalTrainees: { gt: 0 } },
-          data: { totalTrainees: { decrement: 1 } },
-        });
-      }
-    });
+    await transferTraineeToBatch({ employeeId, batch, previousBatchNo, req });
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ENROLL_EXISTING', module: 'Trainee', referenceId: employeeId, oldValue: { batchNo: previousBatchNo }, newValue: { batchNo: batch.batchNo } });
     res.json({ ok: true, message: `${trainee.traineeName || employeeId} was enrolled in ${batch.batchNo}.` });
   } catch (err) {
     console.error('[admin] existing trainee enrolment failed:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
+// ── Change a trainee's batch from the Trainee Accounts page ────────────────────
+// Super Admin only (see routes/admin.js) — reuses the exact same transfer logic as
+// "Search & Enroll Existing Trainee" instead of a raw batchNo column write, so
+// totalTrainees counters, classroom membership and progress/risk state all stay
+// correct no matter which screen the transfer was started from.
+export async function adminChangeTraineeBatch(req, res) {
+  try {
+    const employeeId = String(req.params.employeeId || '').trim().toUpperCase();
+    const batchNo = String(req.body?.batchNo || '').trim();
+    if (!batchNo) return res.status(400).json({ ok: false, message: 'Batch No is required.' });
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee || trainee.status === 'Deleted') return res.status(404).json({ ok: false, message: 'Active LMS trainee not found.' });
+
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (req.userBranch && batch.branch !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only move trainees into batches in your own branch.' });
+    }
+    if (trainee.batchNo === batch.batchNo) return res.json({ ok: true, alreadyEnrolled: true, message: 'Trainee is already in this batch.' });
+    const previousBatchNo = trainee.batchNo;
+
+    await transferTraineeToBatch({ employeeId, batch, previousBatchNo, req });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ADMIN_CHANGE_TRAINEE_BATCH', module: 'Trainee', referenceId: employeeId, oldValue: { batchNo: previousBatchNo }, newValue: { batchNo: batch.batchNo } });
+    res.json({ ok: true, message: `${trainee.traineeName || employeeId} moved to ${batch.batchNo}.` });
+  } catch (err) {
+    console.error('[admin] change trainee batch failed:', err);
     res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }

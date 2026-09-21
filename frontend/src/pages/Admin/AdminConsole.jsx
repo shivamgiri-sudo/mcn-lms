@@ -168,7 +168,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'questions' && <QuestionsTab />}
           {activeId === 'drive' && <DriveTab />}
           {activeId === 'batches' && <BatchesPage navigate={navigate} />}
-          {activeId === 'accounts' && <AccountsTab />}
+          {activeId === 'accounts' && <AccountsTab isSuper={isSuper} />}
           {activeId === 'coordinators' && <CoordinatorsPage navigate={navigate} />}
           {activeId === 'reports' && <ReportsTab />}
           {activeId === 'leaderboard' && <LeaderboardTab />}
