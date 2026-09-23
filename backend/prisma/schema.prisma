@@ -215,6 +215,7 @@ model AdminUserMaster {
   passwordHash   String    @map("password_hash")
   salt           String
   adminName      String?   @map("admin_name")
+  email          String?
   role           String    @default("Admin")
   branch         String?   @map("branch")
   active         Boolean   @default(true)
@@ -1374,4 +1375,91 @@ model TypingStreak {
   updatedAt         DateTime  @updatedAt @map("updated_at")
 
   @@map("typing_streaks")
+}
+
+// ─── DAILY BATCH TRAINING REPORT ──────────────────────────────────────────────
+// Trainer = the batch's own coordinator (BatchMaster.coordinatorName/
+// coordinatorLoginId) -- this org treats them as the same role, so no separate
+// trainer field/table. Branch Head = the branch-scoped Admin(s) for that batch's
+// branch (AdminUserMaster.branch match) -- the only scoping dimension admins
+// actually have; there is no per-process admin concept in this system. Both
+// resolve from data that already exists; only AdminUserMaster.email (added
+// above) was missing.
+
+// Per (process, lob): which activities are POSSIBLE for this process. This
+// defines what CAN appear in a report; actual daily detection (via the activity
+// providers, keyed off real assignment/attempt data for that date) decides what
+// DOES appear on any given day -- a process configured for Assessment does not
+// get an "Assessment: Pending" line on a day nothing was actually assigned.
+model DailyBatchActivityConfig {
+  id                  String   @id @default(uuid())
+  process             String
+  lob                 String
+  typingTest          Boolean  @default(false) @map("typing_test")
+  classroomCurriculum Boolean  @default(false) @map("classroom_curriculum")
+  videoCourse         Boolean  @default(false) @map("video_course")
+  assessment          Boolean  @default(false)
+  learningNugget      Boolean  @default(false) @map("learning_nugget")
+  pkt                 Boolean  @default(false)
+  calibration         Boolean  @default(false)
+  certification       Boolean  @default(false)
+  eLearning           Boolean  @default(false) @map("e_learning")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  updatedBy           String?  @map("updated_by")
+
+  @@unique([process, lob])
+  @@map("daily_batch_activity_config")
+}
+
+// Singleton settings (id is always "default"), same convention as
+// TypingTestSettings/NotificationConfig/CommunicationConfig.
+model DailyBatchReportSettings {
+  id                     String   @id @default("default")
+  enabled                Boolean  @default(false)
+  sendTime               String   @default("19:00") @map("send_time") // "HH:MM", IST
+  typingWpmTarget        Int      @default(25) @map("typing_wpm_target")
+  typingAccuracyTarget   Float    @default(97) @map("typing_accuracy_target")
+  // A batch-level TNI/concern is only raised when a gap is shared by at least
+  // this many present trainees AND at least this % of them -- both thresholds
+  // must be met, so a 2-person batch doesn't get a "TNI" from one trainee, and a
+  // 200-person batch doesn't get one from a handful of unlucky outliers.
+  tniMinTraineeCount     Int      @default(3) @map("tni_min_trainee_count")
+  tniMinPct              Float    @default(30) @map("tni_min_pct")
+  requirePreviewApproval Boolean  @default(false) @map("require_preview_approval")
+  superAdminEmails       String?  @db.Text @map("super_admin_emails") // comma-separated fallback CC
+  updatedAt              DateTime @updatedAt @map("updated_at")
+  updatedBy              String?  @map("updated_by")
+
+  @@map("daily_batch_report_settings")
+}
+
+// One row per batch per date a report was generated (previewed, sent, or
+// blocked). Unique on (batchNo, reportDate) both gives natural idempotency
+// against duplicate automatic sends and is the "was this already sent today"
+// check the scheduler needs.
+model DailyBatchReportLog {
+  id                 String    @id @default(uuid())
+  batchNo            String    @map("batch_no")
+  reportDate         DateTime  @map("report_date")
+  process            String?
+  branch             String?
+  coordinatorLoginId String?   @map("coordinator_login_id")
+  activitiesIncluded Json      @map("activities_included") // e.g. ["typingTest","assessment","classroomCurriculum"]
+  totalTrainees      Int       @default(0) @map("total_trainees")
+  presentCount       Int       @default(0) @map("present_count")
+  subject            String?
+  recipientTo        String?   @map("recipient_to")
+  recipientCc        String?   @db.Text @map("recipient_cc")
+  status             String    @default("Pending") // Pending | Sent | Failed | Flagged
+  sentAt             DateTime? @map("sent_at")
+  triggerType        String    @default("Automatic") @map("trigger_type") // Automatic | Manual
+  sentBy             String?   @map("sent_by")
+  deliveryError      String?   @db.Text @map("delivery_error")
+  bodyHtml           String?   @db.LongText @map("body_html")
+  createdAt          DateTime  @default(now()) @map("created_at")
+
+  @@unique([batchNo, reportDate])
+  @@index([reportDate])
+  @@index([batchNo])
+  @@map("daily_batch_report_log")
 }

@@ -18,7 +18,7 @@ async function getConfig() {
 
 // ── Email ─────────────────────────────────────────────────────────────────────
 
-export async function sendEmail({ to, subject, html, text }) {
+export async function sendEmail({ to, cc, subject, html, text }) {
   const cfg = await getConfig();
   if (!cfg.smtpEnabled) {
     console.warn('[NOTIFY] Email disabled in config. Skipping send to:', to);
@@ -38,12 +38,13 @@ export async function sendEmail({ to, subject, html, text }) {
   await transporter.sendMail({
     from: cfg.emailFrom || cfg.smtpUser,
     to: Array.isArray(to) ? to.join(',') : to,
+    ...(cc ? { cc: Array.isArray(cc) ? cc.join(',') : cc } : {}),
     subject,
     text: text || '',
     html: html || text || '',
   });
 
-  console.log('[NOTIFY] Email sent to', to);
+  console.log('[NOTIFY] Email sent to', to, cc ? `(cc: ${cc})` : '');
   return { ok: true };
 }
 

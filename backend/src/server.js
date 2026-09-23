@@ -11,6 +11,7 @@ import { prisma } from './utils/db.js';
 import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
+import { startDailyBatchReportScheduler } from './services/dailyBatchReportScheduler.js';
 import { runNotificationCampaignCycle } from './services/notificationCampaigns.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
@@ -49,6 +50,7 @@ import ijpRoutes from './routes/ijp.js';
 import voiceAccentRoutes from './routes/voiceAccent.js';
 import typingTestRoutes from './routes/typingTest.js';
 import typingPracticeRoutes from './routes/typingPractice.js';
+import dailyBatchReportRoutes from './routes/dailyBatchReport.js';
 import calibrationCatalogRoutes from './routes/calibrationCatalog.js';
 import calibrationOperationsRoutes from './routes/calibrationOperations.js';
 import calibrationAppealsRoutes from './routes/calibrationAppeals.js';
@@ -211,6 +213,7 @@ app.use('/api/ijp', ijpRoutes);
 app.use('/api/voice-accent', voiceAccentRoutes);
 app.use('/api/typing-test', typingTestRoutes);
 app.use('/api/typing', typingPracticeRoutes);
+app.use('/api/daily-batch-report', dailyBatchReportRoutes);
 
 // These twelve routers existed on disk but were never mounted, so every page
 // that called them got the SPA shell instead of an API response. Their hook
@@ -367,6 +370,7 @@ function startBackgroundWork() {
   kpiTimer.unref?.();
   scheduleDailyEmail();
   startScheduler();
+  startDailyBatchReportScheduler();
   runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] initial run failed:', e.message));
   const campaignTimer = setInterval(() => {
     runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] cycle failed:', e.message));

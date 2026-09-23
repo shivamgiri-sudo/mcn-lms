@@ -37,6 +37,7 @@ import MentorPairingTab from '../Coordinator/MentorPairingTab.jsx';
 import IJPManageTab from '../Coordinator/IJPManageTab.jsx';
 import VoiceAccentTab from '../Coordinator/VoiceAccentTab.jsx';
 import TypingTestTab from './TypingTestTab.jsx';
+import DailyBatchReportTab from './DailyBatchReportTab.jsx';
 import TypingPassagesTab from './TypingPassagesTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
@@ -73,6 +74,7 @@ const NAV = [
   { section: 'Reports', items: [
     { id: 'reports', label: 'Reports & Exports', icon: '📥' },
     { id: 'leaderboard', label: 'Leaderboard', icon: '🏆' },
+    { id: 'daily-batch-report', label: 'Daily Batch Report', icon: '📧' },
   ]},
   { section: 'Compliance', items: [
     { id: 'compliance-audit', label: 'Compliance Audit', icon: '🔒' },
@@ -181,6 +183,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'voice-accent' && <VoiceAccentTab portalType="admin" />}
           {activeId === 'typing-test' && <TypingTestTab />}
           {activeId === 'typing-passages' && <TypingPassagesTab />}
+          {activeId === 'daily-batch-report' && <DailyBatchReportTab isSuper={isSuper} />}
           {activeId === 'compliance-audit' && <ComplianceExport />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}

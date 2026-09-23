@@ -3648,7 +3648,7 @@ export async function listPortalUsers(req, res) {
       prisma.adminUserMaster.findMany({
         where: { active: true },
         orderBy: { adminName: 'asc' },
-        select: { id: true, adminId: true, adminName: true, role: true, branch: true, active: true, locked: true, failedAttempts: true, lastLogin: true, createdAt: true },
+        select: { id: true, adminId: true, adminName: true, email: true, role: true, branch: true, active: true, locked: true, failedAttempts: true, lastLogin: true, createdAt: true },
       }),
     ]);
     // Normalise admin_user_master rows to the same shape as role_access_matrix.
@@ -3661,6 +3661,7 @@ export async function listPortalUsers(req, res) {
       id: a.id,
       loginId: a.adminId,
       name: a.adminName,
+      email: a.email || null,
       role: a.role || 'Admin',
       portalAccess: a.role || 'Admin',
       branch: a.branch || null,
@@ -3677,7 +3678,7 @@ export async function listPortalUsers(req, res) {
 
 export async function createPortalUser(req, res) {
   try {
-    const { loginId, pin, name, role, portalAccess, branch, process, lob, designation, department, employeeCode,
+    const { loginId, pin, name, role, portalAccess, branch, process, lob, designation, department, employeeCode, email, mobile,
       canCreateBatch, canOnboardTrainee, canUploadLmsReport, canOverrideAttendance, canCloseBatch, canViewManagementDashboard } = req.body;
 
     if (!loginId || !pin || !name) return res.status(400).json({ ok: false, message: 'Login ID, PIN/Password and Name are required.' });
@@ -3698,7 +3699,7 @@ export async function createPortalUser(req, res) {
       const salt = generateSalt();
       const passwordHash = await hashPassword(pin, salt);
       const admin = await prisma.adminUserMaster.create({
-        data: { adminId: cleanLoginId, adminName: name.trim(), passwordHash, salt, role: 'Admin', active: true, branch: branch || null },
+        data: { adminId: cleanLoginId, adminName: name.trim(), email: email || null, passwordHash, salt, role: 'Admin', active: true, branch: branch || null },
       });
       await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_ADMIN_USER', module: 'Users', referenceId: cleanLoginId });
       return res.json({ ok: true, data: { loginId: admin.adminId, name: admin.adminName, role: 'Admin' }, message: `Admin ${cleanLoginId} created. They can log into the Admin portal with this password.` });
@@ -3714,6 +3715,7 @@ export async function createPortalUser(req, res) {
         portalAccess: portalAccess || role || 'Coordinator',
         branch: branch || null, process: process || null, lob: lob || null,
         designation: designation || null, department: department || null, employeeCode: employeeCode || null,
+        email: email || null, mobile: mobile || null,
         active: true,
         canCreateBatch: !!canCreateBatch, canOnboardTrainee: !!canOnboardTrainee,
         canUploadLmsReport: !!canUploadLmsReport, canOverrideAttendance: !!canOverrideAttendance,
@@ -3748,6 +3750,7 @@ export async function updatePortalUser(req, res) {
       }
       const data = {};
       if (name !== undefined) data.adminName = name;
+      if (email !== undefined) data.email = email || null;
       if (branch !== undefined && !isSuperAdmin) data.branch = branch || null;
       if (active !== undefined) data.active = !!active;
       if (pin !== undefined && pin.length >= 4) {
