@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { api } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import { useTheme } from '../../context/ThemeContext.jsx';
 import LearningJourneyTab from './LearningJourneyTab.jsx';
@@ -17,6 +18,12 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
   const { theme, toggle: toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('journey');
   const [showForceReset, setShowForceReset] = useState(forceReset);
+  const [typingStats, setTypingStats] = useState(null);
+  useEffect(() => {
+    api.get('/typing/me/stats', 'trainee').then(res => {
+      if (res.ok) setTypingStats(res.data);
+    });
+  }, []);
 
   const d = dashboard || {};
   const t = d.trainee || {};
@@ -125,6 +132,36 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
               <div className="progress-shell" style={{ height: 5, marginTop: 8 }}><div className={`progress-bar ${kpi.cls === 'ok' ? 'ok' : kpi.cls === 'warn' ? 'warn' : kpi.cls === 'bad' ? 'bad' : ''}`} style={{ width: `${kpi.w}%` }} /></div>
             </div>
           ))}
+          {typingStats && (
+            <div
+              className="kpi-card"
+              style={{ cursor: 'pointer' }}
+              onClick={() => setActiveTab('typing')}
+            >
+              <div className="kpi-label">Typing (Today)</div>
+              <div
+                className="kpi-value"
+                style={{
+                  color: typingStats.todayBestWpm >= 60
+                    ? 'var(--ok)'
+                    : typingStats.todayBestWpm >= 40
+                      ? 'var(--warn)'
+                      : 'var(--fg)'
+                }}
+              >
+                {typingStats.todayBestWpm != null ? `${typingStats.todayBestWpm} WPM` : '—'}
+              </div>
+              <div className="kpi-note">
+                {typingStats.currentStreak}d streak · {typingStats.sessionsThisWeek} this week
+              </div>
+              <div className="progress-shell" style={{ height: 5, marginTop: 8 }}>
+                <div
+                  className={`progress-bar ${typingStats.todayBestWpm >= 60 ? 'ok' : typingStats.todayBestWpm >= 40 ? 'warn' : ''}`}
+                  style={{ width: `${Math.min((typingStats.todayBestWpm || 0), 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
         </div>
       )}
 
