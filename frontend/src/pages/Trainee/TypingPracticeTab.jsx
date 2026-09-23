@@ -303,6 +303,7 @@ export default function TypingPracticeTab() {
         </div>
 
         <textarea
+          id="typing-textarea"
           ref={textareaRef}
           onKeyDown={handleKeyDown}
           onPaste={e => { e.preventDefault(); pasteRef.current++; setPasteCount(pasteRef.current); }}

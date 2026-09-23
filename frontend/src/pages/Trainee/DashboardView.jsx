@@ -81,6 +81,14 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
 
   const kpiColor = cls => cls === 'ok' ? 'var(--ok)' : cls === 'warn' ? 'var(--warn)' : cls === 'bad' ? 'var(--bad)' : 'var(--accent)';
 
+  useEffect(() => {
+    if (activeTab !== 'typing') return;
+    const id = setTimeout(() => {
+      document.getElementById('typing-textarea')?.focus();
+    }, 120);
+    return () => clearTimeout(id);
+  }, [activeTab]);
+
   return (
     <div className="td-shell">
 
@@ -114,17 +122,11 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
             <span>Overall Progress</span><span style={{ color: 'var(--accent)' }}>{overall}%</span>
           </div>
           <div className="progress-shell" style={{ height: 6, marginTop: 0 }}><div className="progress-bar" style={{ width: `${overall}%` }} /></div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>{formatSeconds(totalSecs)} verified</div>
-        </div>
-
-        {/* Batch details */}
-        <div className="td-section-label">Batch Info</div>
-        <div className="td-batch">
-          {[['ID', t.employeeId], ['Batch', t.batchNo || '—'], ['Branch', t.branch || '—'], ['Days', s.totalDays || 0], ['Modules', s.totalModules || 0]].map(([k, v]) => (
-            <div key={k} className="td-batch-row">
-              <span>{k}</span><span>{v}</span>
-            </div>
-          ))}
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span>{formatSeconds(totalSecs)} verified</span>
+            {t.batchNo && <span>· Batch {t.batchNo}</span>}
+            {t.branch && <span>· {t.branch}</span>}
+          </div>
         </div>
 
         {/* KPI cockpit */}
@@ -364,7 +366,6 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
         .td-main {
           padding: 20px 28px;
           min-width: 0;
-          overflow-x: hidden;
         }
         .td-quickbar {
           display: flex;
