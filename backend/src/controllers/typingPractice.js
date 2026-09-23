@@ -75,8 +75,10 @@ export async function saveSession(req, res) {
     const b = req.body || {};
 
     // Sanity checks — reject impossible values
-    const wpm = clampInt(b.wpm, 0, 250, -1);
-    if (wpm < 0) return res.status(400).json({ ok: false, message: 'wpm must be 0–250.' });
+    const rawWpmInput = Number(b.wpm);
+    if (!Number.isFinite(rawWpmInput) || rawWpmInput < 0) return res.status(400).json({ ok: false, message: 'wpm must be a non-negative number.' });
+    if (rawWpmInput > 250) return res.status(400).json({ ok: false, message: 'wpm exceeds maximum (250). Session rejected.' });
+    const wpm = Math.round(rawWpmInput);
 
     const durationSeconds = clampInt(b.durationSeconds, 0, 7200, -1);
     if (durationSeconds < 5) return res.status(400).json({ ok: false, message: 'Session too short (minimum 5 seconds).' });
