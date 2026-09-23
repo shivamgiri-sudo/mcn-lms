@@ -137,7 +137,7 @@ test('release manifests and environment contracts are machine readable and compl
   assert.equal(manifest.migrationCount, 29);
   assert.equal(migrations.length, 29);
   assert.equal(migrations[0], '20260630053213_init');
-  assert.equal(migrations.at(-1), '20260923100000_daily_typing_test');
+  assert.equal(migrations.at(-1), '20260923120000_daily_typing_test');
   assert.equal(manifest.databaseRollbackSupported, false);
   assert.equal(manifest.applicationRollbackSupported, true);
   assert.equal(manifest.healthEndpoints.liveness, '/api/runtime/health/live');
