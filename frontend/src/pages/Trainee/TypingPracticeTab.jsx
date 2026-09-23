@@ -228,7 +228,7 @@ export default function TypingPracticeTab() {
     } else {
       timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
     }
-    setTimeout(() => textareaRef.current?.focus(), 50);
+    // autoFocus on the textarea handles initial focus
   }
 
   function handleKeyDown(e) {
@@ -242,6 +242,7 @@ export default function TypingPracticeTab() {
       return;
     }
     if (e.key.length !== 1) return;
+    e.preventDefault(); // prevent browser from inserting text into textarea
 
     const expected = body[currentPos] ?? '';
     const correct = e.key === expected;
@@ -296,7 +297,10 @@ export default function TypingPracticeTab() {
           </div>
         </div>
 
-        <PassageDisplay body={promptBody} typedChars={typedChars} startIndex={startIndex} />
+        {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events */}
+        <div onClick={() => textareaRef.current?.focus()} style={{ cursor: 'text' }}>
+          <PassageDisplay body={promptBody} typedChars={typedChars} startIndex={startIndex} />
+        </div>
 
         <textarea
           ref={textareaRef}
@@ -304,14 +308,15 @@ export default function TypingPracticeTab() {
           onPaste={e => { e.preventDefault(); pasteRef.current++; setPasteCount(pasteRef.current); }}
           onDrop={e => e.preventDefault()}
           onContextMenu={e => e.preventDefault()}
-          value=""
-          onChange={() => {}}
-          placeholder="Start typing here…"
+          defaultValue=""
+          placeholder="Click here and start typing…"
+          // eslint-disable-next-line jsx-a11y/no-autofocus
+          autoFocus
           style={{
             width: '100%', minHeight: 80, marginTop: 12,
             fontFamily: 'monospace', fontSize: 15,
             padding: '10px 12px', borderRadius: 8,
-            border: '1.5px solid var(--line)',
+            border: '1.5px solid var(--accent)',
             background: 'var(--bg, #fff)',
             resize: 'none', outline: 'none', boxSizing: 'border-box',
           }}
