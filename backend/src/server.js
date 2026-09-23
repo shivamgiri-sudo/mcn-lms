@@ -47,6 +47,7 @@ import iltRoutes from './routes/ilt.js';
 import mentorPairingRoutes from './routes/mentorPairing.js';
 import ijpRoutes from './routes/ijp.js';
 import voiceAccentRoutes from './routes/voiceAccent.js';
+import typingPracticeRoutes from './routes/typingPractice.js';
 import calibrationCatalogRoutes from './routes/calibrationCatalog.js';
 import calibrationOperationsRoutes from './routes/calibrationOperations.js';
 import calibrationAppealsRoutes from './routes/calibrationAppeals.js';
@@ -207,6 +208,7 @@ app.use('/api/ilt', iltRoutes);
 app.use('/api/mentor-pairing', mentorPairingRoutes);
 app.use('/api/ijp', ijpRoutes);
 app.use('/api/voice-accent', voiceAccentRoutes);
+app.use('/api/typing', typingPracticeRoutes);
 
 // These twelve routers existed on disk but were never mounted, so every page
 // that called them got the SPA shell instead of an API response. Their hook
