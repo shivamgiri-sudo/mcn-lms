@@ -411,6 +411,28 @@ export default function BatchDetail({ batchNo, user, onBack }) {
                   </div>
                 </div>
               )}
+      {/* Threshold warning: 0 eligible but there are trainees */}
+      {eligibleCount === 0 && traineeList.length > 0 && data.rule && (() => {
+        const avgMcq = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.assessmentPassPct || 0), 0) / traineeList.length)
+          : 0;
+        const mcqThresh = data.rule.mcqPassPctMin || 0;
+        const courseThresh = data.rule.courseCompletionMin || 0;
+        const avgCourse = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.courseCompletionPct || 0), 0) / traineeList.length)
+          : 0;
+        const gapMcq = mcqThresh - avgMcq;
+        const gapCourse = courseThresh - avgCourse;
+        if (gapMcq <= 0 && gapCourse <= 0) return null;
+        return (
+          <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.35)', borderRadius: 8, padding: '12px 16px', marginBottom: 14, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: '#b45309', marginBottom: 6 }}>⚠ 0 trainees eligible — rule thresholds may need review</div>
+            {gapMcq > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>MCQ threshold is <b>{mcqThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgMcq}%</b> (gap: {gapMcq}%)</div>}
+            {gapCourse > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>Course threshold is <b>{courseThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgCourse}%</b> (gap: {gapCourse}%)</div>}
+            <div style={{ color: '#6b7280', marginTop: 6, fontSize: 12 }}>Ask your admin to review cert rule thresholds in Admin → Certification Rules.</div>
+          </div>
+        );
+      })()}
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
                 <button className="btn" onClick={bulkAddFromCsv} disabled={loading || !csvPreview || csvPreview.length === 0}>
@@ -670,6 +692,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   const [scoreFor, setScoreFor] = useState(null);
   const [scoreForm, setScoreForm] = useState(emptyScore);
   const [scoreSaving, setScoreSaving] = useState(false);
+  const [drawerTrainee, setDrawerTrainee] = useState(null);
 
   useEffect(() => { load(); }, [batchNo]);
 
@@ -778,6 +801,21 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
     setBulkLoading(false);
     setMsg(`✓ ${unresolved.length} trainees marked as Not Certified.`);
     load();
+  }
+
+
+  // Mini progress bar — green ≥ thresh, amber within 15%, red below
+  function PctBar({ value, threshold = 0 }) {
+    const n = Number(value || 0);
+    const color = n >= threshold ? '#22c55e' : n >= threshold - 15 ? '#f59e0b' : '#ef4444';
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 64 }}>
+        <div style={{ flex: 1, height: 4, borderRadius: 2, background: 'rgba(0,0,0,.08)', overflow: 'hidden' }}>
+          <div style={{ width: `${Math.min(100, n)}%`, height: '100%', background: color, borderRadius: 2, transition: 'width .3s' }} />
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color, minWidth: 34, textAlign: 'right' }}>{Math.round(n)}%</span>
+      </div>
+    );
   }
 
   if (!data) return <div className="spinner" />;
@@ -923,21 +961,49 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
 
   return (
     <div style={{ marginTop: 12 }}>
-      {/* Progress summary */}
+      {/* KPI tile row */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 10, marginBottom: 16 }}>
         {[
-          [traineeList.length, 'Total', ''],
-          [eligibleCount, 'Eligible', 'ok'],
-          [certifiedCount, 'Certified', 'ok'],
-          [attritionCount, 'Attrition', 'bad'],
-          [handedOverCount, 'Handed Over', 'info'],
-        ].map(([n, l, cls]) => (
-          <div key={l} className={`stat ${cls}`} style={{ textAlign: 'center' }}>
-            <div className="num" style={{ fontSize: 28 }}>{n}</div>
-            <div className="label">{l}</div>
+          { n: traineeList.length,  label: 'Total Trainees', bg: '#edf4ff', border: '#dce8fb', val: '#0b63e5', sub: '100%' },
+          { n: eligibleCount,       label: 'Eligible',        bg: '#eaf8ef', border: '#d7f0df', val: '#15803d', sub: traineeList.length ? `${Math.round(eligibleCount/traineeList.length*100)}%` : '\u2014' },
+          { n: certifiedCount,      label: 'Certified',       bg: '#eaf8ef', border: '#d7f0df', val: '#15803d', sub: traineeList.length ? `${Math.round(certifiedCount/traineeList.length*100)}%` : '\u2014' },
+          { n: attritionCount,      label: 'Attrition',       bg: '#fff0f1', border: '#ffdadd', val: '#dc2626', sub: traineeList.length ? `${Math.round(attritionCount/traineeList.length*100)}%` : '\u2014' },
+          { n: handedOverCount,     label: 'Handed Over',     bg: '#edf4ff', border: '#dce8fb', val: '#0b63e5', sub: traineeList.length ? `${Math.round(handedOverCount/traineeList.length*100)}%` : '\u2014' },
+        ].map(({ n, label, bg, border, val, sub }) => (
+          <div key={label} style={{ background: bg, border: `1px solid ${border}`, borderRadius: 12, padding: '12px 14px', textAlign: 'center' }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: val, lineHeight: 1.1 }}>{n}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#374151', marginTop: 3 }}>{label}</div>
+            <div style={{ fontSize: 11, color: '#6b7280', marginTop: 1 }}>{sub}</div>
           </div>
         ))}
       </div>
+
+      {/* Visual certification pipeline */}
+      {traineeList.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', height: 8, borderRadius: 4, overflow: 'hidden', background: '#e5e7eb' }}>
+            {handedOverCount > 0 && (
+              <div style={{ width: `${(handedOverCount / traineeList.length) * 100}%`, background: '#3b82f6' }} title={`${handedOverCount} handed over`} />
+            )}
+            {(certifiedCount - (handedOverCount || 0)) > 0 && (
+              <div style={{ width: `${((certifiedCount - handedOverCount) / traineeList.length) * 100}%`, background: '#22c55e' }} title={`${certifiedCount - handedOverCount} certified`} />
+            )}
+            {(eligibleCount - certifiedCount) > 0 && (
+              <div style={{ width: `${((eligibleCount - certifiedCount) / traineeList.length) * 100}%`, background: '#a3e635' }} title={`${eligibleCount - certifiedCount} eligible`} />
+            )}
+            {attritionCount > 0 && (
+              <div style={{ width: `${(attritionCount / traineeList.length) * 100}%`, background: '#ef4444' }} title={`${attritionCount} attrition`} />
+            )}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+            {[['#a3e635','In Training'],['#22c55e','Certified'],['#3b82f6','Handed Over'],['#ef4444','Attrition']].map(([c,l]) => (
+              <span key={l} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: c, display: 'inline-block' }} />{l}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Bulk actions */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 14, flexWrap: 'wrap' }}>
@@ -962,11 +1028,19 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
       </div>
 
       {data.rule && (
-        <div className="card" style={{ marginBottom: 14 }}>
-          <b>Certification Rule: {data.rule.process} / {data.rule.lob}</b>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
-            Course: {data.rule.courseCompletionMin}% &nbsp;|&nbsp; MCQ: {data.rule.mcqPassPctMin}% &nbsp;|&nbsp; Attendance: {data.rule.attendancePctMin}%
-          </p>
+        <div style={{ background: 'linear-gradient(135deg,#edf4ff 0%,#f0f4ff 100%)', border: '1px solid #dce8fb', borderRadius: 12, padding: '12px 16px', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#0b63e5' }}>Certification Rule</span>
+            <span style={{ fontSize: 12, color: '#374151' }}>{data.rule.process} / {data.rule.lob}</span>
+          </div>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 0 }}>
+            {[['Course', data.rule.courseCompletionMin],['MCQ Pass', data.rule.mcqPassPctMin],['Attendance', data.rule.attendancePctMin]].map(([label, val]) => (
+              <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: '#6b7280' }}>{label}:</span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0b63e5' }}>{val}% min</span>
+              </div>
+            ))}
+          </div>
           {/* The manual gates come from this process's own criteria, so the card
               always matches what the table and the entry form offer. */}
           {shownCriteria.length > 0 && (
@@ -986,18 +1060,41 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
           )}
         </div>
       )}
+      {/* Threshold warning: 0 eligible but there are trainees */}
+      {eligibleCount === 0 && traineeList.length > 0 && data.rule && (() => {
+        const avgMcq = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.assessmentPassPct || 0), 0) / traineeList.length)
+          : 0;
+        const mcqThresh = data.rule.mcqPassPctMin || 0;
+        const courseThresh = data.rule.courseCompletionMin || 0;
+        const avgCourse = traineeList.length > 0
+          ? Math.round(traineeList.reduce((s, t) => s + (t.courseCompletionPct || 0), 0) / traineeList.length)
+          : 0;
+        const gapMcq = mcqThresh - avgMcq;
+        const gapCourse = courseThresh - avgCourse;
+        if (gapMcq <= 0 && gapCourse <= 0) return null;
+        return (
+          <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.35)', borderRadius: 8, padding: '12px 16px', marginBottom: 14, fontSize: 13 }}>
+            <div style={{ fontWeight: 700, color: '#b45309', marginBottom: 6 }}>⚠ 0 trainees eligible — rule thresholds may need review</div>
+            {gapMcq > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>MCQ threshold is <b>{mcqThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgMcq}%</b> (gap: {gapMcq}%)</div>}
+            {gapCourse > 0 && <div style={{ color: '#374151', marginBottom: 3 }}>Course threshold is <b>{courseThresh}%</b> but batch average is <b style={{ color: '#dc2626' }}>{avgCourse}%</b> (gap: {gapCourse}%)</div>}
+            <div style={{ color: '#6b7280', marginTop: 6, fontSize: 12 }}>Ask your admin to review cert rule thresholds in Admin → Certification Rules.</div>
+          </div>
+        );
+      })()}
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
       <div className="table-wrap">
         <table>
           <thead><tr><th>Employee ID</th><th>Name</th><th>Course</th><th>MCQ</th><th>Attendance</th>{shownCriteria.map(c => <th key={c.criterionKey}>{c.label}</th>)}<th>Scores</th><th>Eligible</th><th>Final Status</th><th>Actions</th></tr></thead>
           <tbody>
             {traineeList.map(t => (
-              <tr key={t.employeeId}>
-                <td><b>{t.employeeId}</b></td>
-                <td>{t.traineeName || '—'}</td>
-                <td>{pct(t.courseCompletionPct)}</td>
-                <td>{pct(t.assessmentPassPct)}</td>
-                <td>{pct(t.attendancePct)}</td>
+              <tr key={t.employeeId} style={{ cursor: 'pointer' }} className="clickable-row"
+                onClick={e => { if (e.target.closest('button,select')) return; setDrawerTrainee(t); }}>
+                <td><b style={{ fontSize: 12 }}>{t.employeeId}</b></td>
+                <td style={{ fontSize: 13 }}>{t.traineeName || '—'}</td>
+                <td><PctBar value={t.courseCompletionPct} threshold={data.rule?.courseCompletionMin || 80} /></td>
+                <td><PctBar value={t.assessmentPassPct} threshold={data.rule?.mcqPassPctMin || 60} /></td>
+                <td><PctBar value={t.attendancePct} threshold={data.rule?.attendancePctMin || 70} /></td>
                 {shownCriteria.map(c => <td key={c.criterionKey}>{criterionCell(t, c)}</td>)}
                 <td>{evidenceCell(t)}</td>
                 <td>
@@ -1009,7 +1106,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
                   )}
                 </td>
                 <td>{statusPill(t)}</td>
-                <td>{actionButtons(t)}</td>
+                <td onClick={e => e.stopPropagation()}>{actionButtons(t)}</td>
               </tr>
             ))}
           </tbody>
@@ -1098,6 +1195,355 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
         </div>
         );
       })()}
+
+      {drawerTrainee && (
+        <TraineeDetailDrawer
+          batchNo={batchNo}
+          traineeRow={drawerTrainee}
+          rule={data.rule}
+          canEdit={canEdit}
+          onClose={() => setDrawerTrainee(null)}
+          onScoreRecorded={() => { load(); }}
+        />
+      )}
     </div>
+  );
+}
+
+// ── Trainee detail / certification drill-down drawer ──────────────────────────
+function TraineeDetailDrawer({ batchNo, traineeRow, rule, canEdit, onClose, onScoreRecorded }) {
+  const [detail, setDetail] = useState(null);
+  const [tab, setTab] = useState('overview');
+  const [scoreForm, setScoreForm] = useState({ evidenceType: '', result: 'Pass', scorePct: '', conductedBy: '', remarks: '' });
+  const [scoreSaving, setScoreSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  useEffect(() => {
+    // Set evidenceType to first available criterion when rule is available
+    if (rule) {
+      const options = entryOptionsForRule(rule);
+      if (options.length > 0 && !scoreForm.evidenceType) {
+        setScoreForm(f => ({ ...f, evidenceType: options[0].value }));
+      }
+    }
+  }, [rule]);
+
+  useEffect(() => {
+    if (!traineeRow) return;
+    setDetail(null); setTab('overview'); setMsg('');
+    api.get(`/coordinator/batches/${batchNo}/trainees/${traineeRow.employeeId}/detail`, 'coordinator')
+      .then(res => { if (res.ok) setDetail(res.data); });
+  }, [batchNo, traineeRow?.employeeId]);
+
+  async function saveScore(e) {
+    e.preventDefault();
+    const options = entryOptionsForRule(rule);
+    const criterion = options.find(o => o.value === scoreForm.evidenceType)?.criterion || null;
+    const unit = criterion?.unit || 'percent';
+    const score = Number(scoreForm.scorePct);
+    if (!Number.isFinite(score) || score < 0) return setMsg('Score must be zero or more.');
+    if (unit === 'percent' && score > 100) return setMsg('Percentage cannot exceed 100.');
+    const atMost = criterion?.direction === 'at_most';
+    const result = criterion && criterion.measure !== 'completion'
+      ? (atMost ? score <= Number(criterion.targetValue) : score >= Number(criterion.targetValue)) ? 'Pass' : 'Fail'
+      : scoreForm.result;
+    setScoreSaving(true);
+    const res = await api.post(`/coordinator/batches/${batchNo}/certification/evidence`, {
+      employeeId: traineeRow.employeeId, evidenceType: scoreForm.evidenceType,
+      result, scorePct: score, conductedBy: scoreForm.conductedBy, remarks: scoreForm.remarks,
+    }, 'coordinator');
+    setScoreSaving(false);
+    if (!res.ok) return setMsg(res.message || 'Unable to save score.');
+    setMsg(`✓ ${result} — ${score}% recorded.`);
+    setScoreForm(f => ({ ...f, scorePct: '', conductedBy: '', remarks: '' }));
+    const updated = await api.get(`/coordinator/batches/${batchNo}/trainees/${traineeRow.employeeId}/detail`, 'coordinator');
+    if (updated.ok) setDetail(updated.data);
+    onScoreRecorded && onScoreRecorded();
+  }
+
+  if (!traineeRow) return null;
+
+  const presentDays = detail?.attendance?.filter(a => a.finalAttendance === 'Present').length || 0;
+  const totalAttDays = detail?.attendance?.length || 0;
+
+  const drawerStyle = {
+    position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(640px, 100vw)',
+    background: '#1a2035', color: '#e8eaf0',
+    boxShadow: '-4px 0 32px rgba(0,0,0,.45)', zIndex: 9999,
+    display: 'flex', flexDirection: 'column', overflowY: 'auto',
+  };
+  const sectionLabel = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#8892a4', marginBottom: 8, marginTop: 18 };
+  const pillOk = ok => ({
+    display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700,
+    background: ok ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.15)',
+    color: ok ? '#4ade80' : '#f87171',
+  });
+
+  const TABS = [['overview', 'Overview'], ['attendance', 'Attendance'], ['mcq', 'MCQ Results'], ['evidence', 'Scores']];
+  if (canEdit) TABS.push(['record', 'Record Score']);
+
+  return (
+    <>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9998 }} onClick={onClose} />
+      <div style={drawerStyle}>
+        {/* Header */}
+        <div style={{ padding: '18px 20px 12px', borderBottom: '1px solid rgba(255,255,255,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>{traineeRow.traineeName || traineeRow.employeeId}</div>
+            <div style={{ fontSize: 12, color: '#8892a4', marginTop: 2 }}>
+              {traineeRow.employeeId} &nbsp;|&nbsp; {traineeRow.process || '—'} / {traineeRow.lob || '—'}
+            </div>
+            <div style={{ marginTop: 6, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={pillOk(isEligible(traineeRow))}>{isEligible(traineeRow) ? 'Eligible' : 'Not Yet Eligible'}</span>
+              {traineeRow.certificationStatus && (
+                <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: 12, fontSize: 11, fontWeight: 700, background: 'rgba(99,102,241,.15)', color: '#818cf8' }}>
+                  {traineeRow.certificationStatus}
+                </span>
+              )}
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#8892a4', lineHeight: 1, padding: 4 }}>
+            &#x2715;
+          </button>
+        </div>
+
+        {/* Tab bar */}
+        <div style={{ display: 'flex', gap: 0, padding: '0 20px', borderBottom: '1px solid rgba(255,255,255,.08)', flexShrink: 0, flexWrap: 'wrap' }}>
+          {TABS.map(([id, label]) => (
+            <button key={id} onClick={() => setTab(id)}
+              style={{ padding: '9px 14px', fontSize: 13, cursor: 'pointer', border: 'none', borderBottom: tab === id ? '2px solid #6366f1' : '2px solid transparent', background: 'none', color: tab === id ? '#818cf8' : '#8892a4', fontWeight: tab === id ? 700 : 400, marginBottom: -1 }}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '16px 20px', flex: 1, overflowY: 'auto' }}>
+          {msg && (
+            <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 12 }}>
+              {msg}
+              <button onClick={() => setMsg('')} style={{ marginLeft: 8, border: 0, background: 'none', cursor: 'pointer', fontWeight: 700 }}>&#x2715;</button>
+            </div>
+          )}
+
+          {!detail && <div className="spinner" />}
+
+          {detail && tab === 'overview' && (
+            <div>
+              <div style={sectionLabel}>Progress Summary</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 14 }}>
+                {[
+                  ['Course', pct(traineeRow.courseCompletionPct), Number(traineeRow.courseCompletionPct || 0) >= 80],
+                  ['MCQ Pass', pct(traineeRow.assessmentPassPct), Number(traineeRow.assessmentPassPct || 0) >= 60],
+                  ['Attendance', pct(traineeRow.attendancePct), Number(traineeRow.attendancePct || 0) >= 70],
+                ].map(([label, value, ok]) => (
+                  <div key={label} style={{ background: 'rgba(255,255,255,.05)', borderRadius: 10, padding: '12px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 22, fontWeight: 700, color: ok ? '#4ade80' : '#f87171' }}>{value}</div>
+                    <div style={{ fontSize: 11, color: '#8892a4', marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+
+              {(traineeRow.eligibility?.blockers || []).length > 0 && (
+                <>
+                  <div style={sectionLabel}>Certification Blockers</div>
+                  <div style={{ background: 'rgba(239,68,68,.08)', border: '1px solid rgba(239,68,68,.2)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                    {traineeRow.eligibility.blockers.map((b, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#fca5a5', padding: '3px 0', display: 'flex', gap: 6 }}>
+                        <span>&#x2717;</span><span>{b}</span>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {rule?.criteria?.filter(c => c.active !== false).length > 0 && (
+                <>
+                  <div style={sectionLabel}>Process Criteria</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {rule.criteria.filter(c => c.active !== false).map(c => {
+                      const cResult = (traineeRow.eligibility?.criteria || []).find(r => r.criterionKey === c.criterionKey);
+                      const met = cResult?.met;
+                      return (
+                        <div key={c.criterionKey} style={{ background: 'rgba(255,255,255,.05)', borderRadius: 8, padding: '8px 12px', minWidth: 140 }}>
+                          <div style={{ fontSize: 11, color: '#8892a4' }}>{c.label}</div>
+                          <div style={{ fontSize: 13, fontWeight: 700, color: met ? '#4ade80' : '#f87171', marginTop: 3 }}>
+                            {cResult
+                              ? (cResult.measure === 'completion'
+                                ? (met ? 'Completed' : 'Pending')
+                                : `${formatCriterionValue(cResult.value, cResult.unit)} / ${formatCriterionValue(cResult.target, cResult.unit)}`)
+                              : 'No data'}
+                          </div>
+                          {cResult?.entries === 0 && <div style={{ fontSize: 10, color: '#8892a4' }}>Not recorded yet</div>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              <div style={sectionLabel}>Trainee Info</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12 }}>
+                {[
+                  ['Batch', detail.trainee?.batchNo || traineeRow.batchNo],
+                  ['Branch', detail.trainee?.branch || traineeRow.branch || '—'],
+                  ['Status', detail.trainee?.status || traineeRow.status || '—'],
+                  ['DOJ', detail.trainee?.doj ? formatDate(detail.trainee.doj) : '—'],
+                  ['Email', detail.trainee?.email || '—'],
+                  ['Mobile', detail.trainee?.mobile || '—'],
+                  ['Designation', detail.trainee?.hrmsDesignation || detail.trainee?.designation || '—'],
+                  ['Process', detail.trainee?.process || '—'],
+                ].map(([k, v]) => (
+                  <div key={k} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 6, padding: '6px 10px' }}>
+                    <span style={{ color: '#8892a4' }}>{k}: </span><span>{v}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {detail && tab === 'attendance' && (
+            <div>
+              <div style={sectionLabel}>Attendance Records (Last 60 days)</div>
+              {detail.attendance.length === 0
+                ? <div style={{ color: '#8892a4', fontSize: 13 }}>No attendance records found.</div>
+                : (
+                  <>
+                    <div style={{ marginBottom: 10, fontSize: 13 }}>
+                      <b style={{ color: '#4ade80' }}>{presentDays}</b> present out of <b>{totalAttDays}</b> tracked days
+                      {totalAttDays > 0 && <span style={{ color: '#8892a4' }}> ({Math.round(presentDays / totalAttDays * 100)}%)</span>}
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+                      {[...detail.attendance].reverse().map(a => {
+                        const present = a.finalAttendance === 'Present';
+                        return (
+                          <span key={a.date} title={`${a.date} — ${a.finalAttendance}`}
+                            style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, fontWeight: 600, cursor: 'default',
+                              background: present ? 'rgba(34,197,94,.15)' : 'rgba(239,68,68,.12)',
+                              color: present ? '#4ade80' : '#f87171' }}>
+                            {new Date(a.date).toLocaleDateString('en-GB', { day:'2-digit', month:'short' })}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+            </div>
+          )}
+
+          {detail && tab === 'mcq' && (
+            <div>
+              <div style={sectionLabel}>Assessment Results</div>
+              {detail.assessmentResults.length === 0
+                ? <div style={{ color: '#8892a4', fontSize: 13 }}>No MCQ results found.</div>
+                : detail.assessmentResults.map(r => {
+                  const passed = r.result === 'Pass';
+                  return (
+                    <div key={r.id} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: '#e8eaf0' }}>{r.assessment?.assessmentName || r.assessmentId}</div>
+                        <span style={pillOk(passed)}>{r.result}</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#8892a4', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                        <span>Best: <b style={{ color: passed ? '#4ade80' : '#f87171' }}>{Number(r.bestPercentage || 0).toFixed(1)}%</b></span>
+                        <span>Attempts: <b>{r.totalAttempts}</b></span>
+                        {r.lastAttemptAt && <span>Last: {formatDate(r.lastAttemptAt)}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          {detail && tab === 'evidence' && (
+            <div>
+              <div style={sectionLabel}>Recorded Certification Scores</div>
+              {detail.evidence.length === 0
+                ? (
+                  <div style={{ color: '#8892a4', fontSize: 13 }}>
+                    No scores have been recorded yet.{canEdit && ' Use the “Record Score” tab to add one.'}
+                  </div>
+                )
+                : detail.evidence.map(ev => {
+                  const passed = ev.result === 'Pass';
+                  const label = entryLabel(rule, ev.evidenceType);
+                  return (
+                    <div key={ev.id} style={{ background: 'rgba(255,255,255,.04)', borderRadius: 8, padding: '10px 14px', marginBottom: 8 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ fontSize: 13, fontWeight: 600 }}>{label}</div>
+                        <span style={pillOk(passed)}>{ev.result} — {ev.scorePct}%</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#8892a4', marginTop: 4, display: 'flex', gap: 14, flexWrap: 'wrap' }}>
+                        {ev.conductedBy && <span>By: {ev.conductedBy}</span>}
+                        {ev.conductedAt && <span>{formatDateTime(ev.conductedAt)}</span>}
+                        {ev.remarks && <span>&ldquo;{ev.remarks}&rdquo;</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+
+          {detail && tab === 'record' && canEdit && (
+            <div>
+              <div style={sectionLabel}>Record Certification Score</div>
+              {(traineeRow.eligibility?.blockers || []).length > 0 && (
+                <div style={{ background: 'rgba(239,68,68,.08)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12 }}>
+                  <b>Still blocking certification:</b>
+                  <ul style={{ margin: '6px 0 0 16px' }}>
+                    {traineeRow.eligibility.blockers.map((b, i) => (
+                      <li key={i} style={{ color: '#fca5a5', marginBottom: 3 }}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {entryOptionsForRule(rule).length === 0
+                ? <div style={{ color: '#8892a4', fontSize: 13 }}>No manual score criteria are configured for this process. Contact admin to set up certification criteria.</div>
+                : (
+                  <form onSubmit={saveScore} style={{ display: 'grid', gap: 12 }}>
+                    <div className="field">
+                      <label>Assessment type *</label>
+                      <select className="select" value={scoreForm.evidenceType} onChange={e => setScoreForm(f => ({ ...f, evidenceType: e.target.value }))}>
+                        {entryOptionsForRule(rule).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                      <div className="field">
+                        <label>Score % *</label>
+                        <input className="input" type="number" min="0" max="100" step="0.01" required
+                          value={scoreForm.scorePct} onChange={e => setScoreForm(f => ({ ...f, scorePct: e.target.value }))} />
+                      </div>
+                      <div className="field">
+                        <label>Result (auto)</label>
+                        <input className="input" readOnly value={(() => {
+                          const criterion = entryOptionsForRule(rule).find(o => o.value === scoreForm.evidenceType)?.criterion;
+                          if (!criterion || criterion.measure === 'completion') return scoreForm.result;
+                          const score = Number(scoreForm.scorePct);
+                          if (!Number.isFinite(score) || scoreForm.scorePct === '') return '—';
+                          return (criterion.direction === 'at_most' ? score <= Number(criterion.targetValue) : score >= Number(criterion.targetValue)) ? 'Pass' : 'Fail';
+                        })()} style={{ fontWeight: 700 }} />
+                      </div>
+                    </div>
+                    <div className="field">
+                      <label>Assessed by</label>
+                      <input className="input" placeholder="Defaults to you" value={scoreForm.conductedBy}
+                        onChange={e => setScoreForm(f => ({ ...f, conductedBy: e.target.value }))} />
+                    </div>
+                    <div className="field">
+                      <label>Remarks</label>
+                      <textarea className="input" rows="2" value={scoreForm.remarks}
+                        onChange={e => setScoreForm(f => ({ ...f, remarks: e.target.value }))} />
+                    </div>
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button className="btn accent" disabled={scoreSaving}>{scoreSaving ? 'Saving…' : 'Save Score'}</button>
+                      <button type="button" className="btn secondary" onClick={onClose}>Close</button>
+                    </div>
+                  </form>
+                )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

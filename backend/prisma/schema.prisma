@@ -272,9 +272,23 @@ model ClassroomMaster {
   modules              ModuleMaster[]
   assessments          AssessmentMaster[]
   traineeClassroomMaps TraineeClassroomMap[]
+  branchMaps           ClassroomBranchMap[]
 
   @@index([branch])
   @@map("classroom_master")
+}
+
+model ClassroomBranchMap {
+  id          String          @id @default(uuid())
+  classroomId String          @map("classroom_id")
+  branch      String
+  createdAt   DateTime        @default(now()) @map("created_at")
+  classroom   ClassroomMaster @relation(fields: [classroomId], references: [classroomId], onDelete: Cascade)
+
+  @@unique([classroomId, branch])
+  @@index([classroomId])
+  @@index([branch])
+  @@map("classroom_branch_map")
 }
 
 model ModuleMaster {
@@ -461,7 +475,10 @@ model AssessmentResult {
   id             String    @id @default(uuid())
   employeeId     String    @map("employee_id")
   batchNo        String?   @map("batch_no")
-  classroomId    String    @map("classroom_id")
+  // Nullable for the same reason AssessmentMaster.classroomId is: a trainee can take
+  // a standalone/broadcast-only assessment (no classroom attached) via broadcast
+  // access, and this row records that result with no classroom context at all.
+  classroomId    String?   @map("classroom_id")
   assessmentId   String    @map("assessment_id")
   bestScore      Float     @default(0) @map("best_score")
   bestPercentage Float     @default(0) @map("best_percentage")

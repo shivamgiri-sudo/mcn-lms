@@ -31,7 +31,7 @@
     "googleapis": "^173.0.0",
     "helmet": "^8.3.0",
     "morgan": "^1.11.0",
-    "multer": "2.2.0",
+    "multer": "2.4.0",
     "mysql2": "^3.23.2",
     "nodemailer": "^9.0.3",
     "prisma": "^6.19.0",
@@ -42,10 +42,11 @@
     "nodemon": "^3.1.4"
   },
   "overrides": {
-    "brace-expansion": "5.0.8",
+    "brace-expansion": "5.0.12",
     "googleapis-common": {
       "gaxios": "7.3.0"
     },
-    "qs": "6.15.3"
+    "qs": "6.16.0",
+    "deepmerge-ts": "8.0.2"
   }
 }

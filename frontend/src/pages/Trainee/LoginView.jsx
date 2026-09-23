@@ -262,7 +262,7 @@ export default function LoginView({ onLogin }) {
                 border: '1px solid ' + (dark ? 'rgba(255,255,255,.07)' : '#e6eaf2'),
                 fontSize: 12.5, color: inkSoft,
               }}>
-                First time here? Your default password is the <strong>last 4 digits of your mobile number</strong> (e.g. if your number ends in 3210, use <strong>3210</strong>). You will be asked to set a new password after signing in.
+                First time here? Ask your coordinator for the one-time credential issued when your account was created. You will be asked to set a new password after signing in.
               </p>
             </>
           )}

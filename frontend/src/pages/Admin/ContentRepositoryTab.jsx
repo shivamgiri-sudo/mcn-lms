@@ -121,8 +121,8 @@ export default function ContentRepositoryTab() {
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             <input className="input" placeholder="Sub Category" value={upload.subCategory} onChange={e => setUploadField('subCategory', e.target.value)} />
-            <input className="input" placeholder="Process" value={upload.process} onChange={e => setUploadField('process', e.target.value)} />
-            <input className="input" placeholder="LOB" value={upload.lob} onChange={e => setUploadField('lob', e.target.value)} />
+            <ProcessSelect value={upload.process} onChange={v => setUploadField('process', v)} className="input" placeholder="Process" />
+            <LobSelect process={upload.process} value={upload.lob} onChange={v => setUploadField('lob', v)} className="input" placeholder="LOB" />
             <input className="input" placeholder="Tags" value={upload.tags} onChange={e => setUploadField('tags', e.target.value)} />
           </div>
           <textarea className="input" rows="2" placeholder="Description" value={upload.description} onChange={e => setUploadField('description', e.target.value)} />
@@ -141,8 +141,8 @@ export default function ContentRepositoryTab() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>
             <input className="input" placeholder="Category" value={form.category} onChange={e => setField('category', e.target.value)} />
             <input className="input" placeholder="Sub Category" value={form.subCategory} onChange={e => setField('subCategory', e.target.value)} />
-            <input className="input" placeholder="Process" value={form.process} onChange={e => setField('process', e.target.value)} />
-            <input className="input" placeholder="LOB" value={form.lob} onChange={e => setField('lob', e.target.value)} />
+            <ProcessSelect value={form.process} onChange={v => setField('process', v)} className="input" placeholder="Process" />
+            <LobSelect process={form.process} value={form.lob} onChange={v => setField('lob', v)} className="input" placeholder="LOB" />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <input className="input" placeholder="Direct URL / Local Public URL" value={form.directMediaUrl} onChange={e => setField('directMediaUrl', e.target.value)} />

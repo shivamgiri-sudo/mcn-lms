@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api.js';
+import { ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
 import './developmentHub.css';
 import './developmentOperations.css';
 
@@ -291,8 +292,8 @@ export default function AdminDevelopmentView() {
           <form className="dev-form-card dev-admin-panel sticky" onSubmit={saveRule}>
             <h3>Configure renewal rule</h3>
             <div className="dev-form-grid">
-              <label>Process<input value={ruleForm.processName} onChange={event => setRuleForm(form => ({ ...form, processName: event.target.value }))} placeholder="Blank = default" /></label>
-              <label>LOB<input value={ruleForm.lobName} onChange={event => setRuleForm(form => ({ ...form, lobName: event.target.value }))} placeholder="Blank = all" /></label>
+              <label>Process<ProcessSelect value={ruleForm.processName} onChange={next => setRuleForm(form => ({ ...form, processName: next }))} placeholder="Blank = default" /></label>
+              <label>LOB<LobSelect process={ruleForm.processName} value={ruleForm.lobName} onChange={next => setRuleForm(form => ({ ...form, lobName: next }))} placeholder="Blank = all" /></label>
             </div>
             <div className="dev-form-grid">
               <label>Validity days<input type="number" min="1" value={ruleForm.validityDays} onChange={event => setRuleForm(form => ({ ...form, validityDays: event.target.value }))} /></label>

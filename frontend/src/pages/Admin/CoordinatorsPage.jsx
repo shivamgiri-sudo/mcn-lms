@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api } from '../../utils/api.js';
+import { DesignationSelect, DepartmentSelect } from '../../components/OrgSelect.jsx';
 
 const EMPTY_FORM = {
   loginId: '', pin: '', confirmPin: '', name: '',
@@ -144,11 +145,11 @@ export default function CoordinatorsPage({ navigate }) {
                   </div>
                   <div className="field">
                     <label>Designation</label>
-                    <input className="input" name="designation" placeholder="e.g. Training Coordinator" value={form.designation} onChange={handleChange} />
+                    <DesignationSelect value={form.designation} onChange={next => handleChange({ target: { name: 'designation', value: next } })} className="input" />
                   </div>
                   <div className="field">
                     <label>Department</label>
-                    <input className="input" name="department" placeholder="e.g. Training & Development" value={form.department} onChange={handleChange} />
+                    <DepartmentSelect value={form.department} onChange={next => handleChange({ target: { name: 'department', value: next } })} className="input" />
                   </div>
                   <div className="field">
                     <label>Employee Code</label>

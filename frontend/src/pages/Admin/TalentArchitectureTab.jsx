@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../utils/api.js';
 import './talentAdmin.css';
-import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
+import { BranchSelect, ProcessSelect, LobSelect, DesignationSelect, DepartmentSelect } from '../../components/OrgSelect.jsx';
 
 const EMPTY_SKILL = { skillCode: '', skillName: '', category: '', levelScale: 5, description: '' };
 const EMPTY_REQUIREMENT = { skillId: '', processName: '', lobName: '', department: '', designation: '', requiredLevel: 1, weight: 1, critical: false };
@@ -360,8 +360,8 @@ export default function TalentArchitectureTab() {
               <div className="talent-admin-form-grid">
                 <FormField label="Process"><ProcessSelect value={requirementForm.processName} onChange={next => setRequirementForm(form => ({ ...form, processName: next }))} /></FormField>
                 <FormField label="LOB"><LobSelect process={requirementForm.processName} value={requirementForm.lobName} onChange={next => setRequirementForm(form => ({ ...form, lobName: next }))} /></FormField>
-                <FormField label="Department"><input name="department" value={requirementForm.department} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
-                <FormField label="Designation"><input name="designation" value={requirementForm.designation} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
+                <FormField label="Department"><DepartmentSelect value={requirementForm.department} onChange={next => setRequirementForm(form => ({ ...form, department: next }))} /></FormField>
+                <FormField label="Designation"><DesignationSelect value={requirementForm.designation} onChange={next => setRequirementForm(form => ({ ...form, designation: next }))} /></FormField>
               </div>
               <div className="talent-admin-form-grid">
                 <FormField label="Required level"><input type="number" min="1" max="10" name="requiredLevel" value={requirementForm.requiredLevel} onChange={event => { const [key, next] = value(event); setRequirementForm(form => ({ ...form, [key]: next })); }} /></FormField>
@@ -381,7 +381,7 @@ export default function TalentArchitectureTab() {
             <FormField label="Process"><ProcessSelect value={skillMatrixFilters.process} onChange={next => updateMatrixFilter('process', next)} placeholder="All processes" /></FormField>
             <FormField label="LOB"><LobSelect process={skillMatrixFilters.process} value={skillMatrixFilters.lob} onChange={next => updateMatrixFilter('lob', next)} placeholder="All LOBs" /></FormField>
             <FormField label="Batch"><input value={skillMatrixFilters.batchNo} onChange={event => updateMatrixFilter('batchNo', event.target.value)} placeholder="All batches" /></FormField>
-            <FormField label="Designation"><input value={skillMatrixFilters.designation} onChange={event => updateMatrixFilter('designation', event.target.value)} placeholder="All designations" /></FormField>
+            <FormField label="Designation"><DesignationSelect value={skillMatrixFilters.designation} onChange={next => updateMatrixFilter('designation', next)} placeholder="All designations" /></FormField>
             <FormField label="Skill category"><input value={skillMatrixFilters.category} onChange={event => updateMatrixFilter('category', event.target.value)} placeholder="All categories" /></FormField>
             <FormField label="Search employee"><input value={skillMatrixFilters.search} onChange={event => updateMatrixFilter('search', event.target.value)} placeholder="Name or employee ID" /></FormField>
             <label className="talent-admin-check talent-matrix-toggle"><input type="checkbox" checked={skillMatrixFilters.requiredOnly} onChange={event => updateMatrixFilter('requiredOnly', event.target.checked)} /><span>Required skills only (uses process/LOB/designation)</span></label>

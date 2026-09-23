@@ -5,13 +5,17 @@ import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSele
 
 const blankUser = { traineeName: '', employeeId: '', lmsId: '', email: '', mobile: '', branch: '', process: '', lob: '', tempPassword: '' };
 
-export default function AccountsTab() {
+export default function AccountsTab({ isSuper }) {
   const [query, setQuery] = useState('');
   const [trainees, setTrainees] = useState([]);
   const [msg, setMsg] = useState('');
   const [searched, setSearched] = useState(false);
   const [newUser, setNewUser] = useState(blankUser);
   const [creating, setCreating] = useState(false);
+  const [editTarget, setEditTarget] = useState(null);
+  const [batchOptions, setBatchOptions] = useState([]);
+  const [newBatchNo, setNewBatchNo] = useState('');
+  const [changingBatch, setChangingBatch] = useState(false);
 
   async function search(e) {
     e?.preventDefault?.();
@@ -62,6 +66,32 @@ export default function AccountsTab() {
 
   function setUserField(key, value) {
     setNewUser(prev => ({ ...prev, [key]: value }));
+  }
+
+  function openEditBatch(t) {
+    setEditTarget(t);
+    setNewBatchNo(t.batchNo || '');
+    if (batchOptions.length === 0) {
+      api.get('/admin/batches', 'admin').then(res => res.ok && setBatchOptions(res.data));
+    }
+  }
+
+  async function submitChangeBatch(e) {
+    e.preventDefault();
+    if (!editTarget || !newBatchNo) return;
+    setChangingBatch(true);
+    // Reuses the same transactional transfer as "Search & Enroll Existing Trainee" —
+    // resets progress/risk/certification for the new batch and keeps batch trainee
+    // counters and classroom membership consistent (see adminChangeTraineeBatch).
+    const res = await api.post(`/admin/trainees/${editTarget.employeeId}/change-batch`, { batchNo: newBatchNo }, 'admin');
+    setChangingBatch(false);
+    if (res.ok) {
+      toast(res.alreadyEnrolled ? `${editTarget.employeeId} is already in ${newBatchNo}.` : `✓ ${res.message}`);
+      setEditTarget(null);
+      search();
+    } else {
+      toast(res.message || 'Failed to change batch.');
+    }
   }
 
   return (
@@ -141,6 +171,7 @@ export default function AccountsTab() {
                   <td>{formatDate(t.createdAt)}</td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }}>
+                      {isSuper && <button className="btn small secondary" onClick={() => openEditBatch(t)} style={{ fontSize: 11 }} title="Edit batch">Edit</button>}
                       <button className="btn small secondary" onClick={() => resetPassword(t.employeeId)} style={{ fontSize: 11 }}>Reset PW</button>
                       <button className={`btn small ${t.locked ? 'danger' : 'secondary'}`} onClick={() => unlockAccount(t.employeeId)} style={{ fontSize: 11 }} title={t.locked ? 'Account is locked — click to unlock' : 'Unlock account'}>{t.locked ? '🔓 Unlock' : 'Unlock'}</button>
                       <button className="btn small danger" onClick={() => deleteAccount(t.employeeId)} style={{ fontSize: 11 }}>Delete</button>
@@ -150,6 +181,36 @@ export default function AccountsTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {editTarget && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setEditTarget(null)}>
+          <div className="modal-box" style={{ maxWidth: 420 }}>
+            <div className="modal-head">
+              <b>Edit Batch — {editTarget.traineeName || editTarget.employeeId}</b>
+              <button className="btn small secondary" onClick={() => setEditTarget(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <form onSubmit={submitChangeBatch} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                <div className="field">
+                  <label>Current Batch</label>
+                  <input className="input" value={editTarget.batchNo || '—'} disabled />
+                </div>
+                <div className="field">
+                  <label>New Batch *</label>
+                  <select className="select" value={newBatchNo} onChange={e => setNewBatchNo(e.target.value)} required>
+                    <option value="">Select a batch…</option>
+                    {batchOptions.map(b => <option key={b.batchNo} value={b.batchNo}>{b.batchNo} — {b.batchName}</option>)}
+                  </select>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                  Moving a trainee resets their course/assessment progress and risk status for the new batch, same as "Search &amp; Enroll Existing Trainee".
+                </div>
+                <button className="btn accent" disabled={changingBatch || !newBatchNo || newBatchNo === editTarget.batchNo}>{changingBatch ? 'Moving…' : 'Save'}</button>
+              </form>
+            </div>
+          </div>
         </div>
       )}
     </div>

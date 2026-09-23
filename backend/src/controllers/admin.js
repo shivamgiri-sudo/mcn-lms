@@ -2,6 +2,7 @@ import { prisma } from '../utils/db.js';
 import { hashPassword, generateSalt, generateId, hashCredential, firstTimePassword } from '../utils/hash.js';
 import { parseEvidenceType } from '../services/certificationCriteria.js';
 import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from '../services/certificates.js';
+import { sendCertificateEmail } from '../utils/mailer.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
 import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
@@ -110,7 +111,7 @@ export async function getAdminDashboard(req, res) {
     }
 
     const [classrooms, trainees, batches, openQueries, atRisk] = await Promise.all([
-      prisma.classroomMaster.count({ where: { active: true, ...branchFilter } }),
+      prisma.classroomMaster.count({ where: req.userBranch ? { active: true, OR: [{ branch: req.userBranch }, { branchMaps: { some: { branch: req.userBranch } } }] } : { active: true } }),
       prisma.traineeMaster.count({ where: { status: 'Active', ...branchFilter } }),
       prisma.batchMaster.count({ where: { batchStatus: 'Active', ...branchFilter } }),
       prisma.traineeQueryLog.count({ where: queryLogWhere }),
@@ -176,8 +177,15 @@ export async function listClassrooms(req, res) {
   try {
     const { branch } = req.query;
     const where = { active: true };
-    if (branch) where.branch = branch;
-    else if (req.userBranch) where.branch = req.userBranch;
+    if (branch) {
+      where.branch = branch;
+    } else if (req.userBranch) {
+      // Branch admins see only their branch (primary or multi-branch mapped); Super Admins see all
+      where.OR = [
+        { branch: req.userBranch },
+        { branchMaps: { some: { branch: req.userBranch } } },
+      ];
+    }
     const classrooms = await prisma.classroomMaster.findMany({
       where,
       orderBy: { createdAt: 'desc' },
@@ -195,8 +203,10 @@ export async function createClassroom(req, res) {
     if (!classroomName) return res.status(400).json({ ok: false, message: 'Classroom name required.' });
 
     const classroomId = `CL-${generateId()}`;
+    // Branch admins auto-own classrooms they create; super admins use the explicit branch field.
+    const effectiveBranch = branch || req.userBranch || null;
     const cl = await prisma.classroomMaster.create({
-      data: { classroomId, classroomName, process, lob, branch: branch || null, description, driveFolderId, driveFolderUrl },
+      data: { classroomId, classroomName, process, lob, branch: effectiveBranch, description, driveFolderId, driveFolderUrl },
     });
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_CLASSROOM', module: 'Curriculum', referenceId: classroomId });
     res.json({ ok: true, data: cl });
@@ -265,6 +275,137 @@ export async function deleteClassroom(req, res) {
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
+// ── Copy classroom ────────────────────────────────────────────────────────────
+export async function copyClassroom(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const { targetBranch, newName } = req.body;
+    if (!targetBranch) return res.status(400).json({ ok: false, message: 'targetBranch is required.' });
+    if (req.userBranch && targetBranch !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only copy to your own branch.' });
+    }
+
+    const source = await prisma.classroomMaster.findUnique({
+      where: { classroomId },
+      include: {
+        modules: {
+          include: { contents: true, faqs: true },
+          orderBy: { moduleOrder: 'asc' },
+        },
+      },
+    });
+    if (!source) return res.status(404).json({ ok: false, message: 'Classroom not found.' });
+
+    const newClassroomId = `CL-${generateId()}`;
+    const finalName = newName?.trim() || `${source.classroomName} (${targetBranch})`;
+
+    const newCl = await prisma.$transaction(async tx => {
+      const cl = await tx.classroomMaster.create({
+        data: {
+          classroomId: newClassroomId,
+          classroomName: finalName,
+          process: source.process,
+          lob: source.lob,
+          branch: targetBranch,
+          description: source.description,
+          driveFolderId: source.driveFolderId,
+          driveFolderUrl: source.driveFolderUrl,
+        },
+      });
+
+      for (const mod of source.modules) {
+        const newModId = `MOD-${generateId()}`;
+        const newMod = await tx.moduleMaster.create({
+          data: {
+            moduleId: newModId,
+            classroomId: newClassroomId,
+            dayNo: mod.dayNo,
+            moduleTitle: mod.moduleTitle,
+            moduleOrder: mod.moduleOrder,
+            required: mod.required,
+            active: mod.active,
+            description: mod.description,
+          },
+        });
+        for (const c of mod.contents) {
+          await tx.contentMaster.create({
+            data: {
+              contentId: `CNT-${generateId()}`,
+              moduleId: newMod.moduleId,
+              contentType: c.contentType,
+              contentTitle: c.contentTitle,
+              driveFileId: c.driveFileId,
+              driveUrl: c.driveUrl,
+              directMediaUrl: c.directMediaUrl,
+              localFilePath: c.localFilePath,
+              playerMode: c.playerMode,
+              contentOrder: c.contentOrder,
+              required: c.required,
+              active: c.active,
+              locked: c.locked,
+              estimatedMins: c.estimatedMins,
+              completionRulePct: c.completionRulePct,
+              description: c.description,
+            },
+          });
+        }
+        for (const f of mod.faqs) {
+          await tx.faqMaster.create({
+            data: {
+              faqId: `FAQ-${generateId()}`,
+              moduleId: newMod.moduleId,
+              question: f.question,
+              answer: f.answer,
+              active: f.active,
+              sortOrder: f.sortOrder,
+            },
+          });
+        }
+      }
+      return cl;
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'COPY_CLASSROOM', module: 'Curriculum', referenceId: newClassroomId, details: `Copied from ${classroomId} to branch ${targetBranch}` });
+    res.json({ ok: true, data: newCl });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Server error: ' + err.message });
+  }
+}
+
+// ── Multi-branch map ──────────────────────────────────────────────────────────
+export async function getClassroomBranches(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const maps = await prisma.classroomBranchMap.findMany({ where: { classroomId } });
+    res.json({ ok: true, data: maps.map(m => m.branch) });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+export async function setClassroomBranches(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const { branches } = req.body;
+    if (!Array.isArray(branches)) return res.status(400).json({ ok: false, message: 'branches must be an array.' });
+
+    await prisma.$transaction(async tx => {
+      await tx.classroomBranchMap.deleteMany({ where: { classroomId } });
+      if (branches.length) {
+        await tx.classroomBranchMap.createMany({
+          data: branches.map(b => ({ id: `CBM-${generateId()}`, classroomId, branch: b })),
+          skipDuplicates: true,
+        });
+      }
+    });
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'SET_CLASSROOM_BRANCHES', module: 'Curriculum', referenceId: classroomId, details: branches.join(', ') });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
 
@@ -3159,6 +3300,57 @@ export async function adminBulkAddTrainees(req, res) {
 // This mirrors the working coordinator-side /trainees/enroll-existing (see
 // routes/coordinatorStability.js) instead: transfer the existing trainee's
 // batch/branch/process/lob/classroom rather than trying to re-create them.
+// Shared batch-transfer transaction — used by enrollExistingTraineeAdmin (Batch
+// Detail's "Search & Enroll Existing Trainee") and adminChangeTraineeBatch (Trainee
+// Accounts' "Edit batch") so totalTrainees, classroom membership, and the
+// progress/risk/certification reset stay consistent in exactly one place instead of
+// two copies drifting apart.
+async function transferTraineeToBatch({ employeeId, batch, previousBatchNo, req }) {
+  await prisma.$transaction(async tx => {
+    await tx.traineeMaster.update({
+      where: { employeeId },
+      data: {
+        batchNo: batch.batchNo,
+        branch: batch.branch,
+        process: batch.process,
+        lob: batch.lob,
+        classroomId: batch.classroomId,
+        classroomName: batch.classroomName,
+        courseCompletionPct: 0,
+        assessmentAttemptPct: 0,
+        assessmentPassPct: 0,
+        attendancePct: 0,
+        riskStatus: 'HEALTHY',
+        riskReason: null,
+        ojtReady: false,
+        nestingStatus: 'Not Started',
+        certificationStatus: 'Not Certified',
+        handoverToOps: false,
+        status: 'Active',
+      },
+    });
+    await tx.userMaster.updateMany({
+      where: { employeeId },
+      data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
+    });
+    await tx.traineeClassroomMap.updateMany({ where: { employeeId }, data: { active: false } });
+    if (batch.classroomId) {
+      await tx.traineeClassroomMap.upsert({
+        where: { employeeId_classroomId: { employeeId, classroomId: batch.classroomId } },
+        create: { employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+        update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
+      });
+    }
+    await tx.batchMaster.update({ where: { batchNo: batch.batchNo }, data: { totalTrainees: { increment: 1 } } });
+    if (previousBatchNo && previousBatchNo !== batch.batchNo) {
+      await tx.batchMaster.updateMany({
+        where: { batchNo: previousBatchNo, totalTrainees: { gt: 0 } },
+        data: { totalTrainees: { decrement: 1 } },
+      });
+    }
+  });
+}
+
 export async function enrollExistingTraineeAdmin(req, res) {
   try {
     const { batchNo } = req.params;
@@ -3176,54 +3368,44 @@ export async function enrollExistingTraineeAdmin(req, res) {
     if (trainee.batchNo === batch.batchNo) return res.json({ ok: true, alreadyEnrolled: true, message: 'Trainee is already enrolled in this batch.' });
     const previousBatchNo = trainee.batchNo;
 
-    await prisma.$transaction(async tx => {
-      await tx.traineeMaster.update({
-        where: { employeeId },
-        data: {
-          batchNo: batch.batchNo,
-          branch: batch.branch,
-          process: batch.process,
-          lob: batch.lob,
-          classroomId: batch.classroomId,
-          classroomName: batch.classroomName,
-          courseCompletionPct: 0,
-          assessmentAttemptPct: 0,
-          assessmentPassPct: 0,
-          attendancePct: 0,
-          riskStatus: 'HEALTHY',
-          riskReason: null,
-          ojtReady: false,
-          nestingStatus: 'Not Started',
-          certificationStatus: 'Not Certified',
-          handoverToOps: false,
-          status: 'Active',
-        },
-      });
-      await tx.userMaster.updateMany({
-        where: { employeeId },
-        data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
-      });
-      await tx.traineeClassroomMap.updateMany({ where: { employeeId }, data: { active: false } });
-      if (batch.classroomId) {
-        await tx.traineeClassroomMap.upsert({
-          where: { employeeId_classroomId: { employeeId, classroomId: batch.classroomId } },
-          create: { employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
-          update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
-        });
-      }
-      await tx.batchMaster.update({ where: { batchNo: batch.batchNo }, data: { totalTrainees: { increment: 1 } } });
-      if (previousBatchNo) {
-        await tx.batchMaster.updateMany({
-          where: { batchNo: previousBatchNo, totalTrainees: { gt: 0 } },
-          data: { totalTrainees: { decrement: 1 } },
-        });
-      }
-    });
+    await transferTraineeToBatch({ employeeId, batch, previousBatchNo, req });
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ENROLL_EXISTING', module: 'Trainee', referenceId: employeeId, oldValue: { batchNo: previousBatchNo }, newValue: { batchNo: batch.batchNo } });
     res.json({ ok: true, message: `${trainee.traineeName || employeeId} was enrolled in ${batch.batchNo}.` });
   } catch (err) {
     console.error('[admin] existing trainee enrolment failed:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
+// ── Change a trainee's batch from the Trainee Accounts page ────────────────────
+// Super Admin only (see routes/admin.js) — reuses the exact same transfer logic as
+// "Search & Enroll Existing Trainee" instead of a raw batchNo column write, so
+// totalTrainees counters, classroom membership and progress/risk state all stay
+// correct no matter which screen the transfer was started from.
+export async function adminChangeTraineeBatch(req, res) {
+  try {
+    const employeeId = String(req.params.employeeId || '').trim().toUpperCase();
+    const batchNo = String(req.body?.batchNo || '').trim();
+    if (!batchNo) return res.status(400).json({ ok: false, message: 'Batch No is required.' });
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+    if (!trainee || trainee.status === 'Deleted') return res.status(404).json({ ok: false, message: 'Active LMS trainee not found.' });
+
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (req.userBranch && batch.branch !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only move trainees into batches in your own branch.' });
+    }
+    if (trainee.batchNo === batch.batchNo) return res.json({ ok: true, alreadyEnrolled: true, message: 'Trainee is already in this batch.' });
+    const previousBatchNo = trainee.batchNo;
+
+    await transferTraineeToBatch({ employeeId, batch, previousBatchNo, req });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'ADMIN_CHANGE_TRAINEE_BATCH', module: 'Trainee', referenceId: employeeId, oldValue: { batchNo: previousBatchNo }, newValue: { batchNo: batch.batchNo } });
+    res.json({ ok: true, message: `${trainee.traineeName || employeeId} moved to ${batch.batchNo}.` });
+  } catch (err) {
+    console.error('[admin] change trainee batch failed:', err);
     res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
@@ -4132,7 +4314,63 @@ export async function generateCertificate(req, res) {
     if (!['Certified', 'HandedOver'].includes(trainee.certificationStatus)) {
       return res.status(400).json({ ok: false, message: 'Trainee is not certified.' });
     }
-    const batch = trainee.batchNo ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } }) : null;
+    const batch = trainee.batchNo
+      ? await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo } })
+      : null;
+
+    // Fetch the actual assessed scores for this trainee — used in the score breakdown row.
+    // Only pull data that was actually recorded; never invent or default missing criteria.
+    const [evidence, assessmentResults, attendance] = await Promise.all([
+      trainee.batchNo
+        ? prisma.certificationEvidence.findMany({
+            where: { employeeId, batchNo: trainee.batchNo },
+            orderBy: { conductedAt: 'asc' },
+          })
+        : Promise.resolve([]),
+      prisma.assessmentResult.findMany({
+        where: { employeeId },
+        orderBy: { lastAttemptAt: 'desc' },
+      }),
+      prisma.attendanceInference.findMany({
+        where: { employeeId },
+      }),
+    ]);
+
+    // Derive the 3 standard metrics only if data exists — no fallback defaults
+    const presentDays = attendance.filter(a => a.finalAttendance === 'Present').length;
+    const totalDays = attendance.length;
+    const attendancePct = totalDays > 0 ? Math.round((presentDays / totalDays) * 100) : null;
+
+    const passedMcq = assessmentResults.filter(r => r.result === 'Pass').length;
+    const totalMcq = assessmentResults.length;
+    const mcqPct = totalMcq > 0 ? Math.round((passedMcq / totalMcq) * 100) : null;
+
+    // Course completion comes from trainee record
+    const coursePct = trainee.courseCompletionPct != null
+      ? Math.round(Number(trainee.courseCompletionPct))
+      : null;
+
+    // Evidence items: use the criterion label (from the process rule if available),
+    // falling back to the evidenceType key. Best-of-multiple entries per criterion.
+    const evidenceByCriterion = {};
+    for (const ev of evidence) {
+      const key = ev.evidenceType;
+      if (!evidenceByCriterion[key] || Number(ev.scorePct) > Number(evidenceByCriterion[key].scorePct)) {
+        evidenceByCriterion[key] = ev;
+      }
+    }
+    const evidenceRows = Object.values(evidenceByCriterion).map(ev => ({
+      label: ev.label || ev.evidenceType,
+      scorePct: ev.scorePct != null ? Math.round(Number(ev.scorePct)) : null,
+      result: ev.result || '',
+    }));
+
+    // Overall final score = average of all recorded evidence scores (if any)
+    const allScores = evidenceRows.filter(r => r.scorePct != null).map(r => r.scorePct);
+    const finalScore = allScores.length > 0
+      ? Math.round(allScores.reduce((a, b) => a + b, 0) / allScores.length)
+      : null;
+
     const cert = await issueCertificate({
       employeeId,
       certificateType: 'TRAINING',
@@ -4142,10 +4380,39 @@ export async function generateCertificate(req, res) {
       batchNo: trainee.batchNo,
       process: trainee.process,
       lob: trainee.lob,
+      scorePct: finalScore,
       issuedBy: req.userId || null,
     });
+
+    // Pass enriched data to renderer — renderer only shows what was actually recorded
+    const enriched = {
+      ...cert,
+      course_pct: coursePct,
+      mcq_pct: mcqPct,
+      attendance_pct: attendancePct,
+      attendance_present: presentDays,
+      attendance_total: totalDays,
+      evidence: evidenceRows,
+      doj: trainee.doj || null,
+      department: trainee.department || trainee.lob || null,
+      branch: trainee.branch || null,
+      photo_url: trainee.photoUrl || trainee.photo_url || null,
+    };
+
+    // Send email to trainee — fire-and-forget, never block the response
+    if (trainee.email) {
+      sendCertificateEmail({
+        to: trainee.email,
+        trainee_name: trainee.traineeName,
+        certificate_no: cert.certificate_no,
+        title: cert.title,
+        process: trainee.process,
+        score_pct: finalScore,
+        lms_url: process.env.LMS_TRAINEE_URL || 'https://mcnlms.teammas.in/trainee',
+      }).catch(e => console.warn('[cert-email] failed:', e.message));
+    }
     res.setHeader('Content-Type', 'text/html');
-    return res.send(renderCertificateHtml(cert));
+    return res.send(renderCertificateHtml(enriched));
   } catch (err) {
     console.error('[admin] certificate generation failed:', err);
     return res.status(500).json({ ok: false, message: 'Unable to generate the certificate.' });

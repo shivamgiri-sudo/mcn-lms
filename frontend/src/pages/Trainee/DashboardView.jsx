@@ -199,32 +199,61 @@ function MyCertificates() {
     return () => { cancelled = true; };
   }, []);
 
-  async function openCertificate(certificateNo) {
+  async function fetchCertHtml(certificateNo) {
     const BASE = (import.meta.env.VITE_API_URL || '') + '/api';
     const res = await fetch(`${BASE}/trainee/certificates/${encodeURIComponent(certificateNo)}`, {
       credentials: 'include', headers: { 'X-LMS-Role': 'trainee' },
     });
-    if (!res.ok) return;
-    const html = await res.text();
+    return res.ok ? res.text() : null;
+  }
+
+  async function openCertificate(certificateNo) {
+    const html = await fetchCertHtml(certificateNo);
+    if (!html) return;
     const w = window.open('', '_blank');
     if (w) { w.document.write(html); w.document.close(); }
+  }
+
+  async function downloadCertificate(certificateNo) {
+    const html = await fetchCertHtml(certificateNo);
+    if (!html) return;
+    const w = window.open('', '_blank');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    // Give fonts time to load, then trigger print dialog for Save as PDF
+    setTimeout(() => { w.focus(); w.print(); }, 1200);
   }
 
   if (!certs || !certs.length) return null;
   return (
     <div className="card" style={{ marginBottom: 14 }}>
-      <b>🎓 My Certificates</b>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+        <b style={{ fontSize: 15 }}>🎓 My Certificates</b>
+        <span style={{ fontSize: 11, background: "#eaf8ef", color: "#15803d", border: "1px solid #bbf7d0", borderRadius: 20, padding: "2px 10px", fontWeight: 700 }}>{certs.length} issued</span>
+      </div>
       <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
         {certs.map(cert => (
-          <div key={cert.certificateNo} className="row between" style={{ flexWrap: 'wrap', gap: 8, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
-            <div>
-              <div style={{ fontWeight: 700 }}>{cert.title}</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>
-                {cert.type === 'ASSESSMENT' ? 'Assessment' : 'Training'} · {cert.certificateNo}
-                {cert.scorePct != null ? ` · ${Math.round(cert.scorePct)}%` : ''}
+          <div key={cert.certificateNo} style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexWrap: 'wrap', gap: 8,
+            background: 'linear-gradient(135deg,#edf4ff,#f0f4ff)',
+            border: '1.5px solid #bfdbfe', borderRadius: 10, padding: '10px 14px',
+          }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <div style={{ fontWeight: 700, fontSize: 13, color: '#0d3c72' }}>{cert.title}</div>
+              <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>
+                {cert.type === 'ASSESSMENT' ? 'Assessment' : 'Training'} &nbsp;·&nbsp;
+                <span style={{ fontFamily: 'monospace', fontWeight: 700, color: '#267abd' }}>{cert.certificateNo}</span>
+                {cert.scorePct != null && <span style={{ marginLeft: 6, fontWeight: 700, color: '#16a34a' }}>{Math.round(cert.scorePct)}%</span>}
               </div>
             </div>
-            <button className="btn small" onClick={() => openCertificate(cert.certificateNo)}>View / Print</button>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn small secondary" style={{ fontSize: 12 }}
+                onClick={() => openCertificate(cert.certificateNo)}>View</button>
+              <button className="btn small" style={{ fontSize: 12, background: '#267abd', color: '#fff' }}
+                onClick={() => downloadCertificate(cert.certificateNo)}>⬇ Download PDF</button>
+            </div>
           </div>
         ))}
       </div>
