@@ -30,8 +30,7 @@ import ProfileTab from './ProfileTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
 import IJPTab from './IJPTab.jsx';
 import VoiceAccentTab from './VoiceAccentTab.jsx';
-import TypingPracticeTab from './TypingPracticeTab.jsx';
-import DailyTypingTestTab from './DailyTypingTestTab.jsx';
+import TypingTab from './TypingTab.jsx';
 import PasswordResetBox from './PasswordResetBox.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
@@ -71,8 +70,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
     { id: 'voice-accent', label: '🎙️ Voice & Accent' },
-    { id: 'typing', label: '⌨️ Typing Practice' },
-    { id: 'typing-test', label: '📝 Daily Typing Test' },
+    { id: 'typing', label: '⌨️ Typing' },
     { id: 'profile', label: '👤 Profile' },
   ];
 
@@ -216,8 +214,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           {activeTab === 'leaderboard' && <LeaderboardTab />}
           {activeTab === 'ijp' && <IJPTab />}
           {activeTab === 'voice-accent' && <VoiceAccentTab />}
-          {activeTab === 'typing' && <TypingErrorBoundary><TypingPracticeTab /></TypingErrorBoundary>}
-          {activeTab === 'typing-test' && <DailyTypingTestTab />}
+          {activeTab === 'typing' && <TypingErrorBoundary><TypingTab /></TypingErrorBoundary>}
           {activeTab === 'profile' && (
             <>
               <MyCertificates />
