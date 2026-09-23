@@ -1223,3 +1223,83 @@ model VoiceAccentSubmission {
   @@index([status])
   @@map("voice_accent_submission")
 }
+
+// ─── DAILY TYPING TEST ────────────────────────────────────────────────────────
+
+// Admin-managed paragraph bank. wordCount is stored (not recomputed on every read)
+// so the admin's configured min/max word-length filter can be validated at
+// create/edit time and reported on cheaply from the list view.
+model TypingParagraph {
+  id        String   @id @default(uuid())
+  text      String   @db.Text
+  wordCount Int      @map("word_count")
+  category  String?
+  active    Boolean  @default(true)
+  createdBy String?  @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([active])
+  @@map("typing_paragraph")
+}
+
+// Single-row config table (id is always the literal string "default"), same
+// singleton convention as CommunicationConfig/NotificationConfig elsewhere in this
+// schema. wpmTarget/accuracyTarget are the Pass/Fail thresholds; durationSeconds/
+// attemptsPerDay/minWords/maxWords/allowRetest are read once per attempt-start and
+// baked into that attempt row, so changing settings mid-test never retroactively
+// changes an in-flight attempt's rules.
+model TypingTestSettings {
+  id              String   @id @default("default")
+  durationSeconds Int      @default(300) @map("duration_seconds")
+  attemptsPerDay  Int      @default(1) @map("attempts_per_day")
+  wpmTarget       Int      @default(35) @map("wpm_target")
+  accuracyTarget  Float    @default(95) @map("accuracy_target")
+  minWords        Int      @default(150) @map("min_words")
+  maxWords        Int      @default(250) @map("max_words")
+  allowRetest     Boolean  @default(false) @map("allow_retest")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  updatedBy       String?  @map("updated_by")
+
+  @@map("typing_test_settings")
+}
+
+// One row per attempt (started or completed). startedAt is set by the server when
+// the attempt is created, never by the client; submittedAt/timeTakenSeconds are
+// filled in by the server at submit time from the server's own clock, exactly like
+// AssessmentAttempt — the client's reported timing is never trusted for scoring.
+// attemptDate is IST-midnight-normalized (see istDayBounds() in the controller) so
+// the daily attempt cap can be enforced with a simple date-range count instead of
+// re-deriving "today" from submittedAt/startedAt (which may straddle midnight for a
+// test started at 11:58pm).
+model TypingTestAttempt {
+  id               String    @id @default(uuid())
+  employeeId       String    @map("employee_id")
+  traineeName      String?   @map("trainee_name")
+  branch           String?
+  process          String?
+  paragraphId      String    @map("paragraph_id")
+  originalText     String    @db.Text @map("original_text")
+  typedText        String?   @db.Text @map("typed_text")
+  attemptDate      DateTime  @map("attempt_date")
+  attemptNumber    Int       @default(1) @map("attempt_number")
+  startedAt        DateTime  @map("started_at")
+  submittedAt      DateTime? @map("submitted_at")
+  durationSeconds  Int       @map("duration_seconds")
+  timeTakenSeconds Int?      @map("time_taken_seconds")
+  totalChars       Int?      @map("total_chars")
+  correctChars     Int?      @map("correct_chars")
+  incorrectChars   Int?      @map("incorrect_chars")
+  errorCount       Int?      @map("error_count")
+  totalWords       Int?      @map("total_words")
+  grossWpm         Float?    @map("gross_wpm")
+  netWpm           Float?    @map("net_wpm")
+  accuracyPct      Float?    @map("accuracy_pct")
+  status           String?   // InProgress | Pass | Fail | Expired
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@index([employeeId, attemptDate])
+  @@index([attemptDate])
+  @@index([employeeId, status])
+  @@map("typing_test_attempt")
+}

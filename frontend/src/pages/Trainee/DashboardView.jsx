@@ -9,6 +9,7 @@ import ProfileTab from './ProfileTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
 import IJPTab from './IJPTab.jsx';
 import VoiceAccentTab from './VoiceAccentTab.jsx';
+import DailyTypingTestTab from './DailyTypingTestTab.jsx';
 import PasswordResetBox from './PasswordResetBox.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
@@ -39,6 +40,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
     { id: 'voice-accent', label: '🎙️ Voice & Accent' },
+    { id: 'typing-test', label: '⌨️ Daily Typing Test' },
     { id: 'profile', label: '👤 Profile' },
   ];
 
@@ -168,6 +170,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       {activeTab === 'leaderboard' && <LeaderboardTab />}
       {activeTab === 'ijp' && <IJPTab />}
       {activeTab === 'voice-accent' && <VoiceAccentTab />}
+      {activeTab === 'typing-test' && <DailyTypingTestTab />}
       {activeTab === 'profile' && (
         <>
           <MyCertificates />

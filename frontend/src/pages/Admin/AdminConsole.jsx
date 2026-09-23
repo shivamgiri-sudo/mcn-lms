@@ -36,6 +36,7 @@ import LeaderboardTab from './LeaderboardTab.jsx';
 import MentorPairingTab from '../Coordinator/MentorPairingTab.jsx';
 import IJPManageTab from '../Coordinator/IJPManageTab.jsx';
 import VoiceAccentTab from '../Coordinator/VoiceAccentTab.jsx';
+import TypingTestTab from './TypingTestTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
 // Config pages any admin may open and save. Branch/Process-LOB/Cert-Rules were
@@ -65,6 +66,7 @@ const NAV = [
     { id: 'mentor-pairing', label: 'Buddy / Mentor Pairing', icon: '🤝' },
     { id: 'ijp', label: 'Internal Job Postings', icon: '🚀' },
     { id: 'voice-accent', label: 'Voice & Accent Assessment', icon: '🎙️' },
+    { id: 'typing-test', label: 'Daily Typing Test', icon: '⌨️' },
   ]},
   { section: 'Reports', items: [
     { id: 'reports', label: 'Reports & Exports', icon: '📥' },
@@ -175,6 +177,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'mentor-pairing' && <MentorPairingTab portalType="admin" />}
           {activeId === 'ijp' && <IJPManageTab portalType="admin" />}
           {activeId === 'voice-accent' && <VoiceAccentTab portalType="admin" />}
+          {activeId === 'typing-test' && <TypingTestTab />}
           {activeId === 'compliance-audit' && <ComplianceExport />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}
