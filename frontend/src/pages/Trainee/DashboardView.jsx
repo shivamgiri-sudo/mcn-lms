@@ -157,31 +157,6 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           </div>
         )}
 
-        {/* Risk banner in sidebar */}
-        {(s.riskStatus === 'CRITICAL' || s.riskStatus === 'HIGH') && (
-          <div style={{ borderRadius: 8, padding: '8px 10px', marginBottom: 8, borderLeft: `3px solid var(--${s.riskStatus === 'CRITICAL' ? 'bad' : 'warn'})`, background: s.riskStatus === 'CRITICAL' ? 'var(--bad-soft)' : 'var(--warn-soft)', fontSize: 11 }}>
-            <b style={{ color: s.riskStatus === 'CRITICAL' ? 'var(--bad)' : 'var(--warn)' }}>{s.riskStatus === 'CRITICAL' ? '🚨 Critical risk' : '⚠ High risk'}</b>
-            <p style={{ margin: '3px 0 0', color: 'var(--muted)' }}>Open My Journey for details.</p>
-          </div>
-        )}
-
-        {/* Navigation */}
-        <div className="td-section-label">Navigate</div>
-        <nav className="td-nav" role="tablist">
-          {tabs.map(tab => (
-            <button
-              key={tab.id}
-              role="tab"
-              aria-selected={activeTab === tab.id}
-              className={`td-nav-btn${activeTab === tab.id ? ' active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              <span>{tab.label}</span>
-              {tab.badge > 0 && <span className="td-badge">{tab.badge}</span>}
-            </button>
-          ))}
-        </nav>
-
         {/* Bottom actions */}
         <div className="td-footer">
           <button className="btn small secondary" style={{ flex: 1 }} onClick={onRefresh}>↺ Refresh</button>
@@ -194,47 +169,56 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       <main className="td-main">
         {showForceReset && <PasswordResetBox onDone={() => setShowForceReset(false)} />}
 
-        {/* Quick action strip at top of content */}
-        <div className="td-quickbar">
-          <button className="btn small accent" onClick={() => setActiveTab('learning')}>Continue Learning →</button>
-          <button className="btn small secondary" onClick={() => setActiveTab('journey')}>My Journey</button>
-          <button className="btn small secondary" onClick={() => setActiveTab('talent')}>Skill Gaps</button>
-          <a className="btn small secondary" href="/training-calendar?role=trainee">🗓️ Live Training</a>
-          <button className="btn small secondary" onClick={() => setActiveTab('qa')}>Ask a Question</button>
+        {/* Horizontal tab bar */}
+        <div className="td-tabbar" role="tablist">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`td-tab${activeTab === tab.id ? ' active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+              {tab.badge > 0 && <span className="td-badge">{tab.badge}</span>}
+            </button>
+          ))}
         </div>
 
-        {activeTab === 'journey' && assignedPending.length > 0 && (
-          <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #ef4444' }}>
-            <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
-              <b>📢 Assigned to you: {assignedPending.length} item{assignedPending.length === 1 ? '' : 's'} to complete</b>
-              <button className="btn small" onClick={() => setActiveTab('learning')}>Open My Learning →</button>
+        <div className="td-content">
+          {activeTab === 'journey' && assignedPending.length > 0 && (
+            <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #ef4444' }}>
+              <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <b>📢 Assigned to you: {assignedPending.length} item{assignedPending.length === 1 ? '' : 's'} to complete</b>
+                <button className="btn small" onClick={() => setActiveTab('learning')}>Open My Learning →</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {assignedPending.slice(0, 6).map((c, index) => (
+                  <span key={c.repositoryContentId || c.contentId || index} className="pill info" style={{ fontSize: 11 }}>
+                    {c.contentTitle || c.title}
+                  </span>
+                ))}
+                {assignedPending.length > 6 && <span className="pill" style={{ fontSize: 11 }}>+{assignedPending.length - 6} more</span>}
+              </div>
             </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-              {assignedPending.slice(0, 6).map((c, index) => (
-                <span key={c.repositoryContentId || c.contentId || index} className="pill info" style={{ fontSize: 11 }}>
-                  {c.contentTitle || c.title}
-                </span>
-              ))}
-              {assignedPending.length > 6 && <span className="pill" style={{ fontSize: 11 }}>+{assignedPending.length - 6} more</span>}
-            </div>
-          </div>
-        )}
+          )}
 
-        {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
-        {activeTab === 'talent' && <SkillsPathsTab />}
-        {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
-        {activeTab === 'learning' && <LearningTab days={d.days || []} assignments={d.directAssignments || []} onRefresh={onRefresh} />}
-        {activeTab === 'qa' && <QATab />}
-        {activeTab === 'leaderboard' && <LeaderboardTab />}
-        {activeTab === 'ijp' && <IJPTab />}
-        {activeTab === 'voice-accent' && <VoiceAccentTab />}
-        {activeTab === 'typing' && <TypingErrorBoundary><TypingPracticeTab /></TypingErrorBoundary>}
-        {activeTab === 'profile' && (
-          <>
-            <MyCertificates />
-            <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />
-          </>
-        )}
+          {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
+          {activeTab === 'talent' && <SkillsPathsTab />}
+          {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
+          {activeTab === 'learning' && <LearningTab days={d.days || []} assignments={d.directAssignments || []} onRefresh={onRefresh} />}
+          {activeTab === 'qa' && <QATab />}
+          {activeTab === 'leaderboard' && <LeaderboardTab />}
+          {activeTab === 'ijp' && <IJPTab />}
+          {activeTab === 'voice-accent' && <VoiceAccentTab />}
+          {activeTab === 'typing' && <TypingErrorBoundary><TypingPracticeTab /></TypingErrorBoundary>}
+          {activeTab === 'profile' && (
+            <>
+              <MyCertificates />
+              <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />
+            </>
+          )}
+        </div>
       </main>
 
       <style>{`
@@ -320,33 +304,6 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           color: var(--muted);
           margin-top: 2px;
         }
-        .td-nav {
-          display: flex;
-          flex-direction: column;
-          gap: 2px;
-          margin-bottom: 10px;
-        }
-        .td-nav-btn {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          width: 100%;
-          text-align: left;
-          padding: 8px 10px;
-          border-radius: 8px;
-          border: none;
-          background: transparent;
-          color: var(--ink);
-          font-size: 13px;
-          font-weight: 600;
-          cursor: pointer;
-          transition: background .12s;
-        }
-        .td-nav-btn:hover { background: var(--card); }
-        .td-nav-btn.active {
-          background: var(--brand);
-          color: #fff;
-        }
         .td-badge {
           background: #ef4444;
           color: #fff;
@@ -354,6 +311,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           padding: 1px 6px;
           font-size: 10px;
           font-weight: 700;
+          margin-left: 5px;
         }
         .td-footer {
           display: flex;
@@ -364,19 +322,52 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           border-top: 1px solid var(--line);
         }
         .td-main {
-          padding: 20px 28px;
+          padding: 0;
           min-width: 0;
-        }
-        .td-quickbar {
           display: flex;
-          gap: 6px;
-          flex-wrap: wrap;
-          margin-bottom: 16px;
+          flex-direction: column;
+        }
+        .td-tabbar {
+          display: flex;
+          gap: 0;
+          overflow-x: auto;
+          border-bottom: 1px solid var(--line);
+          background: var(--bg);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          scrollbar-width: none;
+          flex-shrink: 0;
+        }
+        .td-tabbar::-webkit-scrollbar { display: none; }
+        .td-tab {
+          display: inline-flex;
+          align-items: center;
+          white-space: nowrap;
+          padding: 11px 16px;
+          border: none;
+          border-bottom: 3px solid transparent;
+          background: transparent;
+          color: var(--muted);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: color .12s, border-color .12s;
+        }
+        .td-tab:hover { color: var(--ink); }
+        .td-tab.active {
+          color: var(--brand);
+          border-bottom-color: var(--brand);
+        }
+        .td-content {
+          padding: 20px 28px;
+          flex: 1;
         }
         @media (max-width: 820px) {
           .td-shell { grid-template-columns: 1fr; }
           .td-sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
-          .td-main { padding: 14px 16px; }
+          .td-content { padding: 14px 16px; }
+          .td-tab { padding: 10px 12px; font-size: 12px; }
         }
       `}</style>
     </div>
