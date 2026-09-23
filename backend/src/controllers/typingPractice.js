@@ -143,6 +143,7 @@ export async function saveSession(req, res) {
     let streakDay = 0;
     let isPersonalBest = false;
     let newStreak = 0;
+    let totalPts = 0;
 
     if (!isVoided) {
       // Personal best check
@@ -180,7 +181,7 @@ export async function saveSession(req, res) {
       const basePts = (wpm >= 60 && accuracy >= 95) ? 50 : (wpm >= 40 && accuracy >= 85) ? 30 : 10;
       const pbPts = isPersonalBest ? 15 : 0;
       const streakPts = streakDay >= 7 ? 25 : 0;
-      const totalPts = basePts + pbPts + streakPts;
+      totalPts = basePts + pbPts + streakPts;
 
       await prisma.typingSession.update({ where: { id: session.id }, data: { leaderboardPts: totalPts } });
 
@@ -373,7 +374,9 @@ export async function getAnalyticsTrainee(req, res) {
       avgAccuracy: parseFloat((v.accs.reduce((a, b) => a + b, 0) / v.accs.length).toFixed(1)),
     }));
 
-    return res.json({ ok: true, data: { sessions, streak, dayTrend } });
+    // Only expose streak if the coordinator's scope returned sessions for this trainee
+    const streakData = sessions.length > 0 ? streak : null;
+    return res.json({ ok: true, data: { sessions, streak: streakData, dayTrend } });
   } catch (err) {
     console.error('[Typing] getAnalyticsTrainee failed:', err.message);
     return res.status(500).json({ ok: false, message: 'Could not load trainee drill-down.' });

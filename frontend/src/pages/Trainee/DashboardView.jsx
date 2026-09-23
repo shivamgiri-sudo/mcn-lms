@@ -20,9 +20,11 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
   const [showForceReset, setShowForceReset] = useState(forceReset);
   const [typingStats, setTypingStats] = useState(null);
   useEffect(() => {
+    let cancelled = false;
     api.get('/typing/me/stats', 'trainee').then(res => {
-      if (res.ok) setTypingStats(res.data);
+      if (!cancelled && res.ok) setTypingStats(res.data);
     });
+    return () => { cancelled = true; };
   }, []);
 
   const d = dashboard || {};
