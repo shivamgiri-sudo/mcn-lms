@@ -160,6 +160,16 @@ export default function TypingPracticeTab() {
   // Clean up timer on unmount
   useEffect(() => () => clearInterval(timerRef.current), []);
 
+  // Focus textarea when session becomes active
+  useEffect(() => {
+    if (phase === 'active') {
+      const id = setTimeout(() => {
+        textareaRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(id);
+    }
+  }, [phase]);
+
   const finishSession = useCallback(async () => {
     clearInterval(timerRef.current);
     const log = keystrokeRef.current;
@@ -308,11 +318,13 @@ export default function TypingPracticeTab() {
           id="typing-textarea"
           ref={textareaRef}
           onKeyDown={handleKeyDown}
+          onClick={() => textareaRef.current?.focus()}
+          onFocus={() => textareaRef.current?.select()}
           onPaste={e => { e.preventDefault(); pasteRef.current++; setPasteCount(pasteRef.current); }}
           onDrop={e => e.preventDefault()}
           onContextMenu={e => e.preventDefault()}
           defaultValue=""
-          placeholder="Click here and start typing…"
+          placeholder="Click here and start typing… (your input appears in the passage above)"
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
           style={{
@@ -321,7 +333,9 @@ export default function TypingPracticeTab() {
             padding: '12px 16px', borderRadius: 10,
             border: '2px solid var(--accent)',
             background: 'var(--bg, #fff)',
-            resize: 'none', outline: 'none', boxSizing: 'border-box',
+            color: 'var(--ink, #333)',
+            resize: 'none', boxSizing: 'border-box',
+            cursor: 'text',
           }}
           autoComplete="off"
           autoCorrect="off"
