@@ -266,10 +266,9 @@ async function getNuggetActivity(batch, dayStart, dayEnd, trainees) {
   // their active broadcast/independent-module ("nugget") assignments rather than
   // one module at a time.
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT t.employee_id AS employeeId, a.module_id AS moduleId, m.title AS moduleName,
+    `SELECT t.employee_id AS employeeId, a.module_id AS moduleId, a.module_name AS moduleName,
             MAX(p.acknowledged_at) AS acknowledgedAt, MAX(p.completion_status) AS completionStatus
        FROM assigned_modules a
-       INNER JOIN independent_module_master m ON m.module_id = a.module_id
        INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
        INNER JOIN content_repository_master r ON r.repository_content_id = c.repository_content_id
        INNER JOIN trainee_master t
@@ -281,7 +280,7 @@ async function getNuggetActivity(batch, dayStart, dayEnd, trainees) {
                 OR  a.assigned_to_type = 'company')
        LEFT JOIN content_progress p ON p.employee_id = t.employee_id AND p.content_id = r.repository_content_id
       WHERE a.active = 1
-      GROUP BY t.employee_id, a.module_id, m.title`,
+      GROUP BY t.employee_id, a.module_id, a.module_name`,
     ...empIds,
   );
   if (!rows.length) return null;
@@ -506,7 +505,7 @@ export async function buildDailyBatchReport(batchNo, date = new Date()) {
 
 // ─── EMAIL BUILDER ─────────────────────────────────────────────────────────────
 
-function buildSubject(report) {
+export function buildSubject(report) {
   const { batch, dateLabel, activities } = report;
   if (activities.length === 1) {
     const singleLabel = { typingTest: 'Typing', assessment: 'Assessment', classroomCurriculum: 'Course Completion', videoCourse: 'Course Completion', learningNugget: 'Learning' }[activities[0].key] || 'Training';
