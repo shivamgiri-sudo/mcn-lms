@@ -579,16 +579,29 @@ export async function resolveRecipients(batch, settings) {
   if (!to) missing.push(`Batch Coordinator email is missing for ${batch.coordinatorLoginId || '(no coordinator assigned)'}.`);
 
   const cc = [];
+  let branchHeadFound = false;
   if (batch.branch) {
     const branchAdmins = await prisma.adminUserMaster.findMany({ where: { branch: batch.branch, active: true } });
     const emails = branchAdmins.map(a => a.email).filter(Boolean);
-    if (!emails.length) missing.push(`No Admin (Branch Head) with an email on file is scoped to branch "${batch.branch}".`);
+    branchHeadFound = emails.length > 0;
     cc.push(...emails);
   } else {
     missing.push('Batch has no branch set — cannot resolve a Branch Head.');
   }
   if (settings.superAdminEmails) {
     cc.push(...settings.superAdminEmails.split(',').map(e => e.trim()).filter(Boolean));
+  }
+  // A missing Branch Head falls back to actual Super Admin accounts in the system
+  // (not just the manually-configured settings.superAdminEmails list) rather than
+  // blocking the send.
+  if (batch.branch && !branchHeadFound) {
+    const superAdmins = await prisma.adminUserMaster.findMany({
+      where: { role: { in: ['Super Admin', 'SuperAdmin'] }, active: true },
+    });
+    cc.push(...superAdmins.map(a => a.email).filter(Boolean));
+  }
+  if (batch.branch && !branchHeadFound && !cc.length) {
+    missing.push(`No Admin (Branch Head) with an email on file is scoped to branch "${batch.branch}", and no Super Admin email is on file to fall back to.`);
   }
 
   return { to, cc: [...new Set(cc)], missing };
