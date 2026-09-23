@@ -456,3 +456,61 @@ export async function getTrend(req, res) {
     return res.status(500).json({ ok: false, message: 'Could not load trend data.' });
   }
 }
+
+// ── Admin passage management ──────────────────────────────────────────────────
+
+export async function adminListPrompts(req, res) {
+  try {
+    const prompts = await prisma.typingPrompt.findMany({ orderBy: { createdAt: 'desc' } });
+    return res.json({ ok: true, data: prompts });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}
+
+export async function adminImportPrompts(req, res) {
+  try {
+    const { passages } = req.body;
+    if (!Array.isArray(passages) || passages.length === 0) {
+      return res.status(400).json({ ok: false, error: 'passages must be a non-empty array' });
+    }
+    let created = 0, skipped = 0;
+    for (const p of passages) {
+      const title = String(p.title || '').trim();
+      const body = String(p.body || '').trim();
+      if (!title || !body) { skipped++; continue; }
+      const data = {
+        title,
+        body,
+        mode: ['PASSAGE', 'TIMED_DRILL'].includes(p.mode) ? p.mode : 'PASSAGE',
+        durationSeconds: p.durationSeconds ? Number(p.durationSeconds) || null : null,
+        difficulty: ['EASY', 'MEDIUM', 'HARD'].includes(p.difficulty) ? p.difficulty : 'EASY',
+        tags: Array.isArray(p.tags) ? p.tags.map(String) : [],
+        isActive: p.isActive !== false,
+      };
+      if (p.id) {
+        await prisma.typingPrompt.upsert({ where: { id: p.id }, update: data, create: { id: p.id, ...data } });
+      } else {
+        await prisma.typingPrompt.create({ data });
+      }
+      created++;
+    }
+    await audit(req, 'TYPING_PASSAGES_IMPORT', { created, skipped });
+    return res.json({ ok: true, data: { created, skipped } });
+  } catch (err) {
+    console.error('[Typing] adminImportPrompts failed:', err.message);
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}
+
+export async function adminTogglePrompt(req, res) {
+  try {
+    const { id } = req.params;
+    const prompt = await prisma.typingPrompt.findUnique({ where: { id } });
+    if (!prompt) return res.status(404).json({ ok: false, error: 'Passage not found' });
+    const updated = await prisma.typingPrompt.update({ where: { id }, data: { isActive: !prompt.isActive } });
+    return res.json({ ok: true, data: updated });
+  } catch (err) {
+    return res.status(500).json({ ok: false, error: err.message });
+  }
+}
