@@ -1,14 +1,36 @@
-import { useState } from 'react';
+import { useState, useEffect, Component } from 'react';
+import { api } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import { useTheme } from '../../context/ThemeContext.jsx';
+
+class TypingErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(err) { return { error: err }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="card" style={{ borderLeft: '4px solid var(--bad)', padding: '18px 20px' }}>
+          <b style={{ color: 'var(--bad)' }}>Typing Practice failed to load</b>
+          <pre style={{ fontSize: 12, marginTop: 8, whiteSpace: 'pre-wrap', color: 'var(--muted)' }}>
+            {this.state.error?.message || String(this.state.error)}
+          </pre>
+          <button className="btn small" style={{ marginTop: 10 }} onClick={() => this.setState({ error: null })}>Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import LearningJourneyTab from './LearningJourneyTab.jsx';
 import SkillsPathsTab from './SkillsPathsTab.jsx';
 import LearningTab from './LearningTab.jsx';
+import AssignedTab from './AssignedTab.jsx';
 import QATab from './QATab.jsx';
 import ProfileTab from './ProfileTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
 import IJPTab from './IJPTab.jsx';
 import VoiceAccentTab from './VoiceAccentTab.jsx';
+import TypingPracticeTab from './TypingPracticeTab.jsx';
 import DailyTypingTestTab from './DailyTypingTestTab.jsx';
 import PasswordResetBox from './PasswordResetBox.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
@@ -17,6 +39,14 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
   const { theme, toggle: toggleTheme } = useTheme();
   const [activeTab, setActiveTab] = useState('journey');
   const [showForceReset, setShowForceReset] = useState(forceReset);
+  const [typingStats, setTypingStats] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.get('/typing/me/stats', 'trainee').then(res => {
+      if (!cancelled && res.ok) setTypingStats(res.data);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   const d = dashboard || {};
   const t = d.trainee || {};
@@ -35,12 +65,14 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { id: 'journey', label: '🧭 My Journey' },
     { id: 'talent', label: '🎯 Skills & Paths' },
     { id: 'live-training', label: '🗓️ Live Training' },
-    { id: 'learning', label: '📚 My Learning', badge: assignedPending.length },
+    { id: 'learning', label: '📚 Curriculum' },
+    { id: 'assigned', label: '📢 Assigned', badge: assignedPending.length },
     { id: 'qa', label: '💬 Q&A' },
     { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
     { id: 'voice-accent', label: '🎙️ Voice & Accent' },
-    { id: 'typing-test', label: '⌨️ Daily Typing Test' },
+    { id: 'typing', label: '⌨️ Typing Practice' },
+    { id: 'typing-test', label: '📝 Daily Typing Test' },
     { id: 'profile', label: '👤 Profile' },
   ];
 
@@ -51,138 +83,298 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { label: 'Best MCQ Score', value: s.bestMcqScore != null ? `${Math.round(s.bestMcqScore)}%` : '—', note: s.bestMcqScore != null ? `${s.passedAssessments || 0} passed` : 'No attempt yet', cls: s.bestMcqScore == null ? '' : s.bestMcqScore >= 60 ? 'ok' : 'bad', w: s.bestMcqScore || 0 },
   ];
 
+  const kpiColor = cls => cls === 'ok' ? 'var(--ok)' : cls === 'warn' ? 'var(--warn)' : cls === 'bad' ? 'var(--bad)' : 'var(--accent)';
+
+  useEffect(() => {
+    if (activeTab !== 'typing') return;
+    const id = setTimeout(() => {
+      document.getElementById('typing-textarea')?.focus();
+    }, 120);
+    return () => clearTimeout(id);
+  }, [activeTab]);
+
   return (
-    <div className="wrap">
-      <div className="hero">
-        <div className="brand">
-          <div className="logo">LMS</div>
+    <div className="td-shell">
+
+      {/* ── Left Sidebar ─────────────────────────────── */}
+      <aside className="td-sidebar">
+
+        {/* Brand */}
+        <div className="td-brand">
+          <div className="logo" style={{ width: 34, height: 34, fontSize: 11 }}>LMS</div>
           <div>
-            <h1>MCN Learning Hub</h1>
-            <p>Learn · Practice · Prove readiness · Grow</p>
-          </div>
-        </div>
-        <div className="row">
-          <a className="btn small secondary" href="/training-calendar?role=trainee">🗓️ Live Training</a>
-          <button className="btn small secondary" onClick={onRefresh}>↺ Refresh</button>
-          <button onClick={toggleTheme} title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'} style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 15, color: 'var(--muted)', lineHeight: 1 }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
-          <button className="btn small secondary" onClick={onLogout}>Logout</button>
-        </div>
-      </div>
-
-      {showForceReset && <PasswordResetBox onDone={() => setShowForceReset(false)} />}
-
-      <div className="trainee-overview-grid">
-        <div className="panel" style={{ padding: '18px 22px' }}>
-          <div className="row between" style={{ marginBottom: 10 }}>
-            <span className="pill ok">Active Trainee</span>
-            <span style={{ fontSize: 12, color: 'var(--muted)' }}>{formatSeconds(totalSecs)} verified learning time</span>
-          </div>
-          <h2 style={{ fontSize: 21, fontWeight: 900, letterSpacing: '-.02em', margin: '0 0 3px' }}>Welcome back, {t.name || t.employeeId} 👋</h2>
-          <p style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 14 }}>
-            {c.classroomName || 'No classroom assigned'}{c.process ? ` · ${c.process}` : ''}{c.lob ? ` / ${c.lob}` : ''}
-          </p>
-          <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 700, color: 'var(--muted)' }}>
-            <span>Overall Progress</span><span style={{ color: 'var(--accent)', fontWeight: 900 }}>{overall}%</span>
-          </div>
-          <div className="progress-shell" style={{ height: 10 }}><div className="progress-bar" style={{ width: `${overall}%` }} /></div>
-          <div className="row" style={{ marginTop: 14, gap: 8, flexWrap: 'wrap' }}>
-            <button className="btn small accent" onClick={() => setActiveTab('learning')}>Continue Learning →</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('journey')}>View My Journey</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('talent')}>Review Skill Gaps</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('live-training')}>View Live Sessions</button>
-            <button className="btn small secondary" onClick={() => setActiveTab('qa')}>Ask a Question</button>
+            <div style={{ fontWeight: 900, fontSize: 14, letterSpacing: '-.02em', lineHeight: 1.1 }}>MCN Learning Hub</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Learn · Practice · Grow</div>
           </div>
         </div>
 
-        <div className="card" style={{ minWidth: 0, padding: '18px 20px' }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--muted)', marginBottom: 10 }}>Batch Details</div>
-          <div style={{ display: 'grid', rowGap: 7 }}>
-            {[
-              ['Employee ID', t.employeeId],
-              ['Batch', t.batchNo || '—'],
-              ['Branch', t.branch || '—'],
-              ['Days', s.totalDays || 0],
-              ['Modules', s.totalModules || 0],
-            ].map(([key, value]) => (
-              <div key={key} style={{ display: 'flex', justifyContent: 'space-between', gap: 10, minWidth: 0 }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{key}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, textAlign: 'right', overflowWrap: 'anywhere' }}>{value}</span>
+        {/* Profile strip */}
+        <div className="td-profile">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+            <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 14, flexShrink: 0 }}>
+              {(t.name || t.employeeId || '?')[0].toUpperCase()}
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 800, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.name || t.employeeId}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.process || c.classroomName || 'Trainee'}</div>
+            </div>
+            <span className="pill ok" style={{ fontSize: 10, padding: '2px 7px', marginLeft: 'auto', flexShrink: 0 }}>Active</span>
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, fontWeight: 700, color: 'var(--muted)', marginBottom: 4 }}>
+            <span>Overall Progress</span><span style={{ color: 'var(--accent)' }}>{overall}%</span>
+          </div>
+          <div className="progress-shell" style={{ height: 6, marginTop: 0 }}><div className="progress-bar" style={{ width: `${overall}%` }} /></div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <span>{formatSeconds(totalSecs)} verified</span>
+            {t.batchNo && <span>· Batch {t.batchNo}</span>}
+            {t.branch && <span>· {t.branch}</span>}
+          </div>
+        </div>
+
+        {/* KPI cockpit */}
+        <div className="td-section-label">Performance</div>
+        {!dashboard ? (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+            {[1,2,3,4].map(i => <div key={i} className="skeleton" style={{ height: 52, borderRadius: 8 }} />)}
+          </div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+            {kpis.map(kpi => (
+              <div key={kpi.label} className="td-kpi">
+                <div className="td-kpi-val" style={{ color: kpiColor(kpi.cls) }}>{kpi.value}</div>
+                <div className="td-kpi-lbl">{kpi.label}</div>
               </div>
             ))}
+            {typingStats && (
+              <div className="td-kpi" style={{ cursor: 'pointer', gridColumn: 'span 2' }} onClick={() => setActiveTab('typing')}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <div className="td-kpi-val" style={{ color: typingStats.todayBestWpm >= 60 ? 'var(--ok)' : typingStats.todayBestWpm >= 40 ? 'var(--warn)' : 'var(--ink)' }}>
+                    {typingStats.todayBestWpm != null ? `${typingStats.todayBestWpm} WPM` : '—'}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)' }}>{typingStats.currentStreak}d streak</div>
+                </div>
+                <div className="td-kpi-lbl">⌨️ Typing (today)</div>
+              </div>
+            )}
           </div>
-        </div>
-      </div>
+        )}
 
-      {!dashboard ? (
-        <div className="trainee-kpi-grid">{[1, 2, 3, 4].map(item => <div key={item} className="skeleton skeleton-card" />)}</div>
-      ) : (
-        <div className="trainee-kpi-grid">
-          {kpis.map(kpi => (
-            <div key={kpi.label} className="kpi-card">
-              <div className="kpi-label">{kpi.label}</div>
-              <div className="kpi-value" style={{ color: `var(--${kpi.cls === 'ok' ? 'ok' : kpi.cls === 'warn' ? 'warn' : kpi.cls === 'bad' ? 'bad' : 'accent'})` }}>{kpi.value}</div>
-              {kpi.note && <div className="kpi-note">{kpi.note}</div>}
-              <div className="progress-shell" style={{ height: 5, marginTop: 8 }}><div className={`progress-bar ${kpi.cls === 'ok' ? 'ok' : kpi.cls === 'warn' ? 'warn' : kpi.cls === 'bad' ? 'bad' : ''}`} style={{ width: `${kpi.w}%` }} /></div>
-            </div>
+        {/* Bottom actions */}
+        <div className="td-footer">
+          <button className="btn small secondary" style={{ flex: 1 }} onClick={onRefresh}>↺ Refresh</button>
+          <button onClick={toggleTheme} title="Toggle theme" style={{ background: 'none', border: '1.5px solid var(--line)', borderRadius: 8, padding: '5px 9px', cursor: 'pointer', fontSize: 14, color: 'var(--muted)' }}>{theme === 'dark' ? '☀️' : '🌙'}</button>
+          <button className="btn small secondary" onClick={onLogout}>Logout</button>
+        </div>
+      </aside>
+
+      {/* ── Main Content ─────────────────────────────── */}
+      <main className="td-main">
+        {showForceReset && <PasswordResetBox onDone={() => setShowForceReset(false)} />}
+
+        {/* Horizontal tab bar */}
+        <div className="td-tabbar" role="tablist">
+          {tabs.map(tab => (
+            <button
+              key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`td-tab${activeTab === tab.id ? ' active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+              {tab.badge > 0 && <span className="td-badge">{tab.badge}</span>}
+            </button>
           ))}
         </div>
-      )}
 
-      {(s.riskStatus === 'CRITICAL' || s.riskStatus === 'HIGH') && (
-        <div className="card" style={{ marginBottom: 12, borderLeft: `4px solid var(--${s.riskStatus === 'CRITICAL' ? 'bad' : 'warn'})`, background: s.riskStatus === 'CRITICAL' ? 'var(--bad-soft)' : 'var(--warn-soft)' }}>
-          <div className="row between">
-            <div>
-              <b style={{ color: s.riskStatus === 'CRITICAL' ? 'var(--bad)' : 'var(--warn)' }}>{s.riskStatus === 'CRITICAL' ? '🚨 Training Risk: Critical' : '⚠ Training Risk: High'}</b>
-              <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{s.riskStatus === 'CRITICAL' ? 'Your learning record has a critical blocker. Open My Journey to see the evidence and recommended action.' : 'Your progress needs attention. Open My Journey to review the next required action.'}</p>
+        <div className="td-content">
+          {activeTab === 'journey' && assignedPending.length > 0 && (
+            <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #ef4444' }}>
+              <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <b>📢 Assigned to you: {assignedPending.length} item{assignedPending.length === 1 ? '' : 's'} to complete</b>
+                <button className="btn small" onClick={() => setActiveTab('learning')}>Open My Learning →</button>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                {assignedPending.slice(0, 6).map((c, index) => (
+                  <span key={c.repositoryContentId || c.contentId || index} className="pill info" style={{ fontSize: 11 }}>
+                    {c.contentTitle || c.title}
+                  </span>
+                ))}
+                {assignedPending.length > 6 && <span className="pill" style={{ fontSize: 11 }}>+{assignedPending.length - 6} more</span>}
+              </div>
             </div>
-            <span className={`pill ${s.riskStatus === 'CRITICAL' ? 'bad' : 'warn'}`}>{s.riskStatus}</span>
-          </div>
-        </div>
-      )}
+          )}
 
-      <div className="tabs" role="tablist" aria-label="Trainee portal sections">
-        {tabs.map(tab => (
-          <button key={tab.id} role="tab" aria-selected={activeTab === tab.id} className={`tab-btn${activeTab === tab.id ? ' active' : ''}`} onClick={() => setActiveTab(tab.id)}>{tab.label}{tab.badge > 0 && <span style={{ marginLeft: 6, background: '#ef4444', color: '#fff', borderRadius: 99, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>{tab.badge}</span>}</button>
-        ))}
-      </div>
-
-      {activeTab === 'journey' && assignedPending.length > 0 && (
-        <div className="card" style={{ marginBottom: 14, borderLeft: '3px solid #ef4444' }}>
-          <div className="row between" style={{ flexWrap: 'wrap', gap: 8 }}>
-            <b>📢 Assigned to you: {assignedPending.length} item{assignedPending.length === 1 ? '' : 's'} to complete</b>
-            <button className="btn small" onClick={() => setActiveTab('learning')}>Open My Learning →</button>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
-            {assignedPending.slice(0, 6).map((c, index) => (
-              <span key={c.repositoryContentId || c.contentId || index} className="pill info" style={{ fontSize: 11 }}>
-                {c.contentTitle || c.title}
-              </span>
-            ))}
-            {assignedPending.length > 6 && <span className="pill" style={{ fontSize: 11 }}>+{assignedPending.length - 6} more</span>}
-          </div>
+          {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
+          {activeTab === 'talent' && <SkillsPathsTab />}
+          {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
+          {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
+          {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} />}
+          {activeTab === 'qa' && <QATab />}
+          {activeTab === 'leaderboard' && <LeaderboardTab />}
+          {activeTab === 'ijp' && <IJPTab />}
+          {activeTab === 'voice-accent' && <VoiceAccentTab />}
+          {activeTab === 'typing' && <TypingErrorBoundary><TypingPracticeTab /></TypingErrorBoundary>}
+          {activeTab === 'typing-test' && <DailyTypingTestTab />}
+          {activeTab === 'profile' && (
+            <>
+              <MyCertificates />
+              <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />
+            </>
+          )}
         </div>
-      )}
-      {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
-      {activeTab === 'talent' && <SkillsPathsTab />}
-      {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
-      {activeTab === 'learning' && <LearningTab days={d.days || []} assignments={d.directAssignments || []} onRefresh={onRefresh} />}
-      {activeTab === 'qa' && <QATab />}
-      {activeTab === 'leaderboard' && <LeaderboardTab />}
-      {activeTab === 'ijp' && <IJPTab />}
-      {activeTab === 'voice-accent' && <VoiceAccentTab />}
-      {activeTab === 'typing-test' && <DailyTypingTestTab />}
-      {activeTab === 'profile' && (
-        <>
-          <MyCertificates />
-          <ProfileTab trainee={t} classroom={c} onRefresh={onRefresh} />
-        </>
-      )}
+      </main>
 
       <style>{`
-        .trainee-overview-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(190px,220px);gap:12px;margin-bottom:12px}
-        .trainee-kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
-        @media(max-width:820px){.trainee-kpi-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
-        @media(max-width:620px){.trainee-overview-grid{grid-template-columns:1fr}.trainee-kpi-grid{grid-template-columns:1fr}.hero{align-items:flex-start;gap:12px}.hero>.row{width:100%;flex-wrap:wrap}.tabs{overflow-x:auto;justify-content:flex-start}.tab-btn{white-space:nowrap}}
+        /* ── Trainee Dashboard Shell ── */
+        .td-shell {
+          display: grid;
+          grid-template-columns: 240px 1fr;
+          min-height: 100vh;
+          background: var(--bg);
+        }
+        .td-sidebar {
+          position: sticky;
+          top: 0;
+          height: 100vh;
+          overflow-y: auto;
+          border-right: 1px solid var(--line);
+          background: var(--bg);
+          padding: 14px 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          scrollbar-width: thin;
+        }
+        .td-brand {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding-bottom: 12px;
+          margin-bottom: 10px;
+          border-bottom: 1px solid var(--line);
+        }
+        .td-profile {
+          background: var(--card);
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          padding: 10px 12px;
+          margin-bottom: 10px;
+        }
+        .td-section-label {
+          font-size: 10px;
+          font-weight: 800;
+          text-transform: uppercase;
+          letter-spacing: .07em;
+          color: var(--muted);
+          padding: 8px 4px 4px;
+        }
+        .td-batch {
+          background: var(--card);
+          border: 1px solid var(--line);
+          border-radius: 10px;
+          padding: 8px 12px;
+          margin-bottom: 10px;
+        }
+        .td-batch-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 4px 0;
+          font-size: 12px;
+          border-bottom: 1px solid var(--line);
+        }
+        .td-batch-row:last-child { border-bottom: none; }
+        .td-batch-row span:first-child { color: var(--muted); }
+        .td-batch-row span:last-child { font-weight: 700; }
+        .td-kpi {
+          background: var(--card);
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          padding: 8px 10px;
+        }
+        .td-kpi-val {
+          font-size: 18px;
+          font-weight: 900;
+          letter-spacing: -.03em;
+          line-height: 1.1;
+          color: var(--ink);
+        }
+        .td-kpi-lbl {
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: .04em;
+          color: var(--muted);
+          margin-top: 2px;
+        }
+        .td-badge {
+          background: #ef4444;
+          color: #fff;
+          border-radius: 99px;
+          padding: 1px 6px;
+          font-size: 10px;
+          font-weight: 700;
+          margin-left: 5px;
+        }
+        .td-footer {
+          display: flex;
+          gap: 6px;
+          align-items: center;
+          margin-top: auto;
+          padding-top: 10px;
+          border-top: 1px solid var(--line);
+        }
+        .td-main {
+          padding: 0;
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+        }
+        .td-tabbar {
+          display: flex;
+          gap: 0;
+          overflow-x: auto;
+          border-bottom: 1px solid var(--line);
+          background: var(--bg);
+          position: sticky;
+          top: 0;
+          z-index: 10;
+          scrollbar-width: none;
+          flex-shrink: 0;
+        }
+        .td-tabbar::-webkit-scrollbar { display: none; }
+        .td-tab {
+          display: inline-flex;
+          align-items: center;
+          white-space: nowrap;
+          padding: 11px 16px;
+          border: none;
+          border-bottom: 3px solid transparent;
+          background: transparent;
+          color: var(--muted);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          transition: color .12s, border-color .12s;
+        }
+        .td-tab:hover { color: var(--ink); }
+        .td-tab.active {
+          color: var(--brand);
+          border-bottom-color: var(--brand);
+        }
+        .td-content {
+          padding: 20px 28px;
+          flex: 1;
+        }
+        @media (max-width: 820px) {
+          .td-shell { grid-template-columns: 1fr; }
+          .td-sidebar { position: static; height: auto; border-right: none; border-bottom: 1px solid var(--line); }
+          .td-content { padding: 14px 16px; }
+          .td-tab { padding: 10px 12px; font-size: 12px; }
+        }
       `}</style>
     </div>
   );

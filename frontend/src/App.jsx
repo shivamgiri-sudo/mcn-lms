@@ -13,7 +13,6 @@ import AssessmentIntelligencePage from './pages/AssessmentIntelligence/Assessmen
 import SessionSecurityPage from './pages/SessionSecurity/SessionSecurityPage.jsx';
 import MCNmeetPage from './pages/MCNmeet/MCNmeetPage.jsx';
 import NotificationDock from './pages/Notifications/NotificationDock.jsx';
-import LearningToolsDock from './components/LearningToolsDock.jsx';
 import ElevationGate from './components/ElevationGate.jsx';
 import { runSsoBootstrap } from './utils/ssoBootstrap.js';
 
@@ -38,7 +37,6 @@ export default function App() {
         <Route path="/management/*" element={<ManagementPage />} />
       </Routes>
       <ElevationGate />
-      <LearningToolsDock />
       <NotificationDock />
     </>
   );

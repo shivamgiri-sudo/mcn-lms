@@ -3,7 +3,6 @@ import { api, fetchAuthenticatedBlobUrl } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
 import ScormLauncher from './ScormLauncher.jsx';
-import AssignedTab from './AssignedTab.jsx';
 
 const API_BASE = (import.meta.env.VITE_API_URL || '') + '/api';
 
@@ -29,8 +28,8 @@ function protectedLocalUrl(value) {
   return '';
 }
 
-export default function LearningTab({ days, assignments, onRefresh }) {
-  const [openDays, setOpenDays] = useState({ 0: true });
+export default function LearningTab({ days, onRefresh }) {
+  const [openDays, setOpenDays] = useState({ 1: true });
   const [viewingContent, setViewingContent] = useState(null);
   const [assessmentId, setAssessmentId] = useState(null);
   const heartbeatRef = useRef(null);
@@ -216,23 +215,40 @@ export default function LearningTab({ days, assignments, onRefresh }) {
     if (objectUrl) URL.revokeObjectURL(objectUrl);
   }, []);
 
+  const [contentFilter, setContentFilter] = useState('all');
+
   const totalContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0), 0);
   const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active && c.progress?.completionStatus === 'Completed').length, 0), 0);
+  const pendingContents = totalContents - doneContents;
+
+  const filteredDays = contentFilter === 'all' ? days : days.filter(day => {
+    const allActive = day.modules.flatMap(m => m.contents.filter(c => c.active));
+    if (contentFilter === 'pending') return allActive.some(c => c.progress?.completionStatus !== 'Completed');
+    if (contentFilter === 'completed') return allActive.some(c => c.progress?.completionStatus === 'Completed');
+    return true;
+  });
 
   return (
     <div>
-      {/* Broadcast/refresher modules and any attached PKT — surfaced here too so a trainee
-          doesn't have to hunt in a separate tab for anything an admin/coordinator assigned. */}
-      {assignments && assignments.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <h3 className="section-title" style={{ margin: '0 0 6px' }}>Broadcast &amp; Refresher Assignments</h3>
-          <AssignedTab assignments={assignments} onRefresh={onRefresh} onOpenContent={openContent} />
-        </div>
-      )}
-
-      <div className="row between" style={{ margin: '14px 0 10px' }}>
+      <div className="row between" style={{ margin: '14px 0 10px', flexWrap: 'wrap', gap: 8 }}>
         <h3 className="section-title" style={{ margin: 0 }}>Day-wise Learning Path</h3>
-        {totalContents > 0 && <span className="pill info">{doneContents}/{totalContents} completed</span>}
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+          {totalContents > 0 && <span className="pill info">{doneContents}/{totalContents} done</span>}
+          {[
+            { key: 'all', label: 'All' },
+            { key: 'pending', label: `Pending (${pendingContents})` },
+            { key: 'completed', label: 'Completed' },
+          ].map(f => (
+            <button
+              key={f.key}
+              onClick={() => setContentFilter(f.key)}
+              className={`btn small${contentFilter === f.key ? ' accent' : ' secondary'}`}
+              style={{ padding: '3px 10px', fontSize: 12 }}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {lockedMsg && (
@@ -244,19 +260,23 @@ export default function LearningTab({ days, assignments, onRefresh }) {
       )}
 
       {days.length === 0 && <div className="empty">No classroom content available yet. Contact your coordinator.</div>}
+      {filteredDays.length === 0 && days.length > 0 && (
+        <div className="empty">No {contentFilter === 'pending' ? 'pending' : 'completed'} content found.</div>
+      )}
 
       <div style={{ display: 'grid', gap: 10 }}>
-        {days.map((day, di) => {
+        {filteredDays.map((day) => {
+          const dayKey = day.dayNo;
           const dayContents = day.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0);
           const dayDone = day.modules.reduce((a, m) => a + m.contents.filter(c => c.progress?.completionStatus === 'Completed').length, 0);
           const dayPct = dayContents > 0 ? Math.round((dayDone / dayContents) * 100) : 0;
-          const isOpen = !!openDays[di];
+          const isOpen = !!openDays[dayKey];
 
           return (
             <div key={day.dayNo} className="card" style={{ padding: 0, overflow: 'hidden' }}>
               <div
                 style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '13px 18px', cursor: 'pointer', background: isOpen ? 'var(--brand)' : 'var(--card)', color: 'var(--ink)', transition: 'background .15s' }}
-                onClick={() => setOpenDays(prev => ({ ...prev, [di]: !isOpen }))}
+                onClick={() => setOpenDays(prev => ({ ...prev, [dayKey]: !isOpen }))}
               >
                 <div className="row" style={{ gap: 12 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 10, background: isOpen ? 'rgba(255,255,255,.15)' : 'var(--brand)', color: '#fff', display: 'grid', placeItems: 'center', fontWeight: 900, fontSize: 13, flexShrink: 0 }}>{day.dayNo}</div>
