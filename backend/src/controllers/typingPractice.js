@@ -192,7 +192,7 @@ export async function saveSession(req, res) {
 
     return res.status(201).json({ ok: true, data: {
       id: session.id, wpm, accuracy, errorCount, durationSeconds, isVoided, voidReason,
-      leaderboardPts: session.leaderboardPts, isPersonalBest, streak: streakDay,
+      leaderboardPts: isVoided ? 0 : totalPts, isPersonalBest, streak: streakDay,
     }});
   } catch (err) {
     console.error('[Typing] saveSession failed:', err.message);
