@@ -12,6 +12,11 @@ import { prisma } from './db.js';
 export const LEADERBOARD_POINTS = {
   CONTENT_COMPLETE: 10,
   ASSESSMENT_PASS_BASE: 15,
+  TYPING_SESSION_BASE: 10,
+  TYPING_SESSION_GOOD: 30,   // wpm >= 40 && accuracy >= 85
+  TYPING_SESSION_GREAT: 50,  // wpm >= 60 && accuracy >= 95
+  TYPING_PERSONAL_BEST: 15,
+  TYPING_STREAK_7: 25,
   // Extra bonus on top of the base, tiered by the best percentage scored.
   ASSESSMENT_BONUS_TIERS: [
     { min: 95, bonus: 40 },
@@ -82,6 +87,7 @@ function categoryFor(eventType) {
   if (eventType === 'ASSESSMENT_PASS') return 'assessmentPoints';
   if (eventType === 'ATTENDANCE_STREAK') return 'attendancePoints';
   if (eventType === 'CERTIFICATION') return 'certificationPoints';
+  if (eventType === 'TYPING_SESSION') return 'typingPoints';
   return null;
 }
 
@@ -94,7 +100,7 @@ export async function recomputeLeaderboardScore(employeeId) {
   ]);
   if (!trainee) return null;
 
-  const totals = { coursePoints: 0, assessmentPoints: 0, attendancePoints: 0, certificationPoints: 0 };
+  const totals = { coursePoints: 0, assessmentPoints: 0, attendancePoints: 0, certificationPoints: 0, typingPoints: 0 };
   let perfectScore = false;
   let fastStarter = false;
   let maxStreak = 0;
@@ -116,7 +122,7 @@ export async function recomputeLeaderboardScore(employeeId) {
     }
   }
 
-  const totalPoints = totals.coursePoints + totals.assessmentPoints + totals.attendancePoints + totals.certificationPoints;
+  const totalPoints = totals.coursePoints + totals.assessmentPoints + totals.attendancePoints + totals.certificationPoints + totals.typingPoints;
   const context = { perfectScore, fastStarter, maxStreak };
   const badges = LEADERBOARD_BADGES.filter(badge => badge.check(context)).map(badge => badge.id);
 
@@ -199,4 +205,29 @@ export async function awardAttendanceStreak(employeeId, batchNo) {
 
 export function badgeCatalog() {
   return LEADERBOARD_BADGES.map(({ id, label, description }) => ({ id, label, description }));
+}
+
+// Called fire-and-forget from typingPractice controller after a valid session save.
+// sessionId is used as refId so a retried save never double-counts.
+// isPersonalBest and streakDay are booleans/numbers passed from the controller.
+export async function awardTypingSession(employeeId, sessionId, wpm, accuracy, isPersonalBest, streakDay) {
+  const base = (wpm >= 60 && accuracy >= 95)
+    ? LEADERBOARD_POINTS.TYPING_SESSION_GREAT
+    : (wpm >= 40 && accuracy >= 85)
+      ? LEADERBOARD_POINTS.TYPING_SESSION_GOOD
+      : LEADERBOARD_POINTS.TYPING_SESSION_BASE;
+
+  await recordEvent(employeeId, 'TYPING_SESSION', sessionId, base, { wpm, accuracy });
+
+  if (isPersonalBest) {
+    await recordEvent(employeeId, 'TYPING_SESSION', `${sessionId}_pb`, LEADERBOARD_POINTS.TYPING_PERSONAL_BEST, { wpm });
+  }
+
+  if (streakDay >= 7) {
+    // One award per 7-day milestone; use the rounded-down milestone as refId
+    const milestone = Math.floor(streakDay / 7) * 7;
+    await recordEvent(employeeId, 'TYPING_SESSION', `streak_${milestone}`, LEADERBOARD_POINTS.TYPING_STREAK_7, { streak: streakDay });
+  }
+
+  await recomputeLeaderboardScore(employeeId);
 }

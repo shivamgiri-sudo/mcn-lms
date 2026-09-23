@@ -1025,6 +1025,7 @@ model TraineeLeaderboardScore {
   assessmentPoints    Int      @default(0) @map("assessment_points")
   attendancePoints    Int      @default(0) @map("attendance_points")
   certificationPoints Int      @default(0) @map("certification_points")
+  typingPoints        Int      @default(0) @map("typing_points")
   badgesJson          Json?    @map("badges_json")
   lastUpdatedAt       DateTime @updatedAt @map("last_updated_at")
   createdAt           DateTime @default(now()) @map("created_at")
