@@ -267,13 +267,70 @@ export async function notifyCertification({ traineeName, employeeId, email, mobi
 
 export async function notifyPasswordReset({ traineeName, mobile, email, tempPassword }) {
   const results = [];
+  const loginUrl = process.env.FRONTEND_URL || 'https://mcnlms.teammas.in';
 
   if (email) {
     results.push(await sendEmail({
       to: email,
       subject: 'Your MCN LMS Password Has Been Reset',
-      html: `<p>Hi <b>${traineeName}</b>,</p><p>Your LMS password has been reset. Your temporary password is: <b>${tempPassword}</b></p><p>Please log in and change your password immediately.</p><p>— MCN LMS</p>`,
-      text: `Hi ${traineeName}, your LMS password was reset. Temp password: ${tempPassword}. Please login and change it. — MCN LMS`,
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#fef2f2;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fef2f2;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+<tr><td style="background:linear-gradient(135deg,#991b1b 0%,#dc2626 100%);padding:32px 40px">
+  <div style="font-size:24px;font-weight:bold;color:#ffffff;margin-bottom:6px">&#128272; Your Password Has Been Reset</div>
+  <div style="font-size:13px;color:#fecaca">MCN LMS Security Notification</div>
+</td></tr>
+<tr><td style="padding:32px 40px">
+  <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background:#fffbeb;border:2px solid #fbbf24;border-radius:8px;margin-bottom:24px">
+    <tr><td>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="width:28px;font-size:20px;vertical-align:top">&#9888;&#65039;</td>
+          <td style="padding-left:10px;font-size:13px;color:#92400e;line-height:1.6"><strong>Security Alert:</strong> This action was performed by an Administrator. If you did not request this reset, contact your coordinator immediately.</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+  <p style="font-size:15px;color:#1e293b;margin:0 0 16px">Dear <strong>${traineeName}</strong>,</p>
+  <p style="font-size:14px;color:#475569;margin:0 0 24px;line-height:1.6">Your MCN LMS account password has been reset by an administrator. Use the temporary password below to log in, then change it immediately.</p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0f172a;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="padding:14px 20px 8px">
+      <div style="font-size:11px;font-weight:bold;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Temporary Password</div>
+    </td></tr>
+    <tr><td style="padding:0 20px 18px">
+      <span style="font-size:20px;font-family:Courier New,monospace;background:#92400e;color:#fef3c7;padding:8px 18px;border-radius:6px;font-weight:bold;letter-spacing:3px;display:inline-block">${tempPassword}</span>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px">
+    <tr><td align="center">
+      <a href="${loginUrl}" style="display:inline-block;background:#dc2626;color:#ffffff;font-size:15px;font-weight:bold;padding:14px 40px;border-radius:8px;text-decoration:none;letter-spacing:0.3px">Log In &amp; Change Password &#8594;</a>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="16" cellspacing="0" border="0" style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px">
+    <tr><td>
+      <div style="font-size:11px;font-weight:bold;color:#166534;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">Security Checklist</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="padding:5px 0;font-size:13px;color:#166534">&#9989;&nbsp; Change this temporary password immediately after login</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#166534">&#9989;&nbsp; Do not share your credentials with anyone, including coordinators</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#166534">&#9989;&nbsp; Contact your coordinator if you did not expect this reset</td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 40px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td style="font-size:12px;color:#64748b"><strong>MCN T&amp;Q Training Operations</strong> &nbsp;&middot;&nbsp; Automated Security Notification</td>
+      <td align="right" style="font-size:11px;color:#94a3b8">mcnlms.teammas.in</td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`,
+      text: `Hi ${traineeName}, your LMS password was reset. Temp password: ${tempPassword}. Please login and change it immediately. — MCN LMS`,
     }));
   }
 
@@ -289,12 +346,87 @@ export async function notifyPasswordReset({ traineeName, mobile, email, tempPass
 
 export async function notifyBatchAssignment({ traineeName, mobile, email, batchNo, classroomName, process: proc }) {
   const results = [];
+  const loginUrl = process.env.FRONTEND_URL || 'https://mcnlms.teammas.in';
 
   if (email) {
     results.push(await sendEmail({
       to: email,
       subject: `You have been enrolled in a training batch — ${batchNo}`,
-      html: `<p>Hi <b>${traineeName}</b>,</p><p>You have been enrolled in training batch <b>${batchNo}</b>${classroomName ? ` (${classroomName})` : ''}${proc ? ` for <b>${proc}</b>` : ''}.</p><p>Log in to MCN LMS to start your learning journey.</p><p>— MCN LMS</p>`,
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#eef2ff;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eef2ff;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+<tr><td style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 100%);padding:32px 40px">
+  <div style="font-size:24px;font-weight:bold;color:#ffffff;margin-bottom:6px">&#128203; You've Been Enrolled in a Training Batch</div>
+  <div style="font-size:13px;color:#c7d2fe">MCN LMS — Training Operations</div>
+</td></tr>
+<tr><td style="padding:32px 40px">
+  <p style="font-size:15px;color:#1e293b;margin:0 0 20px">Dear <strong>${traineeName}</strong>,</p>
+  <p style="font-size:14px;color:#475569;margin:0 0 24px;line-height:1.6">Welcome aboard! You have been officially enrolled in the following training batch. Your learning journey begins now.</p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f3ff;border:1px solid #c4b5fd;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="background:#4f46e5;padding:12px 20px">
+      <div style="font-size:11px;font-weight:bold;color:#c7d2fe;text-transform:uppercase;letter-spacing:1px">Enrollment Details</div>
+    </td></tr>
+    <tr><td style="padding:0">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr style="border-bottom:1px solid #ddd6fe">
+          <td style="padding:12px 20px;font-size:13px;color:#6d28d9;font-weight:bold;width:140px">Batch No.</td>
+          <td style="padding:12px 20px;font-size:15px;font-weight:bold;color:#1e293b">${batchNo}</td>
+        </tr>
+        ${classroomName ? `<tr style="border-bottom:1px solid #ddd6fe">
+          <td style="padding:12px 20px;font-size:13px;color:#6d28d9;font-weight:bold">Programme</td>
+          <td style="padding:12px 20px;font-size:14px;color:#1e293b">${classroomName}</td>
+        </tr>` : ''}
+        ${proc ? `<tr>
+          <td style="padding:12px 20px;font-size:13px;color:#6d28d9;font-weight:bold">Process</td>
+          <td style="padding:12px 20px;font-size:14px;color:#1e293b">${proc}</td>
+        </tr>` : ''}
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px">
+    <tr><td align="center">
+      <a href="${loginUrl}" style="display:inline-block;background:#4f46e5;color:#ffffff;font-size:15px;font-weight:bold;padding:14px 40px;border-radius:8px;text-decoration:none">View Your Batch Dashboard &#8594;</a>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="16" cellspacing="0" border="0" style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:8px">
+    <tr><td>
+      <div style="font-size:11px;font-weight:bold;color:#6d28d9;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">What to Expect</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="padding:5px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:24px;height:24px;background:#4f46e5;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;color:#fff;vertical-align:middle">1</td>
+            <td style="padding-left:10px;font-size:13px;color:#4c1d95">Sequential curriculum modules — unlock day by day</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:5px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:24px;height:24px;background:#4f46e5;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;color:#fff;vertical-align:middle">2</td>
+            <td style="padding-left:10px;font-size:13px;color:#4c1d95">PKT assessments at key milestones — study the material before each test</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:5px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:24px;height:24px;background:#4f46e5;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;color:#fff;vertical-align:middle">3</td>
+            <td style="padding-left:10px;font-size:13px;color:#4c1d95">Daily Typing Test — target 35 WPM / 95% accuracy, every working day</td>
+          </tr></table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 40px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td style="font-size:12px;color:#64748b"><strong>MCN T&amp;Q Training Operations</strong> &nbsp;&middot;&nbsp; Automated Notification</td>
+      <td align="right" style="font-size:11px;color:#94a3b8">mcnlms.teammas.in</td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`,
       text: `Hi ${traineeName}, you have been enrolled in batch ${batchNo}. Log in to MCN LMS to start learning. — MCN LMS`,
     }));
   }
@@ -317,16 +449,112 @@ export async function notifyOnboarding({ traineeName, employeeId, mobile, email,
     results.push(await sendEmail({
       to: email,
       subject: `Welcome to MCN LMS — Your login credentials`,
-      html: `<p>Hi <b>${traineeName || employeeId}</b>,</p>
-<p>Your MCN LMS account has been created. Here are your login details:</p>
-<table style="border:1px solid #e2e8f0;border-radius:6px;padding:16px;font-size:14px;width:100%;max-width:400px">
-  <tr><td><b>Employee ID</b></td><td>${employeeId}</td></tr>
-  <tr><td><b>Temporary Password</b></td><td><b>${tempPassword}</b></td></tr>
-  ${batchNo ? `<tr><td><b>Batch</b></td><td>${batchNo}</td></tr>` : ''}
-  ${proc ? `<tr><td><b>Process</b></td><td>${proc}</td></tr>` : ''}
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#eff6ff;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#eff6ff;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+<tr><td style="background:linear-gradient(135deg,#1e3a8a 0%,#2563eb 100%);padding:36px 40px">
+  <div style="font-size:28px;font-weight:bold;color:#ffffff;margin-bottom:8px">Welcome to MCN LMS &#127881;</div>
+  <div style="font-size:14px;color:#bfdbfe">Your learning journey starts today</div>
+</td></tr>
+<tr><td style="padding:32px 40px">
+  <p style="font-size:15px;color:#1e293b;margin:0 0 16px">Dear <strong>${traineeName || employeeId}</strong>,</p>
+  <p style="font-size:14px;color:#475569;margin:0 0 24px;line-height:1.6">Your MCN Learning Management System account has been created and is ready. Use the credentials below to log in and begin your training programme.</p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#0f172a;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="padding:14px 20px 6px">
+      <div style="font-size:11px;font-weight:bold;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Your Login Credentials</div>
+    </td></tr>
+    <tr><td style="padding:0 20px">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0" style="border-top:1px solid #1e293b">
+        <tr><td style="padding:12px 0;border-bottom:1px solid #1e293b">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="font-size:12px;color:#94a3b8;width:150px">Employee ID</td>
+              <td style="font-size:16px;font-weight:bold;color:#60a5fa">${employeeId}</td>
+            </tr>
+          </table>
+        </td></tr>
+        <tr><td style="padding:12px 0;border-bottom:1px solid #1e293b">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="font-size:12px;color:#94a3b8;width:150px">Temp Password</td>
+              <td><span style="font-size:16px;font-family:Courier New,monospace;background:#92400e;color:#fef3c7;padding:5px 12px;border-radius:5px;font-weight:bold;letter-spacing:2px;display:inline-block">${tempPassword}</span></td>
+            </tr>
+          </table>
+        </td></tr>
+        ${batchNo ? `<tr><td style="padding:12px 0;border-bottom:1px solid #1e293b">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="font-size:12px;color:#94a3b8;width:150px">Batch</td>
+              <td style="font-size:14px;color:#e2e8f0">${batchNo}</td>
+            </tr>
+          </table>
+        </td></tr>` : ''}
+        ${proc ? `<tr><td style="padding:12px 0">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0">
+            <tr>
+              <td style="font-size:12px;color:#94a3b8;width:150px">Process</td>
+              <td style="font-size:14px;color:#e2e8f0">${proc}</td>
+            </tr>
+          </table>
+        </td></tr>` : ''}
+      </table>
+    </td></tr>
+    <tr><td style="padding:0 20px 18px"></td></tr>
+  </table>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="margin-bottom:24px">
+    <tr><td align="center">
+      <a href="${loginUrl}" style="display:inline-block;background:#2563eb;color:#ffffff;font-size:15px;font-weight:bold;padding:14px 40px;border-radius:8px;text-decoration:none;letter-spacing:0.3px">Log In to MCN LMS &#8594;</a>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background:#fffbeb;border:2px solid #fbbf24;border-radius:8px;margin-bottom:24px">
+    <tr><td>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="width:28px;font-size:20px;vertical-align:top">&#9888;&#65039;</td>
+          <td style="padding-left:10px;font-size:13px;color:#92400e;line-height:1.6"><strong>Please change your password immediately after first login.</strong> Your temporary password should not be kept as your permanent password.</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="16" cellspacing="0" border="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+    <tr><td>
+      <div style="font-size:11px;font-weight:bold;color:#1e40af;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">Your First Steps</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="padding:6px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:26px;height:26px;background:#2563eb;border-radius:50%;text-align:center;font-size:12px;font-weight:bold;color:#fff;vertical-align:middle">1</td>
+            <td style="padding-left:10px;font-size:13px;color:#1e40af">Complete your profile and update your photo</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:6px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:26px;height:26px;background:#2563eb;border-radius:50%;text-align:center;font-size:12px;font-weight:bold;color:#fff;vertical-align:middle">2</td>
+            <td style="padding-left:10px;font-size:13px;color:#1e40af">Start your Day 1 curriculum — modules unlock sequentially</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:6px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:26px;height:26px;background:#2563eb;border-radius:50%;text-align:center;font-size:12px;font-weight:bold;color:#fff;vertical-align:middle">3</td>
+            <td style="padding-left:10px;font-size:13px;color:#1e40af">Take your first Daily Typing Test — target 35 WPM / 95% accuracy</td>
+          </tr></table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 40px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td style="font-size:12px;color:#64748b"><strong>MCN T&amp;Q Training Operations</strong> &nbsp;&middot;&nbsp; Automated Notification</td>
+      <td align="right" style="font-size:11px;color:#94a3b8">mcnlms.teammas.in</td>
+    </tr>
+  </table>
+</td></tr>
 </table>
-<p style="margin-top:16px">Please log in at <a href="${loginUrl}">${loginUrl}</a> and change your password immediately.</p>
-<p style="color:#6b7280;font-size:12px">— MCN LMS</p>`,
+</td></tr>
+</table>
+</body></html>`,
       text: `Hi ${traineeName || employeeId}, your MCN LMS account is ready. Employee ID: ${employeeId}, Temp Password: ${tempPassword}. Login at ${loginUrl} and change your password.`,
     }));
   }
@@ -348,20 +576,89 @@ export async function notifyOnboarding({ traineeName, employeeId, mobile, email,
 export async function notifyModuleAssigned({ traineeName, email, mobile, moduleName, broadcastTitle, dueDate, assignmentType }) {
   const results = [];
   const dueDateStr = dueDate ? new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+  const loginUrl = process.env.FRONTEND_URL || 'https://mcnlms.teammas.in';
+  const isMandatory = !assignmentType || assignmentType === 'Mandatory';
+  const typeBadgeBg = isMandatory ? '#16a34a' : '#d97706';
+  const typeBadgeText = isMandatory ? '#ffffff' : '#ffffff';
+  const dueDate3Days = dueDate && (new Date(dueDate) - Date.now()) < 3 * 24 * 60 * 60 * 1000;
 
   if (email) {
     results.push(await sendEmail({
       to: email,
       subject: `New module assigned: "${moduleName}" — MCN LMS`,
-      html: `<p>Hi <b>${traineeName}</b>,</p>
-<p>A new module has been assigned to you${broadcastTitle ? `: <b>${broadcastTitle}</b>` : ''}.</p>
-<table style="border:1px solid #e2e8f0;border-radius:6px;padding:16px;font-size:14px;width:100%;max-width:400px">
-  <tr><td><b>Module</b></td><td>${moduleName}</td></tr>
-  <tr><td><b>Type</b></td><td>${assignmentType || 'Mandatory'}</td></tr>
-  ${dueDateStr ? `<tr><td><b>Due Date</b></td><td>${dueDateStr}</td></tr>` : ''}
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#f5f3ff;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f5f3ff;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+<tr><td style="background:linear-gradient(135deg,#4c1d95 0%,#7c3aed 100%);padding:32px 40px">
+  <div style="font-size:24px;font-weight:bold;color:#ffffff;margin-bottom:6px">&#128218; New Module Assigned to You</div>
+  <div style="font-size:13px;color:#ddd6fe">MCN LMS — Learning &amp; Development</div>
+</td></tr>
+<tr><td style="padding:32px 40px">
+  <p style="font-size:15px;color:#1e293b;margin:0 0 20px">Dear <strong>${traineeName}</strong>,</p>
+  ${broadcastTitle ? `<table width="100%" cellpadding="10" cellspacing="0" border="0" style="background:#faf5ff;border:1px solid #ddd6fe;border-radius:8px;margin-bottom:20px">
+    <tr><td>
+      <table cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="font-size:16px;padding-right:8px">&#128226;</td>
+        <td style="font-size:13px;color:#6d28d9;font-weight:bold">Broadcast:&nbsp;</td>
+        <td style="font-size:13px;color:#4c1d95">${broadcastTitle}</td>
+      </tr></table>
+    </td></tr>
+  </table>` : ''}
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#faf5ff;border:2px solid #c4b5fd;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="background:#7c3aed;padding:12px 20px">
+      <div style="font-size:11px;font-weight:bold;color:#ddd6fe;text-transform:uppercase;letter-spacing:1px">Module Details</div>
+    </td></tr>
+    <tr><td style="padding:18px 20px 0">
+      <div style="font-size:18px;font-weight:bold;color:#1e293b;margin-bottom:14px">${moduleName}</div>
+    </td></tr>
+    <tr><td style="padding:0 20px 18px">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="padding-right:12px">
+            <span style="background:${typeBadgeBg};color:${typeBadgeText};font-size:11px;font-weight:bold;padding:4px 12px;border-radius:20px;display:inline-block">${assignmentType || 'Mandatory'}</span>
+          </td>
+          ${dueDateStr ? `<td>
+            <span style="background:${dueDate3Days ? '#fef2f2' : '#f0fdf4'};color:${dueDate3Days ? '#dc2626' : '#16a34a'};border:1px solid ${dueDate3Days ? '#fecaca' : '#86efac'};font-size:12px;font-weight:bold;padding:4px 12px;border-radius:20px;display:inline-block">Due: ${dueDateStr}${dueDate3Days ? ' &#128680;' : ''}</span>
+          </td>` : ''}
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="padding:14px 20px">
+      <div style="font-size:11px;color:#64748b;margin-bottom:8px">Progress Milestone</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="font-size:12px;color:#475569;width:28px">0%</td>
+          <td style="padding:0 8px">
+            <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#e2e8f0;border-radius:4px;height:10px">
+              <tr><td style="background:#7c3aed;width:0%;border-radius:4px;height:10px"></td></tr>
+            </table>
+          </td>
+          <td style="font-size:12px;color:#475569;width:80px;text-align:right">${dueDateStr ? `by ${dueDateStr}` : 'Complete'}</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td align="center">
+      <a href="${loginUrl}" style="display:inline-block;background:#7c3aed;color:#ffffff;font-size:15px;font-weight:bold;padding:14px 40px;border-radius:8px;text-decoration:none">Open Module in LMS &#8594;</a>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 40px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td style="font-size:12px;color:#64748b"><strong>MCN T&amp;Q Training Operations</strong> &nbsp;&middot;&nbsp; Automated Notification</td>
+      <td align="right" style="font-size:11px;color:#94a3b8">mcnlms.teammas.in</td>
+    </tr>
+  </table>
+</td></tr>
 </table>
-<p style="margin-top:16px">Log in to MCN LMS to complete this module.</p>
-<p style="color:#6b7280;font-size:12px">— MCN LMS</p>`,
+</td></tr>
+</table>
+</body></html>`,
       text: `Hi ${traineeName}, module "${moduleName}" has been assigned to you${dueDateStr ? `, due ${dueDateStr}` : ''}. Log in to complete it.`,
     }));
   }
@@ -378,20 +675,72 @@ export async function notifyModuleAssigned({ traineeName, email, mobile, moduleN
 export async function notifyAssessmentAssigned({ traineeName, email, moduleName, assessmentName, dueDate }) {
   const results = [];
   const dueDateStr = dueDate ? new Date(dueDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : null;
+  const loginUrl = process.env.FRONTEND_URL || 'https://mcnlms.teammas.in';
 
   if (email) {
     results.push(await sendEmail({
       to: email,
       subject: `New test assigned: "${assessmentName}" — MCN LMS`,
-      html: `<p>Hi <b>${traineeName}</b>,</p>
-<p>A test (PKT) has been assigned to you${moduleName ? ` as part of <b>${moduleName}</b>` : ''}.</p>
-<table style="border:1px solid #e2e8f0;border-radius:6px;padding:16px;font-size:14px;width:100%;max-width:400px">
-  <tr><td><b>Test</b></td><td>${assessmentName}</td></tr>
-  ${moduleName ? `<tr><td><b>Module</b></td><td>${moduleName}</td></tr>` : ''}
-  ${dueDateStr ? `<tr><td><b>Due Date</b></td><td>${dueDateStr}</td></tr>` : ''}
+      html: `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#fffbeb;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fffbeb;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+<tr><td style="background:linear-gradient(135deg,#92400e 0%,#d97706 100%);padding:32px 40px">
+  <div style="font-size:24px;font-weight:bold;color:#ffffff;margin-bottom:6px">&#128221; New Assessment Assigned: PKT</div>
+  <div style="font-size:13px;color:#fde68a">MCN LMS — Knowledge Verification</div>
+</td></tr>
+<tr><td style="padding:32px 40px">
+  <p style="font-size:15px;color:#1e293b;margin:0 0 20px">Dear <strong>${traineeName}</strong>,</p>
+  <p style="font-size:14px;color:#475569;margin:0 0 24px;line-height:1.6">A Process Knowledge Test (PKT) has been assigned to you${moduleName ? ` as part of <strong>${moduleName}</strong>` : ''}. Review the material and complete it before the due date.</p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fffbeb;border:2px solid #fbbf24;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="background:#d97706;padding:12px 20px">
+      <div style="font-size:11px;font-weight:bold;color:#fef3c7;text-transform:uppercase;letter-spacing:1px">Assessment Details</div>
+    </td></tr>
+    <tr><td style="padding:0">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr style="border-bottom:1px solid #fde68a">
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold;width:130px">Assessment</td>
+          <td style="padding:12px 20px;font-size:15px;font-weight:bold;color:#1e293b">${assessmentName}</td>
+        </tr>
+        ${moduleName ? `<tr style="border-bottom:1px solid #fde68a">
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold">Module</td>
+          <td style="padding:12px 20px;font-size:14px;color:#1e293b">${moduleName}</td>
+        </tr>` : ''}
+        ${dueDateStr ? `<tr>
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold">Due Date</td>
+          <td style="padding:12px 20px;font-size:14px;font-weight:bold;color:#dc2626">${dueDateStr}</td>
+        </tr>` : ''}
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="16" cellspacing="0" border="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px;margin-bottom:24px">
+    <tr><td>
+      <div style="font-size:11px;font-weight:bold;color:#1e40af;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">Preparation Tips</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="padding:5px 0;font-size:13px;color:#1e3a8a">&#128161;&nbsp; Re-read all module content before attempting the PKT</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#1e3a8a">&#128161;&nbsp; Note key concepts, definitions and process steps</td></tr>
+        <tr><td style="padding:5px 0;font-size:13px;color:#1e3a8a">&#128161;&nbsp; Attempt the test in a quiet environment — no interruptions</td></tr>
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr><td align="center">
+      <a href="${loginUrl}" style="display:inline-block;background:#d97706;color:#ffffff;font-size:15px;font-weight:bold;padding:14px 40px;border-radius:8px;text-decoration:none">Take Assessment &#8594;</a>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 40px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td style="font-size:12px;color:#64748b"><strong>MCN T&amp;Q Training Operations</strong> &nbsp;&middot;&nbsp; Automated Notification</td>
+      <td align="right" style="font-size:11px;color:#94a3b8">mcnlms.teammas.in</td>
+    </tr>
+  </table>
+</td></tr>
 </table>
-<p style="margin-top:16px">Log in to MCN LMS and open the <b>Assigned</b> tab to take this test.</p>
-<p style="color:#6b7280;font-size:12px">— MCN LMS</p>`,
+</td></tr>
+</table>
+</body></html>`,
       text: `Hi ${traineeName}, a test (PKT) "${assessmentName}"${moduleName ? ` for module "${moduleName}"` : ''} has been assigned to you${dueDateStr ? `, due ${dueDateStr}` : ''}. Log in to the Assigned tab to take it.`,
     }));
   }
@@ -402,24 +751,94 @@ export async function notifyAssessmentAssigned({ traineeName, email, moduleName,
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function certHtml({ traineeName, employeeId, batchNo, batchName, proc, lob, dateStr }) {
-  return `<!DOCTYPE html><html><body style="font-family:Arial,sans-serif;background:#f5f5f5;padding:24px">
-  <div style="max-width:560px;margin:0 auto;background:#fff;border-radius:8px;overflow:hidden">
-    <div style="background:#15803d;padding:24px 28px">
-      <h2 style="color:#fff;margin:0">Congratulations — Certified!</h2>
-      <p style="color:#bbf7d0;margin:6px 0 0;font-size:13px">MCN T&Q Training Operations</p>
-    </div>
-    <div style="padding:28px">
-      <p>Dear <b>${traineeName}</b>,</p>
-      <p>You have been <b style="color:#15803d">certified</b> as of <b>${dateStr}</b>.</p>
-      <table style="width:100%;font-size:13px;color:#166534;border:1px solid #bbf7d0;border-radius:6px;padding:16px">
-        <tr><td><b>Employee ID</b></td><td>${employeeId}</td></tr>
-        <tr><td><b>Batch</b></td><td>${batchNo}${batchName ? ' — ' + batchName : ''}</td></tr>
-        ${proc ? `<tr><td><b>Process</b></td><td>${proc}${lob ? ' / ' + lob : ''}</td></tr>` : ''}
-        <tr><td><b>Date</b></td><td>${dateStr}</td></tr>
+  return `<!DOCTYPE html><html><body style="margin:0;padding:0;background:#ecfdf5;font-family:Arial,Helvetica,sans-serif">
+<table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#ecfdf5;padding:24px 0">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.10)">
+<tr><td style="background:linear-gradient(135deg,#064e3b 0%,#059669 100%);padding:40px 40px 32px">
+  <div style="font-size:32px;margin-bottom:12px">&#127891;</div>
+  <div style="font-size:26px;font-weight:bold;color:#ffffff;margin-bottom:8px">Congratulations — You're Certified!</div>
+  <div style="font-size:14px;color:#a7f3d0">MCN T&amp;Q Training Operations</div>
+</td></tr>
+<tr><td style="padding:32px 40px">
+  <p style="font-size:15px;color:#1e293b;margin:0 0 20px">Dear <strong>${traineeName}</strong>,</p>
+  <p style="font-size:14px;color:#475569;margin:0 0 24px;line-height:1.6">You have successfully completed your training programme and are now <strong style="color:#059669">certified</strong>. This is a significant achievement — well done!</p>
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#fefce8;border:3px solid #fbbf24;border-radius:10px;overflow:hidden;margin-bottom:24px">
+    <tr><td style="background:linear-gradient(90deg,#fbbf24,#f59e0b);padding:14px 20px">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="font-size:20px">&#127942;</td>
+          <td style="padding-left:10px;font-size:14px;font-weight:bold;color:#1e293b">Achievement Unlocked — Process Knowledge Certified</td>
+        </tr>
       </table>
-    </div>
-    <div style="padding:16px 28px;background:#f8fafc;border-top:1px solid #e2e8f0">
-      <p style="margin:0;font-size:12px;color:#94a3b8">MCN T&Q Training Operations · Automated notification</p>
-    </div>
-  </div></body></html>`;
+    </td></tr>
+    <tr><td style="padding:0">
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr style="border-bottom:1px solid #fde68a">
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold;width:140px">Employee ID</td>
+          <td style="padding:12px 20px;font-size:15px;font-weight:bold;color:#1e293b">${employeeId}</td>
+        </tr>
+        <tr style="border-bottom:1px solid #fde68a">
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold">Batch</td>
+          <td style="padding:12px 20px;font-size:14px;color:#1e293b">${batchNo}${batchName ? ' — ' + batchName : ''}</td>
+        </tr>
+        ${proc ? `<tr style="border-bottom:1px solid #fde68a">
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold">Process / LOB</td>
+          <td style="padding:12px 20px;font-size:14px;color:#1e293b">${proc}${lob ? ' / ' + lob : ''}</td>
+        </tr>` : ''}
+        <tr>
+          <td style="padding:12px 20px;font-size:13px;color:#92400e;font-weight:bold">Certified Date</td>
+          <td style="padding:12px 20px;font-size:14px;font-weight:bold;color:#059669">${dateStr}</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="14" cellspacing="0" border="0" style="background:#ecfdf5;border:1px solid #6ee7b7;border-radius:8px;margin-bottom:24px">
+    <tr><td>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="width:28px;font-size:20px;vertical-align:top">&#10003;</td>
+          <td style="padding-left:10px;font-size:13px;color:#065f46;line-height:1.6">This certification confirms your readiness for operations. Your Trainer and Operations team have been notified.</td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+  <table width="100%" cellpadding="16" cellspacing="0" border="0" style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:8px">
+    <tr><td>
+      <div style="font-size:11px;font-weight:bold;color:#1e40af;margin-bottom:10px;text-transform:uppercase;letter-spacing:0.5px">What's Next</div>
+      <table width="100%" cellpadding="0" cellspacing="0" border="0">
+        <tr><td style="padding:5px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:24px;height:24px;background:#059669;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;color:#fff;vertical-align:middle">1</td>
+            <td style="padding-left:10px;font-size:13px;color:#1e3a8a">Your coordinator will initiate the Operations onboarding process</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:5px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:24px;height:24px;background:#059669;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;color:#fff;vertical-align:middle">2</td>
+            <td style="padding-left:10px;font-size:13px;color:#1e3a8a">Your LMS access remains active — continue with any outstanding modules</td>
+          </tr></table>
+        </td></tr>
+        <tr><td style="padding:5px 0">
+          <table cellpadding="0" cellspacing="0" border="0"><tr>
+            <td style="width:24px;height:24px;background:#059669;border-radius:50%;text-align:center;font-size:11px;font-weight:bold;color:#fff;vertical-align:middle">3</td>
+            <td style="padding-left:10px;font-size:13px;color:#1e3a8a">Download your certificate from the LMS Achievements section</td>
+          </tr></table>
+        </td></tr>
+      </table>
+    </td></tr>
+  </table>
+</td></tr>
+<tr><td style="background:#f8fafc;border-top:1px solid #e2e8f0;padding:16px 40px">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0">
+    <tr>
+      <td style="font-size:12px;color:#64748b"><strong>MCN T&amp;Q Training Operations</strong> &nbsp;&middot;&nbsp; Automated Notification</td>
+      <td align="right" style="font-size:11px;color:#94a3b8">mcnlms.teammas.in</td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</td></tr>
+</table>
+</body></html>`;
 }
