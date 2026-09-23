@@ -48,7 +48,7 @@ function Sparkline({ values, width = 80, height = 28 }) {
 function PassageDisplay({ body, typedChars, startIndex = 0 }) {
   const cursorPos = startIndex + typedChars.length;
   return (
-    <div style={{ fontFamily: 'monospace', fontSize: 15, lineHeight: 1.7, letterSpacing: '.02em', padding: '14px 16px', background: 'var(--surface2, rgba(127,127,127,0.07))', borderRadius: 8, userSelect: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 180, overflowY: 'auto' }}>
+    <div style={{ fontFamily: 'monospace', fontSize: 20, lineHeight: 1.8, letterSpacing: '.02em', padding: '18px 20px', background: 'var(--surface2, rgba(127,127,127,0.07))', borderRadius: 10, userSelect: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: 220, overflowY: 'auto' }}>
       {body.split('').map((ch, i) => {
         const relIdx = i - startIndex;
         // Already passed (before the active window)
@@ -162,8 +162,10 @@ export default function TypingPracticeTab() {
 
   const finishSession = useCallback(async () => {
     clearInterval(timerRef.current);
-    const durationSeconds = Math.max(1, Math.round((Date.now() - (startTimeRef.current || Date.now())) / 1000));
     const log = keystrokeRef.current;
+    // Use last keystroke timestamp for actual typing duration (excludes focus-lost time)
+    const lastKeystrokeMs = log.length > 0 ? log[log.length - 1].t : 0;
+    const durationSeconds = Math.max(1, Math.round(lastKeystrokeMs / 1000));
     const correctCount = log.filter(k => k.correct).length;
     const errCount = log.filter(k => !k.correct).length;
     const charsTyped = log.length;
@@ -287,7 +289,7 @@ export default function TypingPracticeTab() {
                 {formatTime(remaining)}
               </span>
             ) : (
-              <span style={{ fontFamily: 'monospace', fontSize: 18, fontWeight: 700, color: 'var(--muted)' }}>
+              <span style={{ fontFamily: 'monospace', fontSize: 22, fontWeight: 700, color: 'var(--muted)' }}>
                 {formatTime(elapsed)}
               </span>
             )}
@@ -314,10 +316,10 @@ export default function TypingPracticeTab() {
           // eslint-disable-next-line jsx-a11y/no-autofocus
           autoFocus
           style={{
-            width: '100%', minHeight: 80, marginTop: 12,
-            fontFamily: 'monospace', fontSize: 15,
-            padding: '10px 12px', borderRadius: 8,
-            border: '1.5px solid var(--accent)',
+            width: '100%', minHeight: 90, marginTop: 14,
+            fontFamily: 'monospace', fontSize: 20,
+            padding: '12px 16px', borderRadius: 10,
+            border: '2px solid var(--accent)',
             background: 'var(--bg, #fff)',
             resize: 'none', outline: 'none', boxSizing: 'border-box',
           }}
@@ -391,9 +393,9 @@ export default function TypingPracticeTab() {
               color: r.streak >= 7 ? 'var(--ok)' : 'var(--fg)',
             },
           ].map(kpi => (
-            <div key={kpi.label} className="kpi-card">
-              <div className="kpi-label">{kpi.label}</div>
-              <div className="kpi-value" style={{ color: kpi.color }}>
+            <div key={kpi.label} className="kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label" style={{ fontSize: 13, marginBottom: 4 }}>{kpi.label}</div>
+              <div className="kpi-value" style={{ color: kpi.color, fontSize: 32, fontWeight: 900 }}>
                 {saving ? '…' : kpi.value}
               </div>
             </div>
