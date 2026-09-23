@@ -468,7 +468,7 @@ export default function TypingPracticeTab() {
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>
                 {p.wordCount ? `${p.wordCount} words` : ''}
                 {p.wordCount && p.tags?.length ? ' · ' : ''}
-                {(p.tags || []).slice(0, 2).join(', ')}
+                {(Array.isArray(p.tags) ? p.tags : []).slice(0, 2).join(', ')}
               </div>
               <div style={{ marginTop: 10 }}>
                 <span className="btn small accent" style={{ pointerEvents: 'none' }}>Start →</span>

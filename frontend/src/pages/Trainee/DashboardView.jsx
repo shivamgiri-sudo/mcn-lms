@@ -1,7 +1,26 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Component } from 'react';
 import { api } from '../../utils/api.js';
 import { formatSeconds, pct } from '../../utils/format.js';
 import { useTheme } from '../../context/ThemeContext.jsx';
+
+class TypingErrorBoundary extends Component {
+  constructor(props) { super(props); this.state = { error: null }; }
+  static getDerivedStateFromError(err) { return { error: err }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="card" style={{ borderLeft: '4px solid var(--bad)', padding: '18px 20px' }}>
+          <b style={{ color: 'var(--bad)' }}>Typing Practice failed to load</b>
+          <pre style={{ fontSize: 12, marginTop: 8, whiteSpace: 'pre-wrap', color: 'var(--muted)' }}>
+            {this.state.error?.message || String(this.state.error)}
+          </pre>
+          <button className="btn small" style={{ marginTop: 10 }} onClick={() => this.setState({ error: null })}>Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 import LearningJourneyTab from './LearningJourneyTab.jsx';
 import SkillsPathsTab from './SkillsPathsTab.jsx';
 import LearningTab from './LearningTab.jsx';
@@ -209,7 +228,7 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
       {activeTab === 'leaderboard' && <LeaderboardTab />}
       {activeTab === 'ijp' && <IJPTab />}
       {activeTab === 'voice-accent' && <VoiceAccentTab />}
-      {activeTab === 'typing' && <TypingPracticeTab />}
+      {activeTab === 'typing' && <TypingErrorBoundary><TypingPracticeTab /></TypingErrorBoundary>}
       {activeTab === 'profile' && (
         <>
           <MyCertificates />
