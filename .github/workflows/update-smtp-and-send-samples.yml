@@ -1,0 +1,52 @@
+name: Update SMTP Password and Send Sample Emails
+
+on:
+  workflow_dispatch:
+    inputs:
+      smtp_pass:
+        description: 'New Gmail App Password (no spaces)'
+        required: true
+      emails:
+        description: 'Comma-separated recipients'
+        required: true
+        default: 'harneet.kaur@teammas.in,shivam.giri@teammas.in'
+
+permissions:
+  contents: read
+
+jobs:
+  update-and-send:
+    name: Update SMTP creds then send samples
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    steps:
+      - name: Update SMTP password and send sample emails
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17
+        with:
+          host: ${{ secrets.LMS_PROD_HOST }}
+          username: ${{ secrets.LMS_PROD_USER }}
+          password: ${{ secrets.LMS_PROD_SSH_PASS }}
+          port: 22
+          timeout: 120s
+          script: |
+            set -euo pipefail
+            cd /var/www/mcn-lms/backend
+
+            # Update SMTP password in communication_config
+            /usr/bin/node --input-type=module --eval "
+              import { PrismaClient } from '@prisma/client';
+              const prisma = new PrismaClient();
+              const r = await prisma.communicationConfig.updateMany({
+                data: { smtpPass: '${{ github.event.inputs.smtp_pass }}' }
+              });
+              console.log('[smtp-update] Updated', r.count, 'config rows');
+              await prisma.\$disconnect();
+            " 2>&1
+
+            # Run sample emails
+            EMAILS=\$(echo '${{ github.event.inputs.emails }}' | tr ',' ' ')
+            /usr/bin/node /var/www/mcn-lms/backend/scripts/send-sample-emails.mjs \$EMAILS
+
+            echo "==> Done"
