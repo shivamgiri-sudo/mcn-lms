@@ -1236,6 +1236,24 @@ async function syncCriteria(ruleId, incoming) {
   });
 }
 
+// Prisma error codes worth surfacing precisely instead of a blanket "Server
+// error": P2025 (the row this call targeted no longer exists -- the admin's list
+// was stale, e.g. someone else deleted or renamed it since it loaded) and P2002
+// (the write collided with a unique constraint -- a duplicate criterionKey/ruleId
+// slipping past syncCriteria's in-request dedupe, or two rules with the same
+// process+lob racing each other). Both were previously swallowed into a generic
+// 500 with no indication of what actually went wrong or how to recover.
+function certRuleErrorResponse(res, err, action) {
+  console.error(`[admin] ${action} failed:`, err);
+  if (err.code === 'P2025') {
+    return res.status(404).json({ ok: false, message: 'This rule no longer exists. Please refresh the page and try again.' });
+  }
+  if (err.code === 'P2002') {
+    return res.status(409).json({ ok: false, message: 'A rule or criterion with the same key already exists. Please refresh the page and try again.' });
+  }
+  return res.status(500).json({ ok: false, message: 'Server error' });
+}
+
 export async function saveCertificationRule(req, res) {
   try {
     const { process, lob, criteria, ...rest } = req.body;
@@ -1251,8 +1269,7 @@ export async function saveCertificationRule(req, res) {
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: existing ? 'UPDATE_CERT_RULE' : 'CREATE_CERT_RULE', module: 'Certification', referenceId: rule.ruleId, newValue: { process, lob, criteria: (criteria || []).length } });
     res.json({ ok: true, data: rule });
   } catch (err) {
-    console.error('[admin] save certification rule failed:', err);
-    res.status(500).json({ ok: false, message: 'Server error' });
+    certRuleErrorResponse(res, err, 'save certification rule');
   }
 }
 
@@ -1261,6 +1278,15 @@ export async function updateCertificationRule(req, res) {
     const { id } = req.params;
     const { process, lob, courseCompletionMin, mcqPassPctMin, attendancePctMin, active, criteria } = req.body;
     const number = value => (value != null && value !== '' ? parseFloat(value) : undefined);
+
+    // Renaming a rule's process/LOB to a combination another rule already owns
+    // isn't blocked by a DB constraint (there isn't one on [process, lob]), so it
+    // would otherwise silently create two rules governing the same process/LOB.
+    if (process && lob) {
+      const collision = await prisma.certificationRuleMaster.findFirst({ where: { process, lob, id: { not: id } } });
+      if (collision) return res.status(409).json({ ok: false, message: `Another rule already exists for ${process} / ${lob}.` });
+    }
+
     const rule = await prisma.certificationRuleMaster.update({
       where: { id },
       data: {
@@ -1278,8 +1304,7 @@ export async function updateCertificationRule(req, res) {
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'UPDATE_CERT_RULE', module: 'Certification', referenceId: rule.ruleId, newValue: { process, lob, criteria: (criteria || []).length } });
     res.json({ ok: true, data: rule });
   } catch (err) {
-    console.error('[admin] update certification rule failed:', err);
-    res.status(500).json({ ok: false, message: 'Server error' });
+    certRuleErrorResponse(res, err, 'update certification rule');
   }
 }
 
@@ -1289,7 +1314,7 @@ export async function deleteCertificationRule(req, res) {
     await prisma.certificationRuleMaster.delete({ where: { id } });
     res.json({ ok: true, message: 'Rule deleted.' });
   } catch (err) {
-    res.status(500).json({ ok: false, message: 'Server error' });
+    certRuleErrorResponse(res, err, 'delete certification rule');
   }
 }
 
