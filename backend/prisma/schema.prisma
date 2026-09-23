@@ -1223,3 +1223,74 @@ model VoiceAccentSubmission {
   @@index([status])
   @@map("voice_accent_submission")
 }
+
+// ─── TYPING PRACTICE ──────────────────────────────────────────────────────────
+// Built-in passage library — no admin UI, seeded via seed.js. mode PASSAGE means
+// the trainee types the full body text until completion; TIMED_DRILL means they
+// type continuously for durationSeconds. difficulty/tags help the UI group cards.
+model TypingPrompt {
+  id              String   @id @default(uuid())
+  title           String
+  body            String   @db.Text
+  mode            String   @default("PASSAGE") // PASSAGE | TIMED_DRILL
+  durationSeconds Int?     @map("duration_seconds")
+  difficulty      String   @default("EASY") // EASY | MEDIUM | HARD
+  tags            Json     @default("[]")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([isActive, mode])
+  @@map("typing_prompts")
+}
+
+// One row per completed session. All scope fields (batchNo/branch/process/lob)
+// are denormalized from TraineeMaster at save time — same pattern as
+// VoiceAccentSubmission — so analytics queries require zero joins.
+// keystrokeLog is a JSON array of {t: ms_offset, k: char, correct: bool}.
+// isVoided=true when cheat thresholds are exceeded; voided sessions are stored
+// but excluded from all averages, points, and streak updates.
+model TypingSession {
+  id              String   @id @default(uuid())
+  traineeId       String   @map("trainee_id")
+  traineeName     String?  @map("trainee_name")
+  batchNo         String?  @map("batch_no")
+  branch          String?
+  process         String?
+  lob             String?
+  promptId        String   @map("prompt_id")
+  mode            String
+  wpm             Int
+  rawWpm          Int      @map("raw_wpm")
+  accuracy        Float
+  errorCount      Int      @map("error_count")
+  durationSeconds Int      @map("duration_seconds")
+  pasteEventCount Int      @default(0) @map("paste_event_count")
+  focusLostCount  Int      @default(0) @map("focus_lost_count")
+  isVoided        Boolean  @default(false) @map("is_voided")
+  voidReason      String?  @map("void_reason")
+  keystrokeLog    Json     @default("[]") @map("keystroke_log")
+  leaderboardPts  Int      @default(0) @map("leaderboard_pts")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([traineeId])
+  @@index([batchNo])
+  @@index([branch])
+  @@index([process])
+  @@index([createdAt])
+  @@index([isVoided])
+  @@map("typing_sessions")
+}
+
+// Per-trainee streak state. Updated only on valid (non-voided) sessions.
+// lastPracticedDate is stored as a UTC midnight string (YYYY-MM-DD) so streak
+// comparison is date-only, timezone-independent.
+model TypingStreak {
+  id                String    @id @default(uuid())
+  traineeId         String    @unique @map("trainee_id")
+  currentStreak     Int       @default(0) @map("current_streak")
+  longestStreak     Int       @default(0) @map("longest_streak")
+  lastPracticedDate String?   @map("last_practiced_date") // "YYYY-MM-DD"
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("typing_streaks")
+}
