@@ -24,6 +24,7 @@ class TypingErrorBoundary extends Component {
 import LearningJourneyTab from './LearningJourneyTab.jsx';
 import SkillsPathsTab from './SkillsPathsTab.jsx';
 import LearningTab from './LearningTab.jsx';
+import AssignedTab from './AssignedTab.jsx';
 import QATab from './QATab.jsx';
 import ProfileTab from './ProfileTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
@@ -63,7 +64,8 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
     { id: 'journey', label: '🧭 My Journey' },
     { id: 'talent', label: '🎯 Skills & Paths' },
     { id: 'live-training', label: '🗓️ Live Training' },
-    { id: 'learning', label: '📚 My Learning', badge: assignedPending.length },
+    { id: 'learning', label: '📚 Curriculum' },
+    { id: 'assigned', label: '📢 Assigned', badge: assignedPending.length },
     { id: 'qa', label: '💬 Q&A' },
     { id: 'leaderboard', label: '🏆 Leaderboard' },
     { id: 'ijp', label: '🚀 Internal Jobs' },
@@ -206,7 +208,8 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           {activeTab === 'journey' && <LearningJourneyTab onNavigate={setActiveTab} />}
           {activeTab === 'talent' && <SkillsPathsTab />}
           {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
-          {activeTab === 'learning' && <LearningTab days={d.days || []} assignments={d.directAssignments || []} onRefresh={onRefresh} />}
+          {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
+          {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} />}
           {activeTab === 'qa' && <QATab />}
           {activeTab === 'leaderboard' && <LeaderboardTab />}
           {activeTab === 'ijp' && <IJPTab />}
