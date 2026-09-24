@@ -14,11 +14,12 @@ const routes = readFileSync(new URL('../src/routes/traineeStability.js', import.
 const schemaSvc = readFileSync(new URL('../src/services/contentProgressSchema.js', import.meta.url), 'utf8');
 const prismaSchema = readFileSync(new URL('../prisma/schema.prisma', import.meta.url), 'utf8');
 
-test('isComplete requires both time-completion AND an explicit acknowledgement', () => {
-  const fn = routes.match(/function isComplete\(row\) \{[\s\S]*?\n\}/)[0];
+test('isComplete requires both time-completion AND a current-version acknowledgement', () => {
+  const fn = routes.match(/function isComplete\(row, expectedVersion\) \{[\s\S]*?\n\}/)[0];
   assert.match(fn, /completionStatus === 'Completed'/);
   assert.match(fn, /completionPct[\s\S]{0,40}>= 100/);
-  assert.match(fn, /timeComplete && Boolean\(row\?\.acknowledgedAt\)/, 'a purely time-based completion must not satisfy isComplete on its own');
+  assert.match(fn, /if \(!timeComplete \|\| !row\?\.acknowledgedAt\) return false;/, 'a purely time-based completion must not satisfy isComplete on its own');
+  assert.match(fn, /\(row\.acknowledgedVersion \?\? 1\) >= expectedVersion/, 'an acknowledgement of an older content version must not satisfy isComplete once a newer version is expected');
 });
 
 test('the acknowledge route requires the content to be opened and time-complete first', () => {
@@ -38,20 +39,37 @@ test('the acknowledgement text is built server-side, never taken from the client
   assert.match(block, /acknowledgementText = `I acknowledge that I have read and understood/, 'the sentence must be generated from the resolved content, not trusted input');
 });
 
-test('acknowledgement captures IP and user agent, and is idempotent once set', () => {
+test('acknowledgement captures IP and user agent, and is idempotent once the acknowledged version is current', () => {
   const start = routes.indexOf("router.post('/content/:contentId/acknowledge'");
   const end = routes.indexOf('\nasync function getOrCreateAttempt', start);
   const block = routes.slice(start, end);
   assert.match(block, /acknowledgedIp = String\(req\.ip/);
   assert.match(block, /acknowledgedUserAgent = String\(req\.headers\['user-agent'\]/);
-  assert.match(block, /if \(progress\.acknowledgedAt\) \{/, 'a repeat acknowledgement must not overwrite the original timestamp/IP');
+  assert.match(block, /const alreadyCurrent = progress\.acknowledgedAt && \(progress\.acknowledgedVersion \?\? 1\) >= currentVersion;/, 'a repeat acknowledgement of the same version must not overwrite the original timestamp/IP');
+  assert.match(block, /if \(alreadyCurrent\) \{/);
 });
 
-test('acknowledgement is written to the audit trail', () => {
+test('a content version bump produces a genuine re-acknowledgement, not a silent no-op', () => {
   const start = routes.indexOf("router.post('/content/:contentId/acknowledge'");
   const end = routes.indexOf('\nasync function getOrCreateAttempt', start);
   const block = routes.slice(start, end);
-  assert.match(block, /action: 'ACKNOWLEDGE_CONTENT'/);
+  assert.match(block, /const isReacknowledgement = Boolean\(progress\.acknowledgedAt\);/);
+  assert.match(block, /acknowledgedVersion: currentVersion/, 'the newly recorded acknowledgement must be pinned to the content version current at click time');
+});
+
+test('acknowledgement is written to the audit trail, including re-acknowledgements', () => {
+  const start = routes.indexOf("router.post('/content/:contentId/acknowledge'");
+  const end = routes.indexOf('\nasync function getOrCreateAttempt', start);
+  const block = routes.slice(start, end);
+  assert.match(block, /'ACKNOWLEDGE_CONTENT'/);
+  assert.match(block, /'REACKNOWLEDGE_CONTENT'/);
+});
+
+test('every acknowledgement event is appended to the module_acknowledgements audit trail, never overwritten', () => {
+  const start = routes.indexOf("router.post('/content/:contentId/acknowledge'");
+  const end = routes.indexOf('\nasync function getOrCreateAttempt', start);
+  const block = routes.slice(start, end);
+  assert.match(block, /prisma\.moduleAcknowledgement\.create\(/, 'each acknowledgement/re-acknowledgement must create a new history row, not update an existing one');
 });
 
 test('sequential unlock and assessment submission route through the same gate, unmodified', () => {
@@ -59,9 +77,14 @@ test('sequential unlock and assessment submission route through the same gate, u
   // that isComplete() changing underneath them is what makes the gate apply
   // everywhere at once, not that they were rewritten. Four sites: the content
   // lock map, the assessment lock meta, the assessment prerequisite blocker used
-  // server-side at submit time, and the sequential-unlock check on /open.
-  const callSites = [...routes.matchAll(/!isComplete\(progressMap[^)]*\)\)/g)];
+  // server-side at submit time, and the sequential-unlock check on /open. Each
+  // now also passes the relevant content's version, so a stale acknowledgement
+  // (an older content version) re-locks the gate the same way an incomplete one
+  // always did.
+  const callSites = [...routes.matchAll(/!isComplete\(progressMap/g)];
   assert.equal(callSites.length, 4, `expected 4 isComplete() gate call sites, found ${callSites.length}`);
+  const versionedCallSites = [...routes.matchAll(/!isComplete\(progressMap[^;]*?\.contentVersion\)/g)];
+  assert.equal(versionedCallSites.length, 4, `expected all 4 isComplete() gate call sites to pass a content version, found ${versionedCallSites.length}`);
 });
 
 test('a pre-existing completion is grandfathered rather than retroactively locked', () => {
