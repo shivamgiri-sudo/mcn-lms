@@ -12,7 +12,7 @@
 // trainee_master.
 import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
-import { scoreTypingAttempt, alignTypedText } from '../utils/typingAccuracy.js';
+import { scoreTypingAttempt, alignTypedText, normalizeTypingText } from '../utils/typingAccuracy.js';
 
 const GRACE_SECONDS = 30; // network-latency buffer between the client's timer hitting 0 and the submit request arriving
 const STALE_SECONDS_BEFORE_FORCE_EXPIRE = 15 * 60; // an abandoned in-progress attempt is force-closed after this long, freeing the trainee to start a fresh one
@@ -185,7 +185,7 @@ export async function startTypingTest(req, res) {
           branch: trainee.branch,
           process: trainee.process,
           paragraphId: paragraph.id,
-          originalText: paragraph.text,
+          originalText: normalizeTypingText(paragraph.text),
           attemptDate: start,
           attemptNumber: completedToday + 1,
           startedAt: new Date(),
@@ -403,7 +403,7 @@ export async function listTypingParagraphs(req, res) {
 
 export async function createTypingParagraph(req, res) {
   try {
-    const text = String(req.body?.text || '').trim();
+    const text = normalizeTypingText(req.body?.text || '').trim();
     const category = req.body?.category ? String(req.body.category).trim() : null;
     if (!text) return res.status(400).json({ ok: false, message: 'Paragraph text is required.' });
 
@@ -430,7 +430,7 @@ export async function updateTypingParagraph(req, res) {
 
     const data = {};
     if (req.body?.text !== undefined) {
-      const text = String(req.body.text).trim();
+      const text = normalizeTypingText(req.body.text).trim();
       if (!text) return res.status(400).json({ ok: false, message: 'Paragraph text cannot be empty.' });
       const settings = await getSettings();
       const wordCount = text.split(/\s+/).filter(Boolean).length;

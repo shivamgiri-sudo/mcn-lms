@@ -14,6 +14,24 @@
 // spec wants capitalization errors and punctuation errors to count as mistakes
 // without any special-casing.
 
+// Text copy-pasted from Word/Outlook/a web page (or produced by an editor with
+// smart-punctuation autocorrect) commonly uses typographic characters -- an
+// em/en dash instead of a plain hyphen, curly quotes instead of straight ones
+// -- that no physical keyboard can produce at all. Comparing that literally
+// against what a trainee types marks an objectively correct keystroke as
+// wrong forever, since there is no way to type the "expected" character.
+// Normalizing to the plain ASCII form a keyboard actually produces, before
+// display and before comparison, fixes this without weakening the
+// exact-match scoring for every other character.
+export function normalizeTypingText(text) {
+  return String(text ?? '')
+    .replace(/[‒–—―]/g, '-')  // figure/en/em/horizontal-bar dash -> hyphen
+    .replace(/[‘’‚ʼ]/g, "'")  // curly/low single quotes -> apostrophe
+    .replace(/[“”„]/g, '"')        // curly/low double quotes -> straight quote
+    .replace(/…/g, '...')                    // ellipsis -> three dots
+    .replace(/[  ]/g, ' ');              // non-breaking / narrow no-break space -> space
+}
+
 /**
  * Character-level Levenshtein alignment between the original paragraph and the
  * trainee's typed text.
@@ -101,7 +119,7 @@ function round1(value) {
  * of those manifest as a 'substitute', 'missing' or 'extra' alignment op.
  */
 export function scoreTypingAttempt({ original, typed, elapsedSeconds }) {
-  const cleanOriginal = String(original ?? '');
+  const cleanOriginal = normalizeTypingText(original);
   const cleanTyped = String(typed ?? '').slice(0, MAX_TYPED_LENGTH);
 
   const { ops, editDistance } = alignTypedText(cleanOriginal, cleanTyped);

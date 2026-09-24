@@ -1,6 +1,7 @@
 import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
 import { awardTypingSession } from '../utils/leaderboardEngine.js';
+import { normalizeTypingText } from '../utils/typingAccuracy.js';
 
 // ── Scope helpers ─────────────────────────────────────────────────────────────
 // Mirrors voiceAccent.js scopeWhere exactly.
@@ -62,7 +63,11 @@ export async function getPrompt(req, res) {
   try {
     const row = await prisma.typingPrompt.findFirst({ where: { id: req.params.id, isActive: true } });
     if (!row) return res.status(404).json({ ok: false, message: 'Prompt not found.' });
-    return res.json({ ok: true, data: { id: row.id, title: row.title, body: row.body, mode: row.mode, durationSeconds: row.durationSeconds, difficulty: row.difficulty, tags: row.tags } });
+    // Typographic dashes/quotes from copy-pasted or autocorrected passage text
+    // can't be typed on a real keyboard, so an exact-match comparison against
+    // them marks a correct keystroke as wrong forever -- normalize what the
+    // trainee sees to the plain characters they can actually type.
+    return res.json({ ok: true, data: { id: row.id, title: row.title, body: normalizeTypingText(row.body), mode: row.mode, durationSeconds: row.durationSeconds, difficulty: row.difficulty, tags: row.tags } });
   } catch (err) {
     console.error('[Typing] getPrompt failed:', err.message);
     return res.status(500).json({ ok: false, message: 'Could not load prompt.' });
@@ -477,7 +482,7 @@ export async function adminImportPrompts(req, res) {
     let created = 0, skipped = 0;
     for (const p of passages) {
       const title = String(p.title || '').trim();
-      const body = String(p.body || '').trim();
+      const body = normalizeTypingText(p.body || '').trim();
       if (!title || !body) { skipped++; continue; }
       const data = {
         title,
