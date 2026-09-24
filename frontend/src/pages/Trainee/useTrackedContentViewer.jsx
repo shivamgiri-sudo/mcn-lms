@@ -44,7 +44,9 @@ function getYoutubeEmbedUrl(url) {
 }
 
 function wrapForViewer(proxyUrl, fileId) {
-  return { type: 'proxy', url: proxyUrl, fileId, requiresAuth: true };
+  // Drive-proxied content is typically a document/PDF -- see the directStream
+  // note below for why this skips the full-file blob fetch.
+  return { type: 'proxy', url: proxyUrl, fileId, requiresAuth: true, directStream: true };
 }
 
 export function renderContentUrl(c) {
@@ -59,13 +61,21 @@ export function renderContentUrl(c) {
       const isVid = ['mp4', 'webm', 'ogg', 'mov', 'avi'].includes(ext);
       const isPdf = ext === 'pdf';
       const isOffice = ['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx'].includes(ext);
-      if (isVid) return { type: 'html5', url: protectedUrl, requiresAuth: true };
+      // directStream: video and PDF/iframe content is passed straight to the
+      // <video>/<iframe> element instead of being fully downloaded into memory
+      // by fetchAuthenticatedBlobUrl first. A large video (or a large PDF) can
+      // take longer to fully buffer than the request timeout allows, and gets
+      // zero progressive playback in the meantime; the session lookup already
+      // supports cookie-only auth via a ?role= hint for exactly this case (see
+      // resolveSessionCredential in utils/session.js), so no custom header is
+      // needed and the browser's native HTTP range-request streaming just works.
+      if (isVid) return { type: 'html5', url: protectedUrl, requiresAuth: true, directStream: true };
       // Images get their own type. Routing them through the iframe branch meant a
       // blob: URL in a frame, which the Content-Security-Policy blocked outright.
       if (IMAGE_EXTENSIONS.includes(ext)) return { type: 'image', url: protectedUrl, requiresAuth: true };
-      if (isPdf) return { type: 'proxy', url: protectedUrl, requiresAuth: true };
+      if (isPdf) return { type: 'proxy', url: protectedUrl, requiresAuth: true, directStream: true };
       if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true };
-      return { type: 'proxy', url: protectedUrl, requiresAuth: true };
+      return { type: 'proxy', url: protectedUrl, requiresAuth: true, directStream: true };
     }
 
     if (!url.includes('drive.google.com')) {
@@ -191,7 +201,14 @@ export function useTrackedContentViewer(onRefresh) {
       }
 
       let resolvedMedia = renderContentUrl(content);
-      if (resolvedMedia?.requiresAuth) {
+      if (resolvedMedia?.requiresAuth && resolvedMedia.directStream) {
+        // No blob fetch: the element streams straight from the protected URL,
+        // authenticated by the session cookie the browser already sends. The
+        // ?role hint disambiguates when a browser has more than one portal
+        // session's cookie active at once (see resolveSessionCredential).
+        const separator = resolvedMedia.url.includes('?') ? '&' : '?';
+        resolvedMedia = { ...resolvedMedia, url: `${resolvedMedia.url}${separator}role=trainee`, requiresAuth: false };
+      } else if (resolvedMedia?.requiresAuth) {
         const protectedResult = await fetchAuthenticatedBlobUrl(resolvedMedia.url, 'trainee');
         if (!protectedResult.ok) {
           setLockedMsg(protectedResult.message || 'Unable to open protected learning content.');
