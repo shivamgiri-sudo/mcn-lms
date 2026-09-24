@@ -10,6 +10,7 @@ import * as cache from '../utils/cache.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { ensureContentRepositoryTable, ensureIndependentWrapperForAssessment, ensureIndependentWrapperForContent, ensureIndependentWrapperForDay } from '../services/independentModules.js';
+import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
 import { computeContentStatus } from '../services/moduleCompletionStatus.js';
 import path from 'path';
 
@@ -3393,6 +3394,14 @@ export async function adminBulkAddTrainees(req, res) {
           });
         }
       });
+      // Only this brand-new-create branch, never the transfer/reactivate
+      // branches above -- existing trainees are only backfilled via the
+      // explicit admin bulk-assign action.
+      await autoAssignComplianceTraining({
+        employeeId: normEmpId, traineeName: traineeName || normEmpId, batchNo: batch.batchNo,
+        branch: batch.branch, process: batch.process, lob: batch.lob,
+        assignedBy: req.userId, triggerSource: 'BulkAddTrainees',
+      });
       results.push({ ok: true, employeeId: normEmpId });
     }
 
@@ -4655,6 +4664,11 @@ export async function bulkImportExecute(req, res) {
               update: {},
             });
           }
+        });
+        await autoAssignComplianceTraining({
+          employeeId, traineeName: r.traineeName || r.name, batchNo: trimmedBatchNo || null,
+          branch: r.branch, process: r.process, lob: r.lob,
+          assignedBy: req.userId, triggerSource: 'BulkImport',
         });
         created.push(employeeId);
       } catch (e) {

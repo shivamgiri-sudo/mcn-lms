@@ -9,6 +9,7 @@ import { getFormOptions, scopeFormOptions } from '../services/formOptions.js';
 import { evaluateCriteria, parseEvidenceType } from '../services/certificationCriteria.js';
 import { notifyCertification, notifyOnboarding, notifyBatchAssignment } from '../utils/notify.js';
 import { queryHrms } from '../utils/hrmsDb.js';
+import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('coordinator')];
@@ -163,6 +164,12 @@ async function createTraineeAccount(raw, batch, coordinatorLoginId) {
     if (error.code === 'P2002') return { ok: false, message: 'A conflicting employee, LMS, email, or mobile identity already exists.' };
     throw error;
   }
+
+  await autoAssignComplianceTraining({
+    employeeId, traineeName, batchNo: batch.batchNo,
+    branch: batch.branch, process: batch.process, lob: batch.lob,
+    assignedBy: coordinatorLoginId, triggerSource: 'CoordinatorOnboard',
+  });
 
   let deliveryResults = [];
   try {

@@ -12,6 +12,7 @@ import {
   ensureIndependentModuleTables,
   getIndependentModuleById,
 } from '../services/independentModules.js';
+import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('admin')];
@@ -218,6 +219,18 @@ router.post('/lms-users', ...auth, async (req, res) => {
 
     const autoAssignments = await autoAssignModulesForNewUser({ employeeId: finalEmployeeId, branch: payload.branch, process: payload.process, lob: payload.lob, createdBy: req.userId });
     const assignedCount = autoAssignments.filter(a => a.assigned).length;
+
+    // Only a genuinely new LMS user gets the mandatory compliance assignment --
+    // reactivating a soft-deleted trainee is not "creating" one, and per the
+    // feature spec existing trainees are only ever backfilled via the explicit
+    // admin bulk-assign action.
+    if (!deletedMatch) {
+      await autoAssignComplianceTraining({
+        employeeId: finalEmployeeId, traineeName,
+        batchNo: payload.batchNo, branch: payload.branch, process: payload.process, lob: payload.lob,
+        assignedBy: req.userId, triggerSource: 'LmsUserCreate',
+      });
+    }
 
     await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'CREATE_INDEPENDENT_LMS_USER', module: 'Accounts', referenceId: finalEmployeeId, newValue: { lmsId, traineeName, assignedCount, reactivated: !!deletedMatch } });
     return res.json({ ok: true, data: { employeeId: finalEmployeeId, lmsId, traineeName, email, mobile, tempPassword, autoAssignments, assignedCount }, message: deletedMatch ? `LMS user reactivated: ${finalEmployeeId}` : `LMS user created: ${finalEmployeeId}` });

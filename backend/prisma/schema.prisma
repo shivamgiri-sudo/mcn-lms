@@ -1510,3 +1510,57 @@ model DailyBatchReportLog {
   @@index([batchNo])
   @@map("daily_batch_report_log")
 }
+
+// Singleton (id is always "default"). A dedicated config rather than another
+// row in independent_module_auto_assign_rule -- that mechanism is a general
+// multi-rule engine with no assessment_id column at all, whereas this is one
+// specific, always-on policy ("every new trainee gets this one compliance
+// module + assessment, mandatory") that also needs to carry an assessment.
+model ComplianceTrainingSettings {
+  id             String    @id @default("default")
+  enabled        Boolean   @default(false)
+  moduleId       String?   @map("module_id")
+  moduleName     String?   @map("module_name")
+  assessmentId   String?   @map("assessment_id")
+  assessmentName String?   @map("assessment_name")
+  assignmentType String    @default("Mandatory") @map("assignment_type")
+  dueDays        Int       @default(0) @map("due_days")
+  // Optional eligibility narrowing -- comma-separated lists of process/lob/branch
+  // values. Empty/null means "applies to every new trainee regardless of
+  // process/LOB/branch", which is the default per the feature spec.
+  eligibleProcesses String? @db.Text @map("eligible_processes")
+  eligibleLobs      String? @db.Text @map("eligible_lobs")
+  eligibleBranches  String? @db.Text @map("eligible_branches")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  updatedBy      String?   @map("updated_by")
+
+  @@map("compliance_training_settings")
+}
+
+// Append-only record of every auto-assignment decision (assigned, skipped as
+// duplicate, skipped as ineligible, or skipped because compliance training
+// isn't configured) for a new trainee -- lets an admin see, per trainee,
+// whether/why the mandatory compliance assignment did or didn't happen,
+// without having to cross-reference assigned_modules and settings history by
+// hand. The actual assignment record (and all completion/assessment
+// tracking) lives on assigned_modules/content_progress/assessment_results as
+// normal -- this is purely an audit trail of the automation itself.
+model ComplianceAssignmentLog {
+  id            String    @id @default(uuid())
+  employeeId    String    @map("employee_id")
+  traineeName   String?   @map("trainee_name")
+  batchNo       String?   @map("batch_no")
+  branch        String?
+  process       String?
+  lob           String?
+  moduleId      String?   @map("module_id")
+  assessmentId  String?   @map("assessment_id")
+  triggerSource String    @map("trigger_source") // HrmsSync | LmsUserCreate | BulkAddTrainees | BulkImport | CoordinatorOnboard | AdminBulkAssign
+  status        String    // Assigned | AlreadyAssigned | NotEligible | NotConfigured
+  reason        String?   @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([employeeId])
+  @@index([createdAt])
+  @@map("compliance_assignment_log")
+}

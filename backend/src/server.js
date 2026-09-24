@@ -51,6 +51,7 @@ import voiceAccentRoutes from './routes/voiceAccent.js';
 import typingTestRoutes from './routes/typingTest.js';
 import typingPracticeRoutes from './routes/typingPractice.js';
 import dailyBatchReportRoutes from './routes/dailyBatchReport.js';
+import complianceTrainingRoutes from './routes/complianceTraining.js';
 import calibrationCatalogRoutes from './routes/calibrationCatalog.js';
 import calibrationOperationsRoutes from './routes/calibrationOperations.js';
 import calibrationAppealsRoutes from './routes/calibrationAppeals.js';
@@ -214,6 +215,7 @@ app.use('/api/voice-accent', voiceAccentRoutes);
 app.use('/api/typing-test', typingTestRoutes);
 app.use('/api/typing', typingPracticeRoutes);
 app.use('/api/daily-batch-report', dailyBatchReportRoutes);
+app.use('/api/compliance-training', complianceTrainingRoutes);
 
 // These twelve routers existed on disk but were never mounted, so every page
 // that called them got the SPA shell instead of an API response. Their hook

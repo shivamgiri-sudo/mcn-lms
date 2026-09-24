@@ -4,6 +4,7 @@ import { loadMapping } from '../utils/hrmsConfig.js';
 import { queryHrms } from '../utils/hrmsDb.js';
 import { generateSalt, hashPassword, normalize, firstTimePassword } from '../utils/hash.js';
 import { autoAssignModulesForNewUser } from '../services/independentModules.js';
+import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
 
 const HRMS_DB = process.env.HRMS_DB_NAME || 'mas_hrms';
 
@@ -344,6 +345,12 @@ export async function syncEmployees(req, res) {
         createdBy: req.userId,
       });
       const assignedCount = autoAssignments.filter(item => item.assigned).length;
+
+      await autoAssignComplianceTraining({
+        employeeId, traineeName,
+        branch: payload.branch, process: payload.process, lob: payload.lob,
+        assignedBy: req.userId, triggerSource: 'HrmsSync',
+      });
 
       await audit({
         userIdentity: req.userId,
