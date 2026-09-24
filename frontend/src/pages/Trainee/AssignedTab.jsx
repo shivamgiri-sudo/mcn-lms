@@ -82,15 +82,22 @@ export default function AssignedTab({ assignments, onRefresh, onOpenContent }) {
                       ? (
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                           <button className="btn small secondary" onClick={() => onOpenContent(content)}>Open</button>
-                          {content.progress && (
-                            <span style={{ fontSize: 11, color: content.progress.acknowledgedAt ? 'var(--ok)' : (content.progress.completionStatus === 'Completed' ? 'var(--warn)' : 'var(--muted)') }}>
-                              {content.progress.acknowledgedAt
-                                ? '✓ Acknowledged'
-                                : (content.progress.completionStatus === 'Completed'
-                                  ? 'Read — not yet acknowledged'
-                                  : `${Math.round(content.progress.completionPct || 0)}% read`)}
-                            </span>
-                          )}
+                          {content.progress && (() => {
+                            const currentVersion = Number(content.contentVersion ?? content.versionNo ?? 1);
+                            const acknowledgedStale = Boolean(content.progress.acknowledgedAt) && Number(content.progress.acknowledgedVersion ?? 1) < currentVersion;
+                            const acknowledged = Boolean(content.progress.acknowledgedAt) && !acknowledgedStale;
+                            return (
+                              <span style={{ fontSize: 11, color: acknowledged ? 'var(--ok)' : (acknowledgedStale ? 'var(--warn)' : (content.progress.completionStatus === 'Completed' ? 'var(--warn)' : 'var(--muted)')) }}>
+                                {acknowledged
+                                  ? '✓ Acknowledged'
+                                  : acknowledgedStale
+                                    ? 'Re-acknowledgement required'
+                                    : (content.progress.completionStatus === 'Completed'
+                                      ? 'Read — not yet acknowledged'
+                                      : `${Math.round(content.progress.completionPct || 0)}% read`)}
+                              </span>
+                            );
+                          })()}
                         </div>
                       )
                       : (url ? <a className="btn small secondary" href={url} target="_blank" rel="noopener">Open</a> : <span style={{ color: 'var(--muted)', fontSize: 12 }}>No link</span>)}

@@ -25,6 +25,8 @@ import LearningJourneyTab from './LearningJourneyTab.jsx';
 import SkillsPathsTab from './SkillsPathsTab.jsx';
 import LearningTab from './LearningTab.jsx';
 import AssignedTab from './AssignedTab.jsx';
+import ScormLauncher from './ScormLauncher.jsx';
+import { useTrackedContentViewer, ContentViewerModal } from './useTrackedContentViewer.jsx';
 import QATab from './QATab.jsx';
 import ProfileTab from './ProfileTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
@@ -39,6 +41,17 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
   const [activeTab, setActiveTab] = useState('journey');
   const [showForceReset, setShowForceReset] = useState(forceReset);
   const [typingStats, setTypingStats] = useState(null);
+  // Opening independent/"nugget" module content through the same tracked
+  // viewer LearningTab uses for classroom content -- a plain link (the old
+  // fallback when no onOpenContent was wired here) never calls /open or
+  // /heartbeat, so nothing gets tracked and the Acknowledge control never
+  // has anything to attach to.
+  const {
+    viewingContent: assignedViewingContent, openContent: openAssignedContent, closeContent: closeAssignedContent,
+    lockedMsg: assignedLockedMsg, setLockedMsg: setAssignedLockedMsg,
+    scormPackageId: assignedScormPackageId, closeScorm: closeAssignedScorm,
+    videoRef: assignedVideoRef, isPausedRef: assignedIsPausedRef,
+  } = useTrackedContentViewer(onRefresh);
   useEffect(() => {
     let cancelled = false;
     api.get('/typing/me/stats', 'trainee').then(res => {
@@ -209,7 +222,33 @@ export default function DashboardView({ dashboard, forceReset, onLogout, onRefre
           {activeTab === 'talent' && <SkillsPathsTab />}
           {activeTab === 'live-training' && <TrainingCalendarEntryCard role="trainee" />}
           {activeTab === 'learning' && <LearningTab days={d.days || []} onRefresh={onRefresh} />}
-          {activeTab === 'assigned' && <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} />}
+          {activeTab === 'assigned' && (
+            <>
+              {assignedLockedMsg && (
+                <div className="toast warn" style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>🔒</span>
+                  <span>{assignedLockedMsg}</span>
+                  <button onClick={() => setAssignedLockedMsg(null)} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, opacity: .6 }}>✕</button>
+                </div>
+              )}
+              <AssignedTab assignments={d.directAssignments || []} onRefresh={onRefresh} onOpenContent={openAssignedContent} />
+              {assignedViewingContent && (
+                <ContentViewerModal
+                  content={assignedViewingContent}
+                  onClose={closeAssignedContent}
+                  videoRef={assignedVideoRef}
+                  onPauseChange={p => { assignedIsPausedRef.current = p; }}
+                />
+              )}
+              {assignedScormPackageId && (
+                <div className="modal-overlay" style={{ padding: 0, alignItems: 'stretch' }}>
+                  <div style={{ width: '100%', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                    <ScormLauncher packageId={assignedScormPackageId} onClose={closeAssignedScorm} />
+                  </div>
+                </div>
+              )}
+            </>
+          )}
           {activeTab === 'qa' && <QATab />}
           {activeTab === 'leaderboard' && <LeaderboardTab />}
           {activeTab === 'ijp' && <IJPTab />}

@@ -507,10 +507,12 @@ async function enrichIndependentAssignments(assignments, employeeId) {
       ? await prisma.contentProgress.findMany({ where: { employeeId, contentId: { in: [...new Set(allContentIds)] } } })
       : [];
     const progressByContent = new Map(progressRows.map(row => [row.contentId, {
+      opened: row.opened,
       completionStatus: row.completionStatus,
       completionPct: row.completionPct,
       totalSecondsSpent: row.totalSecondsSpent,
       requiredSeconds: row.requiredSeconds,
+      lastPositionSeconds: row.lastPositionSeconds,
       acknowledgedAt: row.acknowledgedAt,
       acknowledgedVersion: row.acknowledgedVersion,
     }]));
