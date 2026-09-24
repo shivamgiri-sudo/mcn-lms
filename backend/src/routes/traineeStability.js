@@ -829,8 +829,18 @@ router.post('/content/:contentId/close', ...auth, async (req, res) => {
     const totalSecondsSpent = Number(progress.totalSecondsSpent || 0) + acceptedDelta;
     const timedCompletionPct = Math.min(100, Math.round((totalSecondsSpent / requiredSeconds) * 100));
     const nonVideo = !['video', 'scorm'].includes(String(content.contentType || '').toLowerCase());
+    // Content with a completion rule (the default -- see requiredSecondsFor)
+    // auto-completes on watch/read time alone, the same way video does; the
+    // manual "Mark Complete" flag is only load-bearing for the rare item with
+    // no completion rule at all, where there is no time threshold to detect
+    // completion against. Requiring it unconditionally for every non-video
+    // type left documents permanently stuck at "In Progress" whenever the
+    // 100% threshold was first reached at close time rather than during a
+    // heartbeat tick (heartbeat has never had this restriction), even though
+    // the trainee had genuinely finished reading.
+    const requiresManualComplete = nonVideo && !content.completionRulePct;
     const acknowledged = req.body?.completed === true || req.body?.completionStatus === 'Completed';
-    const completed = timedCompletionPct >= 100 && (!nonVideo || acknowledged);
+    const completed = timedCompletionPct >= 100 && (!requiresManualComplete || acknowledged);
     const completionPct = completed ? 100 : timedCompletionPct;
     const now = new Date();
 

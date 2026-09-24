@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatSeconds } from '../../utils/format.js';
+import { formatSeconds, isContentTimeComplete } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
 import ScormLauncher from './ScormLauncher.jsx';
 import { useTrackedContentViewer, ContentViewerModal } from './useTrackedContentViewer.jsx';
@@ -17,13 +17,13 @@ export default function LearningTab({ days, onRefresh }) {
   const [contentFilter, setContentFilter] = useState('all');
 
   const totalContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0), 0);
-  const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active && c.progress?.completionStatus === 'Completed').length, 0), 0);
+  const doneContents = days.reduce((acc, d) => acc + d.modules.reduce((a, m) => a + m.contents.filter(c => c.active && isContentTimeComplete(c.progress)).length, 0), 0);
   const pendingContents = totalContents - doneContents;
 
   const filteredDays = contentFilter === 'all' ? days : days.filter(day => {
     const allActive = day.modules.flatMap(m => m.contents.filter(c => c.active));
-    if (contentFilter === 'pending') return allActive.some(c => c.progress?.completionStatus !== 'Completed');
-    if (contentFilter === 'completed') return allActive.some(c => c.progress?.completionStatus === 'Completed');
+    if (contentFilter === 'pending') return allActive.some(c => !isContentTimeComplete(c.progress));
+    if (contentFilter === 'completed') return allActive.some(c => isContentTimeComplete(c.progress));
     return true;
   });
 
@@ -67,7 +67,7 @@ export default function LearningTab({ days, onRefresh }) {
         {filteredDays.map((day) => {
           const dayKey = day.dayNo;
           const dayContents = day.modules.reduce((a, m) => a + m.contents.filter(c => c.active).length, 0);
-          const dayDone = day.modules.reduce((a, m) => a + m.contents.filter(c => c.progress?.completionStatus === 'Completed').length, 0);
+          const dayDone = day.modules.reduce((a, m) => a + m.contents.filter(c => isContentTimeComplete(c.progress)).length, 0);
           const dayPct = dayContents > 0 ? Math.round((dayDone / dayContents) * 100) : 0;
           const isOpen = !!openDays[dayKey];
 
@@ -118,12 +118,12 @@ function isContentSequentiallyLocked(content, allContents) {
   const idx = sorted.findIndex(c => c.contentId === content.contentId);
   if (idx <= 0) return false;
   const prev = sorted[idx - 1];
-  return prev.progress?.completionStatus !== 'Completed';
+  return !isContentTimeComplete(prev.progress);
 }
 
 function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
   const activeContents = mod.contents.filter(c => c.active);
-  const done = activeContents.filter(c => c.progress?.completionStatus === 'Completed').length;
+  const done = activeContents.filter(c => isContentTimeComplete(c.progress)).length;
   const total = activeContents.length;
   const modPct = total > 0 ? Math.round((done / total) * 100) : 0;
 
@@ -151,7 +151,7 @@ function ModuleSection({ mod, onOpenContent, onStartAssessment }) {
           if (item.kind === 'content') {
             const c = item.data;
             const prog = c.progress;
-            const isDone = prog?.completionStatus === 'Completed';
+            const isDone = isContentTimeComplete(prog);
             const isInProg = prog?.opened && !isDone;
             const seqLocked = isContentSequentiallyLocked(c, activeContents);
             const lockText = c.lockReason || 'Complete the previous content to unlock';

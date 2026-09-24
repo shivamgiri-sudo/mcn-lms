@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatDate } from '../../utils/format.js';
+import { formatDate, isContentTimeComplete } from '../../utils/format.js';
 import AssessmentModal from './AssessmentModal.jsx';
 
 const API_ORIGIN = import.meta.env.VITE_API_URL || '';
@@ -86,13 +86,14 @@ export default function AssignedTab({ assignments, onRefresh, onOpenContent }) {
                             const currentVersion = Number(content.contentVersion ?? content.versionNo ?? 1);
                             const acknowledgedStale = Boolean(content.progress.acknowledgedAt) && Number(content.progress.acknowledgedVersion ?? 1) < currentVersion;
                             const acknowledged = Boolean(content.progress.acknowledgedAt) && !acknowledgedStale;
+                            const timeComplete = isContentTimeComplete(content.progress);
                             return (
-                              <span style={{ fontSize: 11, color: acknowledged ? 'var(--ok)' : (acknowledgedStale ? 'var(--warn)' : (content.progress.completionStatus === 'Completed' ? 'var(--warn)' : 'var(--muted)')) }}>
+                              <span style={{ fontSize: 11, color: acknowledged ? 'var(--ok)' : (acknowledgedStale ? 'var(--warn)' : (timeComplete ? 'var(--warn)' : 'var(--muted)')) }}>
                                 {acknowledged
                                   ? '✓ Acknowledged'
                                   : acknowledgedStale
                                     ? 'Re-acknowledgement required'
-                                    : (content.progress.completionStatus === 'Completed'
+                                    : (timeComplete
                                       ? 'Read — not yet acknowledged'
                                       : `${Math.round(content.progress.completionPct || 0)}% read`)}
                               </span>

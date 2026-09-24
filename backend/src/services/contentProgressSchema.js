@@ -43,4 +43,25 @@ export async function ensureContentProgressAcknowledgementColumns() {
        AND (completion_status = 'Completed' OR completion_pct >= 100)
   `);
   if (result > 0) console.log(`[schema] content_progress: backfilled acknowledgement for ${result} pre-existing completion(s)`);
+
+  await ensureNonVideoCompletionStatusFixed();
+}
+
+// A pre-fix bug in POST /content/:contentId/close required an explicit
+// "Mark Complete" flag for every non-video content type, not only the rare
+// item with no completion rule at all -- so a document/PDF that first
+// crossed its 100% time threshold at close time (rather than during a
+// heartbeat tick, which never had this restriction) stayed stuck at
+// "In Progress" forever despite genuinely being fully read. Idempotent:
+// only rows already at 100% but not marked Completed are touched, so this
+// is a no-op on every boot after the first.
+async function ensureNonVideoCompletionStatusFixed() {
+  const result = await prisma.$executeRawUnsafe(`
+    UPDATE content_progress
+       SET completion_status = 'Completed',
+           completed_at = COALESCE(completed_at, updated_at)
+     WHERE completion_status <> 'Completed'
+       AND completion_pct >= 100
+  `);
+  if (result > 0) console.log(`[schema] content_progress: corrected completion_status for ${result} row(s) stuck at In Progress despite 100% completion`);
 }
