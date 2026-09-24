@@ -562,6 +562,10 @@ export default function CurriculumTab({ isSuper = false, user = null }) {
                         if (!res.ok) throw new Error(res.message || 'Save failed.');
                         loadContents(selectedMod.moduleId);
                       }}
+                      onPublishVersion={async () => {
+                        await api.post(`/admin/contents/${c.contentId}/publish-version`, {}, 'admin');
+                        loadContents(selectedMod.moduleId);
+                      }}
                     />
                   ))}
                   {contents.length === 0 && (

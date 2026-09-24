@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, downloadCsv } from '../../utils/api.js';
+import ModuleCompletionDetailPanel from './ModuleCompletionDetailPanel.jsx';
 import {
   Chart as ChartJS,
   ArcElement, BarElement, CategoryScale, LinearScale,
@@ -173,8 +174,8 @@ export default function ReportsTab() {
     {
       key: 'module-completion',
       icon: '📚', title: 'Module Completion Detail', btnColor: CHART_COLORS.purple,
-      desc: 'Per-content progress rows with first opened, last opened, completed at, and time spent.',
-      cols: 'Employee ID, Name, Batch, Branch, Process, Batch Start/End, Classroom, Day No, Module, Content Title, Type, Status, Completion %, First Opened, Last Opened, Completed At, Time Spent (mins)',
+      desc: 'Per-content progress rows with first opened, last opened, completed at, time spent, module version, and acknowledgement status.',
+      cols: 'Employee ID, Name, Batch, Branch, Process, Batch Start/End, Trainer/Coordinator, Classroom, Day No, Module, Module Version, Content Title, Type, Completion Status, Completion %, First/Last Opened, Completed At, Time Spent (mins), Acknowledgement Status, Acknowledged, Acknowledged At, Acknowledged IP',
       url: `/admin/reports/module-completion?${p}`, filename: `module-completion-${bl}-${d}.csv`,
     },
     {
@@ -366,6 +367,8 @@ export default function ReportsTab() {
           </div>
         </div>
       )}
+
+      <ModuleCompletionDetailPanel batchNo={selectedBatch} classroomId={selectedClassroom} />
 
       {/* Section header */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 14 }}>

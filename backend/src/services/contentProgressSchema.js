@@ -8,6 +8,11 @@ const ACK_COLUMNS = [
   ['acknowledged_ip', 'VARCHAR(64) NULL AFTER acknowledged_at'],
   ['acknowledged_user_agent', 'TEXT NULL'],
   ['acknowledgement_text', 'TEXT NULL'],
+  // Which content_master.contentVersion / content_repository_master.version_no
+  // was current at the moment of acknowledgement. NULL for rows acknowledged
+  // (or backfilled) before module versioning existed -- treated as "version 1"
+  // by the reporting/gating code, never as a mismatch on its own.
+  ['acknowledged_version', 'INT NULL'],
 ];
 
 async function hasColumn(table, column) {

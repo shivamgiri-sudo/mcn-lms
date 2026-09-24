@@ -6,7 +6,7 @@ import {
   listClassrooms, createClassroom, updateClassroom, deleteClassroom,
   copyClassroom, getClassroomBranches, setClassroomBranches,
   listModules, createModule, updateModule, deleteModule,
-  listContents, createContent, updateContent, deleteContent,
+  listContents, createContent, updateContent, deleteContent, publishContentVersion,
   listFaqs, createFaq, bulkUploadFaqs, updateFaq, deleteFaq,
   listAssessments, createAssessment, updateAssessment, deleteAssessment,
   attachAssessmentToClassroom, detachAssessmentFromClassroom,
@@ -34,7 +34,7 @@ import {
   listBatchClassrooms, addBatchClassrooms, removeBatchClassroom, setPrimaryBatchClassroom,
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
-  exportModuleCompletion, exportAssessmentResults, exportAttendanceLog,
+  exportModuleCompletion, getModuleCompletionDetail, exportAssessmentResults, exportAttendanceLog,
   exportCertificationEvidence, exportBroadcastAssignments, exportContentReading, exportQAActivity,
   listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
@@ -76,6 +76,7 @@ router.get('/modules/:moduleId/contents', ...auth, listContents);
 router.post('/modules/:moduleId/contents', ...auth, contentUpload.single('file'), createContent);
 router.put('/contents/:contentId', ...auth, updateContent);
 router.delete('/contents/:contentId', ...auth, deleteContent);
+router.post('/contents/:contentId/publish-version', ...auth, publishContentVersion);
 
 router.get('/modules/:moduleId/faqs', ...auth, listFaqs);
 router.post('/modules/:moduleId/faqs', ...auth, createFaq);
@@ -110,6 +111,7 @@ router.get('/trainees/export', ...auth, exportTrainees);
 router.get('/reports/batch-summary', ...auth, exportBatchSummary);
 router.get('/reports/at-risk', ...auth, exportAtRisk);
 router.get('/reports/module-completion', ...auth, exportModuleCompletion);
+router.get('/reports/module-completion-detail', ...auth, getModuleCompletionDetail);
 router.get('/reports/assessment-results', ...auth, exportAssessmentResults);
 router.get('/reports/attendance-log', ...auth, exportAttendanceLog);
 router.get('/reports/certification-evidence', ...auth, exportCertificationEvidence);

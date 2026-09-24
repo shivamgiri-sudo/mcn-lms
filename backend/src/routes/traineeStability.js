@@ -27,9 +27,15 @@ function capSeconds(value, max = 30) {
 // everywhere at once. Pre-existing completions are grandfathered by a one-time
 // backfill in contentProgressSchema.js, so this does not retroactively lock
 // anyone who genuinely finished content before the requirement existed.
-function isComplete(row) {
+// expectedVersion is the content's current contentVersion/version_no. Omitted
+// at call sites that only care about "has this ever been completed" (e.g. the
+// leaderboard's award-once check) rather than "is the acknowledgement still
+// current" (sequential unlock, assessment prerequisites).
+function isComplete(row, expectedVersion) {
   const timeComplete = row?.completionStatus === 'Completed' || Number(row?.completionPct || 0) >= 100;
-  return timeComplete && Boolean(row?.acknowledgedAt);
+  if (!timeComplete || !row?.acknowledgedAt) return false;
+  if (expectedVersion == null) return true;
+  return (row.acknowledgedVersion ?? 1) >= expectedVersion;
 }
 
 function contentSort(a, b) {
@@ -89,6 +95,7 @@ function mapClassroomContent(row) {
     contentType: row.content_type,
     description: row.description,
     required: Boolean(row.required),
+    contentVersion: Number(row.content_version || 1),
     driveFileId,
     driveUrl: row.drive_url,
     directMediaUrl: row.direct_media_url,
@@ -139,7 +146,7 @@ function buildContentLockMap(contents, progressMap) {
   const required = [...contents].filter(content => content.active && content.required).sort(contentSort);
   for (let i = 0; i < required.length; i += 1) {
     const content = required[i];
-    const previousMissing = required.slice(0, i).find(previous => !isComplete(progressMap[previous.contentId]));
+    const previousMissing = required.slice(0, i).find(previous => !isComplete(progressMap[previous.contentId], previous.contentVersion));
     map.set(content.contentId, previousMissing ? {
       accessLocked: true,
       lockReason: `Complete "${previousMissing.contentTitle}" first to unlock this content.`,
@@ -163,7 +170,7 @@ function buildAssessmentLockMeta(assessment, allContent, progressMap) {
     return content.module?.classroomId === assessment.classroomId;
   }).sort(contentSort);
 
-  const missing = required.find(content => !isComplete(progressMap[content.contentId]));
+  const missing = required.find(content => !isComplete(progressMap[content.contentId], content.contentVersion));
   if (!missing) return { accessLocked: false, lockReason: null, prerequisiteContentId: null, prerequisiteTitle: null };
   return {
     accessLocked: true,
@@ -234,9 +241,11 @@ async function resolveRepositoryContentAccess(trainee, employeeId, repositoryCon
     contentType: row.content_type,
     required: false,
     completionRulePct: row.completion_rule_pct,
+    contentVersion: Number(row.version_no || 1),
     estimatedMins,
     playerMode: row.player_mode || 'Auto',
     moduleId: row.module_id,
+    moduleName: row.module_name,
     module: { dayNo: 0, classroomId: '', active: true },
   };
   return { trainee, content, classroomId: '', isRepository: true };
@@ -282,7 +291,7 @@ async function prerequisiteBlocker(employeeId, assessment) {
     where: { employeeId, contentId: { in: contents.map(content => content.contentId) } },
   });
   const progressMap = new Map(progress.map(row => [row.contentId, row]));
-  return contents.sort(contentSort).find(content => !isComplete(progressMap.get(content.contentId))) || null;
+  return contents.sort(contentSort).find(content => !isComplete(progressMap.get(content.contentId), content.contentVersion)) || null;
 }
 
 function istDayBounds(now = new Date()) {
@@ -451,7 +460,7 @@ async function enrichIndependentAssignments(assignments, employeeId) {
         const cmPlaceholders = classroomContentIds.map(() => '?').join(',');
         const cmRows = await prisma.$queryRawUnsafe(
           `SELECT content_id, module_id, content_type, content_title, description, required,
-                  drive_file_id, drive_url, direct_media_url, local_file_path, player_mode
+                  drive_file_id, drive_url, direct_media_url, local_file_path, player_mode, content_version
              FROM content_master
             WHERE active = 1 AND content_id IN (${cmPlaceholders})`,
           ...classroomContentIds,
@@ -477,7 +486,7 @@ async function enrichIndependentAssignments(assignments, employeeId) {
       const classroomPlaceholders = classroomModuleIds.map(() => '?').join(',');
       const classroomRows = await prisma.$queryRawUnsafe(
         `SELECT content_id, module_id, content_type, content_title, description, required,
-                drive_file_id, drive_url, direct_media_url, local_file_path, player_mode
+                drive_file_id, drive_url, direct_media_url, local_file_path, player_mode, content_version
            FROM content_master
           WHERE active = 1 AND module_id IN (${classroomPlaceholders})
           ORDER BY module_id, content_order ASC`,
@@ -503,6 +512,7 @@ async function enrichIndependentAssignments(assignments, employeeId) {
       totalSecondsSpent: row.totalSecondsSpent,
       requiredSeconds: row.requiredSeconds,
       acknowledgedAt: row.acknowledgedAt,
+      acknowledgedVersion: row.acknowledgedVersion,
     }]));
     for (const list of Object.values(byModule)) {
       for (const item of list) item.progress = progressByContent.get(item.contentId) || null;
@@ -713,7 +723,7 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
       const previous = priorRequired.slice(0, index);
       const progress = await prisma.contentProgress.findMany({ where: { employeeId, contentId: { in: previous.map(item => item.contentId) } } });
       const progressMap = new Map(progress.map(row => [row.contentId, row]));
-      const missing = previous.find(item => !isComplete(progressMap.get(item.contentId)));
+      const missing = previous.find(item => !isComplete(progressMap.get(item.contentId), item.contentVersion));
       if (missing) return res.status(403).json({ ok: false, locked: true, message: `Complete "${missing.contentTitle}" first to unlock this content.`, prerequisiteContentId: missing.contentId, prerequisiteTitle: missing.contentTitle });
     }
 
@@ -864,7 +874,8 @@ router.post('/content/:contentId/acknowledge', ...auth, async (req, res) => {
     const employeeId = req.userId;
     const access = await requireContentAccess(employeeId, req.params.contentId);
     if (access.error) return res.status(access.error.status).json({ ok: false, message: access.error.message });
-    const { content } = access;
+    const { content, trainee } = access;
+    const currentVersion = Number(content.contentVersion || 1);
 
     const progress = await prisma.contentProgress.findUnique({ where: { employeeId_contentId: { employeeId, contentId: content.contentId } } });
     if (!progress?.opened) return res.status(409).json({ ok: false, message: 'Open the content before acknowledging it.' });
@@ -874,9 +885,11 @@ router.post('/content/:contentId/acknowledge', ...auth, async (req, res) => {
       return res.status(409).json({ ok: false, message: 'Finish the content before you can acknowledge it.' });
     }
 
-    if (progress.acknowledgedAt) {
-      // Idempotent: the first acknowledgement is the one on record, a repeat click
-      // is not an error and does not overwrite the original timestamp or IP.
+    const alreadyCurrent = progress.acknowledgedAt && (progress.acknowledgedVersion ?? 1) >= currentVersion;
+    if (alreadyCurrent) {
+      // Idempotent: the acknowledgement on record already covers this version, a
+      // repeat click is not an error and does not overwrite the original
+      // timestamp or IP.
       return res.json({
         ok: true,
         alreadyAcknowledged: true,
@@ -884,24 +897,50 @@ router.post('/content/:contentId/acknowledge', ...auth, async (req, res) => {
         acknowledgementText: progress.acknowledgementText,
       });
     }
+    // A prior acknowledgement exists but the content's version has moved on since
+    // -- this is a fresh re-acknowledgement of the new version, not a first-time
+    // one. Either way content_progress is updated in place (it holds current
+    // state only) while module_acknowledgements keeps every event, including
+    // this one, so the old acknowledgement is never lost.
+    const isReacknowledgement = Boolean(progress.acknowledgedAt);
 
-    const acknowledgementText = `I acknowledge that I have read and understood "${content.contentTitle}".`;
+    const acknowledgementText = `I acknowledge that I have read and understood "${content.contentTitle}"${isReacknowledgement ? ` (Version ${currentVersion})` : ''}.`;
     const acknowledgedAt = new Date();
     const acknowledgedIp = String(req.ip || req.socket?.remoteAddress || '').slice(0, 64);
     const acknowledgedUserAgent = String(req.headers['user-agent'] || '').slice(0, 500);
 
     await prisma.contentProgress.update({
       where: { id: progress.id },
-      data: { acknowledgedAt, acknowledgedIp, acknowledgedUserAgent, acknowledgementText },
+      data: { acknowledgedAt, acknowledgedIp, acknowledgedUserAgent, acknowledgementText, acknowledgedVersion: currentVersion },
+    });
+
+    await prisma.moduleAcknowledgement.create({
+      data: {
+        employeeId,
+        contentId: content.contentId,
+        moduleId: content.moduleId || null,
+        classroomId: content.module?.classroomId || null,
+        dayNo: content.module?.dayNo ?? null,
+        batchNo: trainee?.batchNo || null,
+        process: trainee?.process || null,
+        branch: trainee?.branch || null,
+        contentTitle: content.contentTitle,
+        contentVersion: currentVersion,
+        status: 'Acknowledged',
+        acknowledgedAt,
+        acknowledgedIp,
+        acknowledgedUserAgent,
+        acknowledgementText,
+      },
     });
 
     await audit({
       userIdentity: employeeId,
       userRole: 'Trainee',
-      action: 'ACKNOWLEDGE_CONTENT',
+      action: isReacknowledgement ? 'REACKNOWLEDGE_CONTENT' : 'ACKNOWLEDGE_CONTENT',
       module: 'Learning',
       referenceId: content.contentId,
-      newValue: { contentTitle: content.contentTitle, acknowledgedAt, acknowledgedIp },
+      newValue: { contentTitle: content.contentTitle, acknowledgedAt, acknowledgedIp, contentVersion: currentVersion },
       source: 'Trainee Portal',
     });
 

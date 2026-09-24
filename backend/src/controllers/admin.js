@@ -10,6 +10,7 @@ import * as cache from '../utils/cache.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { ensureContentRepositoryTable, ensureIndependentWrapperForAssessment, ensureIndependentWrapperForContent, ensureIndependentWrapperForDay } from '../services/independentModules.js';
+import { computeContentStatus } from '../services/moduleCompletionStatus.js';
 import path from 'path';
 
 const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj || {}, key);
@@ -593,6 +594,36 @@ export async function deleteContent(req, res) {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// Bumping the version is a deliberate, separate action from editing content —
+// a typo fix should never force every trainee who already acknowledged this
+// content back into "Re-acknowledgement Required". Only this endpoint moves
+// content_version forward.
+export async function publishContentVersion(req, res) {
+  try {
+    const { contentId } = req.params;
+    const existing = await prisma.contentMaster.findUnique({ where: { contentId } });
+    if (!existing) return res.status(404).json({ ok: false, message: 'Content not found.' });
+
+    const content = await prisma.contentMaster.update({
+      where: { contentId },
+      data: { contentVersion: { increment: 1 } },
+    });
+    await audit({
+      userIdentity: req.userId,
+      userRole: 'Admin',
+      action: 'PUBLISH_CONTENT_VERSION',
+      module: 'Content',
+      referenceId: contentId,
+      newValue: { contentVersion: content.contentVersion },
+      source: 'Admin Portal',
+    });
+    res.json({ ok: true, data: content });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
 
@@ -1982,81 +2013,153 @@ export async function exportAtRisk(req, res) {
 }
 
 // ── 4. Module Completion Detail ────────────────────────────────────────────────
+// Shared by the CSV export and the on-screen report (getModuleCompletionDetail)
+// so the two can never disagree about a row's status. Independent/broadcast
+// ("nugget") content writes classroomId '' (it belongs to no classroom) and is
+// excluded here — it's covered by the separate Independent Module Reading
+// Report, which already has its own acknowledgement view.
+async function buildModuleCompletionRows(req) {
+  const { batchNo, classroomId, process: processFilter, employeeId, dateFrom, dateTo, acknowledgementStatus, moduleVersion } = req.query;
+  const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+  const traineeWhere = { ...branchFilter };
+  if (batchNo) traineeWhere.batchNo = batchNo;
+  if (classroomId) traineeWhere.classroomId = classroomId;
+  if (processFilter) traineeWhere.process = processFilter;
+  if (employeeId) traineeWhere.employeeId = employeeId;
+
+  const [trainees, batches] = await Promise.all([
+    prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } }),
+    prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true, coordinatorName: true } }),
+  ]);
+  const empIds = trainees.map(t => t.employeeId);
+  const traineeMap = Object.fromEntries(trainees.map(t => [t.employeeId, t]));
+  const batchMap = Object.fromEntries(batches.map(b => [b.batchNo, b]));
+
+  const progressWhere = { employeeId: { in: empIds }, classroomId: classroomId || { not: '' } };
+  // "Last activity" (updatedAt) is what a coordinator actually means by "filter
+  // by date" here — content_progress has no single canonical assigned/completed
+  // date that always applies (a module might be opened one day, finished days
+  // later, and never separately "assigned").
+  if (dateFrom || dateTo) {
+    progressWhere.updatedAt = {};
+    if (dateFrom) progressWhere.updatedAt.gte = new Date(dateFrom);
+    if (dateTo) progressWhere.updatedAt.lt = new Date(new Date(dateTo).getTime() + 86400000);
+  }
+
+  const [progress, modules, contents] = await Promise.all([
+    prisma.contentProgress.findMany({ where: progressWhere, orderBy: [{ employeeId: 'asc' }, { dayNo: 'asc' }] }),
+    prisma.moduleMaster.findMany({
+      where: classroomId ? { classroomId } : {},
+      select: { moduleId: true, moduleTitle: true, dayNo: true, classroomId: true },
+    }),
+    prisma.contentMaster.findMany({
+      where: classroomId ? { module: { classroomId } } : {},
+      select: { contentId: true, contentTitle: true, contentType: true, moduleId: true, estimatedMins: true, contentVersion: true },
+    }),
+  ]);
+  const moduleMap = Object.fromEntries(modules.map(m => [m.moduleId, m]));
+  const contentMap = Object.fromEntries(contents.map(c => [c.contentId, c]));
+
+  let rows = progress
+    .filter(p => traineeMap[p.employeeId])
+    .map(p => {
+      const t = traineeMap[p.employeeId];
+      const b = batchMap[t.batchNo] || {};
+      const mod = moduleMap[p.moduleId] || {};
+      const con = contentMap[p.contentId] || {};
+      const version = con.contentVersion || 1;
+      return {
+        employeeId: p.employeeId, traineeName: t.traineeName, batchNo: t.batchNo, branch: t.branch, process: t.process,
+        batchStartDate: b.startDate, batchEndDate: b.endDate,
+        coordinatorName: b.coordinatorName || '',
+        classroomId: p.classroomId, dayNo: p.dayNo, moduleName: mod.moduleTitle || '',
+        contentTitle: con.contentTitle || p.contentId, contentType: con.contentType || '',
+        moduleVersion: version,
+        status: computeContentStatus(p, version),
+        completionStatus: p.completionStatus, completionPct: Math.round(p.completionPct || 0),
+        firstOpenedAt: p.firstOpenedAt, lastOpenedAt: p.lastOpenedAt, completedAt: p.completedAt,
+        totalMins: Math.round((p.totalSecondsSpent || 0) / 60), estimatedMins: con.estimatedMins || '',
+        openCount: p.openCount || 0,
+        acknowledged: Boolean(p.acknowledgedAt), acknowledgedAt: p.acknowledgedAt, acknowledgedIp: p.acknowledgedIp,
+      };
+    });
+
+  if (acknowledgementStatus) rows = rows.filter(r => r.status === acknowledgementStatus);
+  if (moduleVersion) rows = rows.filter(r => String(r.moduleVersion) === String(moduleVersion));
+
+  return rows;
+}
+
 export async function exportModuleCompletion(req, res) {
   try {
-    const { batchNo, classroomId } = req.query;
-    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
-    const traineeWhere = { ...branchFilter };
-    if (batchNo) traineeWhere.batchNo = batchNo;
-    if (classroomId) traineeWhere.classroomId = classroomId;
-
-    const [trainees, batches] = await Promise.all([
-      prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } }),
-      prisma.batchMaster.findMany({ select: { batchNo: true, startDate: true, endDate: true } }),
-    ]);
-    const empIds = trainees.map(t => t.employeeId);
-    const traineeMap = {};
-    trainees.forEach(t => { traineeMap[t.employeeId] = t; });
-    const batchMap = {};
-    batches.forEach(b => { batchMap[b.batchNo] = b; });
-
-    const [progress, modules, contents] = await Promise.all([
-      prisma.contentProgress.findMany({
-        // Independent/broadcast content writes classroomId '' (it belongs to no
-        // classroom) — excluding that keeps this curriculum export from showing
-        // those rows with blank Module/Content Type. They're covered by the
-        // Independent Module Reading Report export instead.
-        where: { employeeId: { in: empIds }, classroomId: classroomId || { not: '' } },
-        orderBy: [{ employeeId: 'asc' }, { dayNo: 'asc' }],
-      }),
-      prisma.moduleMaster.findMany({
-        where: classroomId ? { classroomId } : {},
-        select: { moduleId: true, moduleTitle: true, dayNo: true, classroomId: true },
-      }),
-      prisma.contentMaster.findMany({
-        where: classroomId ? { module: { classroomId } } : {},
-        select: { contentId: true, contentTitle: true, contentType: true, moduleId: true, estimatedMins: true },
-      }),
-    ]);
-    const moduleMap = {};
-    modules.forEach(m => { moduleMap[m.moduleId] = m; });
-    const contentMap = {};
-    contents.forEach(c => { contentMap[c.contentId] = c; });
-
+    const rows = await buildModuleCompletionRows(req);
     const headers = [
       'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
-      'Batch Start Date', 'Batch End Date',
-      'Classroom ID', 'Day No', 'Module Name',
+      'Batch Start Date', 'Batch End Date', 'Trainer/Coordinator',
+      'Classroom ID', 'Day No', 'Module Name', 'Module Version',
       'Content Title', 'Content Type',
-      'Status', 'Completion %',
+      'Completion Status', 'Completion %',
       'First Opened At', 'Last Opened At', 'Completed At',
       'Total Time Spent (mins)', 'Estimated Mins',
       'Open Count',
       // Time-based completion can be reached by leaving a tab open; acknowledgement
       // is the explicit attestation the learner cannot later deny making.
-      'Acknowledged', 'Acknowledged At', 'Acknowledged IP',
+      // "Acknowledgement Status" is the unified status (Not Started / In Progress /
+      // Content Completed / Re-acknowledgement Required / Completed) — see
+      // services/moduleCompletionStatus.js.
+      'Acknowledgement Status', 'Acknowledged', 'Acknowledged At', 'Acknowledged IP',
     ];
-    const rows = progress.map(p => {
-      const t = traineeMap[p.employeeId] || {};
-      const b = batchMap[t.batchNo] || {};
-      const mod = moduleMap[p.moduleId] || {};
-      const con = contentMap[p.contentId] || {};
-      return [
-        p.employeeId, t.traineeName, t.batchNo, t.branch, t.process,
-        fmtDate(b.startDate), fmtDate(b.endDate),
-        p.classroomId, p.dayNo, mod.moduleTitle || '',
-        con.contentTitle || p.contentId, con.contentType || '',
-        p.completionStatus, Math.round(p.completionPct || 0),
-        fmtDt(p.firstOpenedAt), fmtDt(p.lastOpenedAt), fmtDt(p.completedAt),
-        Math.round((p.totalSecondsSpent || 0) / 60), con.estimatedMins || '',
-        p.openCount || 0,
-        p.acknowledgedAt ? 'Yes' : 'No', fmtDt(p.acknowledgedAt), p.acknowledgedIp || '',
-      ];
-    });
-    csvRes(res, `module-completion-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+    const csvRows = rows.map(r => [
+      r.employeeId, r.traineeName, r.batchNo, r.branch, r.process,
+      fmtDate(r.batchStartDate), fmtDate(r.batchEndDate), r.coordinatorName,
+      r.classroomId, r.dayNo, r.moduleName, r.moduleVersion,
+      r.contentTitle, r.contentType,
+      r.completionStatus, r.completionPct,
+      fmtDt(r.firstOpenedAt), fmtDt(r.lastOpenedAt), fmtDt(r.completedAt),
+      r.totalMins, r.estimatedMins,
+      r.openCount,
+      r.status, r.acknowledged ? 'Yes' : 'No', fmtDt(r.acknowledgedAt), r.acknowledgedIp || '',
+    ]);
+    csvRes(res, `module-completion-${req.query.batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, csvRows);
   } catch (err) {
     console.error(err);
     res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
+// On-screen counterpart to the CSV export above — same filters, same row
+// shape, plus batch-wise and module-wise summaries for the report's landing
+// view (sections 12/13 of the acknowledgement spec).
+export async function getModuleCompletionDetail(req, res) {
+  try {
+    const rows = await buildModuleCompletionRows(req);
+
+    const summary = { totalAssigned: rows.length, started: 0, contentCompleted: 0, acknowledged: 0, pendingAcknowledgement: 0, notStarted: 0 };
+    for (const r of rows) {
+      if (r.status === 'Not Started') { summary.notStarted++; continue; }
+      summary.started++;
+      if (r.status === 'Completed') { summary.contentCompleted++; summary.acknowledged++; }
+      else if (r.status === 'Content Completed' || r.status === 'Re-acknowledgement Required') { summary.contentCompleted++; summary.pendingAcknowledgement++; }
+    }
+    summary.completionPct = summary.totalAssigned ? Math.round((summary.contentCompleted / summary.totalAssigned) * 1000) / 10 : 0;
+    summary.acknowledgementPct = summary.totalAssigned ? Math.round((summary.acknowledged / summary.totalAssigned) * 1000) / 10 : 0;
+
+    const byModule = new Map();
+    for (const r of rows) {
+      const key = `${r.moduleName}|${r.moduleVersion}`;
+      if (!byModule.has(key)) byModule.set(key, { moduleName: r.moduleName, moduleVersion: r.moduleVersion, assigned: 0, started: 0, completed: 0, acknowledged: 0, pending: 0 });
+      const m = byModule.get(key);
+      m.assigned++;
+      if (r.status !== 'Not Started') m.started++;
+      if (r.status === 'Completed' || r.status === 'Content Completed' || r.status === 'Re-acknowledgement Required') m.completed++;
+      if (r.status === 'Completed') m.acknowledged++;
+      else m.pending++;
+    }
+
+    res.json({ ok: true, data: { rows, summary, modules: [...byModule.values()] } });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Failed to load report.' });
   }
 }
 

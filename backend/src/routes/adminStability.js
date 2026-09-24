@@ -592,6 +592,81 @@ router.put('/content-repository/:repositoryContentId', ...auth, async (req, res)
   }
 });
 
+// Deliberately separate from the plain metadata update above: bumping
+// version_no is what tells an already-acknowledged trainee's acknowledgement
+// is stale (Re-acknowledgement Required), so it only happens on this explicit
+// action, never on a routine title/description edit.
+router.post('/content-repository/:repositoryContentId/publish-version', ...auth, async (req, res) => {
+  try {
+    await ensureContentRepositoryTable();
+    const repositoryContentId = clean(req.params.repositoryContentId);
+    const rows = await prisma.$queryRawUnsafe('SELECT * FROM content_repository_master WHERE repository_content_id = ? AND status = ?', repositoryContentId, 'Active');
+    const existing = rows?.[0];
+    if (!existing) return res.status(404).json({ ok: false, message: 'Repository content not found.' });
+
+    const versionNo = toInt(existing.version_no, 1) + 1;
+    await prisma.$executeRawUnsafe('UPDATE content_repository_master SET version_no = ? WHERE repository_content_id = ?', versionNo, repositoryContentId);
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'PUBLISH_CONTENT_REPOSITORY_VERSION', module: 'ContentRepository', referenceId: repositoryContentId, oldValue: { versionNo: existing.version_no }, newValue: { versionNo } });
+    return res.json({ ok: true, data: { versionNo }, message: `Published. Now version ${versionNo}.` });
+  } catch (err) {
+    console.error('[adminStability] content repository publish-version failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to publish a new version.' });
+  }
+});
+
+// Acknowledgement is otherwise permanent (no un-acknowledge) by design, so
+// clearing one is an authorized, reasoned admin override, not routine data
+// editing. The original event is never deleted -- it stays in
+// module_acknowledgements, and this action writes its own "Reset" row there
+// (with who reset it, when, and why) rather than overwriting history.
+router.post('/content-progress/:employeeId/:contentId/reset-acknowledgement', ...auth, async (req, res) => {
+  try {
+    const employeeId = clean(req.params.employeeId);
+    const contentId = clean(req.params.contentId);
+    const reason = clean(req.body?.reason);
+    if (!reason || reason.length < 10) {
+      return res.status(400).json({ ok: false, message: 'A reason of at least 10 characters is required to reset an acknowledgement.' });
+    }
+    const progress = await prisma.contentProgress.findUnique({ where: { employeeId_contentId: { employeeId, contentId } } });
+    if (!progress?.acknowledgedAt) return res.status(404).json({ ok: false, message: 'No acknowledgement on file for this trainee and content.' });
+
+    const trainee = await prisma.traineeMaster.findUnique({ where: { employeeId } });
+
+    await prisma.moduleAcknowledgement.create({
+      data: {
+        employeeId,
+        contentId,
+        moduleId: progress.moduleId || null,
+        classroomId: progress.classroomId || null,
+        dayNo: progress.dayNo ?? null,
+        batchNo: trainee?.batchNo || null,
+        process: trainee?.process || null,
+        branch: trainee?.branch || null,
+        contentVersion: progress.acknowledgedVersion || 1,
+        status: 'Reset',
+        acknowledgedAt: progress.acknowledgedAt,
+        acknowledgedIp: progress.acknowledgedIp,
+        acknowledgedUserAgent: progress.acknowledgedUserAgent,
+        acknowledgementText: progress.acknowledgementText,
+        resetReason: reason,
+        resetBy: req.userId,
+        resetAt: new Date(),
+      },
+    });
+
+    await prisma.contentProgress.update({
+      where: { id: progress.id },
+      data: { acknowledgedAt: null, acknowledgedIp: null, acknowledgedUserAgent: null, acknowledgementText: null, acknowledgedVersion: null },
+    });
+
+    await audit({ userIdentity: req.userId, userRole: 'Admin', action: 'RESET_CONTENT_ACKNOWLEDGEMENT', module: 'Learning', referenceId: contentId, oldValue: { employeeId, acknowledgedAt: progress.acknowledgedAt }, newValue: { reason } });
+    return res.json({ ok: true, message: 'Acknowledgement reset. The trainee will be asked to re-acknowledge.' });
+  } catch (err) {
+    console.error('[adminStability] reset acknowledgement failed:', err);
+    return res.status(500).json({ ok: false, message: 'Unable to reset the acknowledgement.' });
+  }
+});
+
 router.put('/independent-modules/:moduleId', ...auth, async (req, res) => {
   try {
     await ensureIndependentModuleTables();

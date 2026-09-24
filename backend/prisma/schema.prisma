@@ -331,6 +331,11 @@ model ContentMaster {
   estimatedMins     Int      @default(0) @map("estimated_mins")
   completionRulePct Float    @default(80) @map("completion_rule_pct")
   description       String?  @db.Text
+  // Bumped only by the explicit "Publish New Version" admin action, never by a
+  // plain content edit -- this is what tells an already-acknowledged trainee's
+  // acknowledgement (see ModuleAcknowledgement.contentVersion) that it now covers
+  // stale content and Re-acknowledgement Required should show instead.
+  contentVersion    Int      @default(1) @map("content_version")
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
@@ -526,6 +531,10 @@ model ContentProgress {
   acknowledgedIp       String?   @map("acknowledged_ip")
   acknowledgedUserAgent String?  @db.Text @map("acknowledged_user_agent")
   acknowledgementText  String?   @db.Text @map("acknowledgement_text")
+  // Which content_master.contentVersion / content_repository_master.version_no
+  // was current at the moment of acknowledgement -- NULL for rows acknowledged
+  // (or backfilled) before module versioning existed, treated as version 1.
+  acknowledgedVersion  Int?      @map("acknowledged_version")
 
   @@index([employeeId, classroomId])
   @@index([classroomId])
@@ -553,6 +562,44 @@ model VideoWatchLog {
   @@index([employeeId, classroomId])
   @@index([createdAt])
   @@map("video_watch_log")
+}
+
+// Append-only audit trail of every acknowledgement event (including
+// re-acknowledgements after a content version bump, and admin resets).
+// content_progress.acknowledgedAt/acknowledgedVersion is deliberately kept as
+// "current state" for fast gating checks (isComplete(), sequential unlock);
+// this table is the immutable history behind it, per the requirement that a
+// module version change or a reset must never destroy prior acknowledgement
+// records. contentId can point at either content_master.contentId or a
+// content_repository_master.repository_content_id (independent/"nugget"
+// modules aren't Prisma-modeled -- see independentModules.js) -- no FK, same
+// loosely-coupled convention as AssignedModule.
+model ModuleAcknowledgement {
+  id                    String    @id @default(uuid())
+  employeeId            String    @map("employee_id")
+  contentId             String    @map("content_id")
+  moduleId              String?   @map("module_id")
+  classroomId           String?   @map("classroom_id")
+  dayNo                 Int?      @map("day_no")
+  batchNo               String?   @map("batch_no")
+  process               String?
+  branch                String?
+  contentTitle          String?   @map("content_title")
+  contentVersion        Int       @default(1) @map("content_version")
+  status                String    @default("Acknowledged") @map("status") // Acknowledged | Reset
+  acknowledgedAt        DateTime? @map("acknowledged_at")
+  acknowledgedIp        String?   @map("acknowledged_ip")
+  acknowledgedUserAgent String?   @db.Text @map("acknowledged_user_agent")
+  acknowledgementText   String?   @db.Text @map("acknowledgement_text")
+  resetReason           String?   @db.Text @map("reset_reason")
+  resetBy               String?   @map("reset_by")
+  resetAt               DateTime? @map("reset_at")
+  createdAt             DateTime  @default(now()) @map("created_at")
+
+  @@index([employeeId, contentId])
+  @@index([contentId, contentVersion])
+  @@index([batchNo])
+  @@map("module_acknowledgements")
 }
 
 // ─── Q&A ──────────────────────────────────────────────────────────────────────

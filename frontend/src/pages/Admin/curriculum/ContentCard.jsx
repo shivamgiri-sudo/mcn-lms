@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import TYPE_META from './constants.js';
 
-export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveUp, onMoveDown, isFirst, isLast }) {
+export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveUp, onMoveDown, onPublishVersion, isFirst, isLast }) {
   const meta = TYPE_META[c.contentType] || TYPE_META.link;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState({ estimatedMins: c.estimatedMins ?? '', completionRulePct: c.completionRulePct ?? 80 });
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState('');
+  const [publishing, setPublishing] = useState(false);
   useEffect(() => {
     if (!editing) {
       setDraft({ estimatedMins: c.estimatedMins ?? '', completionRulePct: c.completionRulePct ?? 80 });
@@ -43,6 +44,9 @@ export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveU
           )}
           <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: meta.bg, color: meta.color }}>
             {meta.label}
+          </span>
+          <span title="Content version — bumping this asks every trainee who already acknowledged this content to re-acknowledge" style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: 'var(--card)', color: 'var(--muted)', border: '1px solid var(--line)' }}>
+            V{c.contentVersion || 1}
           </span>
           {c.locked && (
             <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: 'rgba(217,119,6,.18)', color: '#fbbf24', border: '1px solid rgba(251,191,36,.3)' }}>
@@ -171,6 +175,23 @@ export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveU
             >▶</a>
           ) : null;
         })()}
+        {onPublishVersion && (
+          <button
+            onClick={async () => {
+              if (!window.confirm(`Publish a new version of "${c.contentTitle}"? Trainees who already acknowledged this content will be asked to re-acknowledge it.`)) return;
+              setPublishing(true);
+              try { await onPublishVersion(); } finally { setPublishing(false); }
+            }}
+            disabled={publishing}
+            title="Publish new version — requires re-acknowledgement from trainees who already acknowledged this content"
+            style={{
+              border: '1.5px solid rgba(124,58,237,.4)', background: 'rgba(124,58,237,.15)', color: '#a78bfa',
+              borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
+            }}
+          >
+            {publishing ? '…' : '⤴ Publish'}
+          </button>
+        )}
         <button
           onClick={onToggleLock}
           title={c.locked ? 'Remove sequential lock' : 'Set sequential lock'}

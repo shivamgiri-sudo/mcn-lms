@@ -442,8 +442,12 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   const [completionState, setCompletionState] = useState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
   // Distinct from completion: an explicit attestation the learner cannot later deny
   // making, captured with a timestamp, IP and user agent on the server. Once set it
-  // is permanent — there is no un-acknowledge.
-  const [ackState, setAckState] = useState({ saving: false, at: progress?.acknowledgedAt || null, error: '' });
+  // is permanent for that content version — there is no un-acknowledge, but a
+  // "Publish New Version" by an admin makes the recorded version stale and asks
+  // for a fresh acknowledgement (see acknowledgedStale below).
+  const [ackState, setAckState] = useState({ saving: false, at: progress?.acknowledgedAt || null, version: progress?.acknowledgedVersion ?? null, error: '' });
+  const contentVersion = Number(content.contentVersion ?? content.versionNo ?? 1);
+  const acknowledgedStale = Boolean(ackState.at) && Number(ackState.version ?? 1) < contentVersion;
   // A separate, deliberate tick before the button even accepts a click — one
   // click alone reads as a possible misclick; a checkbox the learner actively
   // sets, then a button that stays disabled until they do, is the consent
@@ -455,7 +459,7 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
     setIframeError(false);
     setLoadTimeout(false);
     setCompletionState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
-    setAckState({ saving: false, at: progress?.acknowledgedAt || null, error: '' });
+    setAckState({ saving: false, at: progress?.acknowledgedAt || null, version: progress?.acknowledgedVersion ?? null, error: '' });
     setAckChecked(false);
     if (media?.type === 'proxy' || media?.type === 'drive') {
       const t = setTimeout(() => setLoadTimeout(true), 15000);
@@ -483,14 +487,14 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
   }
 
   async function acknowledgeContent() {
-    if (ackState.saving || ackState.at || !ackChecked) return;
+    if (ackState.saving || (ackState.at && !acknowledgedStale) || !ackChecked) return;
     setAckState(prev => ({ ...prev, saving: true, error: '' }));
     const res = await api.post(`/trainee/content/${content.contentId}/acknowledge`, {}, 'trainee');
     if (!res.ok) {
       setAckState(prev => ({ ...prev, saving: false, error: res.message || 'Unable to record your acknowledgement.' }));
       return;
     }
-    setAckState({ saving: false, at: res.acknowledgedAt || new Date().toISOString(), error: '' });
+    setAckState({ saving: false, at: res.acknowledgedAt || new Date().toISOString(), version: contentVersion, error: '' });
   }
 
   const modalStyle = fullscreen ? { position: 'fixed', inset: 0, zIndex: 9999, maxWidth: '100vw', width: '100vw', borderRadius: 0, display: 'flex', flexDirection: 'column' } : { maxWidth: 1080, width: '95vw' };
@@ -506,7 +510,8 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
               <span className="content-type-badge">{content.contentType}</span>
               <span style={{ fontSize: 11.5, color: 'var(--muted)', fontWeight: 600 }}>Activity tracked automatically</span>
               {completionState.done && <span className="pill ok">✓ Completed</span>}
-              {ackState.at && <span className="pill ok" title={new Date(ackState.at).toLocaleString()}>✓ Acknowledged</span>}
+              {ackState.at && !acknowledgedStale && <span className="pill ok" title={new Date(ackState.at).toLocaleString()}>✓ Acknowledged</span>}
+              {acknowledgedStale && <span className="pill warn" title="This content was updated since you last acknowledged it.">Re-acknowledgement Required</span>}
               {completionState.error && <span className="pill bad">{completionState.error}</span>}
             </div>
           </div>
@@ -523,8 +528,8 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
             used as a shortcut around actually engaging with the content; permanent once
             recorded, matching the server, which never lets it be un-set. */}
         {completionState.done && (
-          <div className={`info-box ${ackState.at ? '' : 'warn'}`} style={{ fontSize: 13, borderRadius: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-            {ackState.at ? (
+          <div className={`info-box ${ackState.at && !acknowledgedStale ? '' : 'warn'}`} style={{ fontSize: 13, borderRadius: 0, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+            {ackState.at && !acknowledgedStale ? (
               <span>✓ You acknowledged reading this on {new Date(ackState.at).toLocaleString()}.</span>
             ) : (
               <>
@@ -536,9 +541,13 @@ function ContentViewerModal({ content, onClose, videoRef, onPauseChange, renderC
                     disabled={ackState.saving}
                     style={{ width: 16, height: 16, flexShrink: 0 }}
                   />
-                  <span>I confirm that I have read and understood this content.</span>
+                  <span>
+                    {acknowledgedStale
+                      ? 'This content has been updated. I confirm that I have read and understood the revised content.'
+                      : 'I confirm that I have read and understood this content.'}
+                  </span>
                 </label>
-                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving || !ackChecked}>{ackState.saving ? 'Recording…' : '✓ I Acknowledge'}</button>
+                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving || !ackChecked}>{ackState.saving ? 'Recording…' : acknowledgedStale ? '✓ Re-Acknowledge' : '✓ I Acknowledge'}</button>
               </>
             )}
             {ackState.error && <span className="pill bad">{ackState.error}</span>}

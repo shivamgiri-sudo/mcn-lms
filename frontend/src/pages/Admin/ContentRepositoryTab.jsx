@@ -56,6 +56,12 @@ export default function ContentRepositoryTab() {
     setMsg(res.ok ? '\u2713 Repository item archived.' : (res.message || 'Unable to archive.')); load();
   }
 
+  async function publishVersion(repositoryContentId, title) {
+    if (!window.confirm(`Publish a new version of "${title}"? Trainees who already acknowledged this content will be asked to re-acknowledge it.`)) return;
+    const res = await api.post(`/admin/content-repository/${repositoryContentId}/publish-version`, {}, 'admin');
+    setMsg(res.ok ? `\u2713 ${res.message || 'New version published.'}` : (res.message || 'Unable to publish a new version.')); load();
+  }
+
   function openEdit(item) {
     setReplaceFile(null);
     setEditItem({
@@ -160,7 +166,7 @@ export default function ContentRepositoryTab() {
 
       <div className="card" style={{ padding: 16 }}>
         <div className="row between" style={{ marginBottom: 12, gap: 10 }}><h3 style={{ margin: 0 }}>Repository Items</h3><form onSubmit={e => { e.preventDefault(); load(); }} className="row" style={{ gap: 8 }}><input className="input" value={query} onChange={e => setQuery(e.target.value)} placeholder="Search title/category/process/tags" style={{ width: 280 }} /><button className="btn secondary" disabled={loading}>{loading ? 'Loading\u2026' : 'Search'}</button></form></div>
-        <div className="table-wrap"><table><thead><tr><th>Repository ID</th><th>Title</th><th>Type</th><th>Category</th><th>Process / LOB</th><th>Source</th><th>Updated</th><th>Action</th></tr></thead><tbody>{items.map(item => <tr key={item.repository_content_id}><td style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.repository_content_id}</td><td><b>{item.title}</b><br /><span style={{ color: 'var(--muted)', fontSize: 12 }}>{item.description || item.tags || '\u2014'}</span></td><td><span className="pill info">{item.content_type}</span></td><td>{item.category || '\u2014'}{item.sub_category ? ` / ${item.sub_category}` : ''}</td><td>{item.process || '\u2014'} / {item.lob || '\u2014'}</td><td>{item.source_type || 'local'}</td><td>{item.updated_at ? new Date(item.updated_at).toLocaleString() : '\u2014'}</td><td style={{ display: 'flex', gap: 4 }}><button className="btn small" onClick={() => openEdit(item)}>Edit</button><button className="btn small danger" onClick={() => archive(item.repository_content_id)}>Archive</button></td></tr>)}{!items.length && <tr><td colSpan="8" style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No repository content found.</td></tr>}</tbody></table></div>
+        <div className="table-wrap"><table><thead><tr><th>Repository ID</th><th>Title</th><th>Type</th><th>Category</th><th>Process / LOB</th><th>Source</th><th>Ver</th><th>Updated</th><th>Action</th></tr></thead><tbody>{items.map(item => <tr key={item.repository_content_id}><td style={{ fontFamily: 'monospace', fontSize: 12 }}>{item.repository_content_id}</td><td><b>{item.title}</b><br /><span style={{ color: 'var(--muted)', fontSize: 12 }}>{item.description || item.tags || '\u2014'}</span></td><td><span className="pill info">{item.content_type}</span></td><td>{item.category || '\u2014'}{item.sub_category ? ` / ${item.sub_category}` : ''}</td><td>{item.process || '\u2014'} / {item.lob || '\u2014'}</td><td>{item.source_type || 'local'}</td><td title="Bumping this asks every trainee who already acknowledged this content to re-acknowledge">V{item.version_no || 1}</td><td>{item.updated_at ? new Date(item.updated_at).toLocaleString() : '\u2014'}</td><td style={{ display: 'flex', gap: 4 }}><button className="btn small" onClick={() => openEdit(item)}>Edit</button><button className="btn small" onClick={() => publishVersion(item.repository_content_id, item.title)} title="Publish new version">{'\u2934 Publish'}</button><button className="btn small danger" onClick={() => archive(item.repository_content_id)}>Archive</button></td></tr>)}{!items.length && <tr><td colSpan="9" style={{ textAlign: 'center', color: 'var(--muted)', padding: 24 }}>No repository content found.</td></tr>}</tbody></table></div>
       </div>
 
       {editItem && (

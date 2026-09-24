@@ -13,6 +13,7 @@
 import { prisma } from '../utils/db.js';
 import { sendEmail } from '../utils/notify.js';
 import { audit } from '../utils/audit.js';
+import { computeContentStatus } from './moduleCompletionStatus.js';
 
 const IST_OFFSET_MS = 330 * 60 * 1000; // same idiom as routes/traineeStability.js's istDayBounds()
 
@@ -217,7 +218,8 @@ async function getCurriculumActivity(batch, dayStart, dayEnd, trainees, label, k
   const activeModuleIds = new Set(todayLogs.map(l => l.moduleId));
   const relevantModules = modules.filter(m => activeModuleIds.has(m.moduleId));
   if (!relevantModules.length) return null;
-  const contentIds = relevantModules.flatMap(m => m.contents.map(c => c.contentId));
+  const contentVersionById = new Map(relevantModules.flatMap(m => m.contents.map(c => [c.contentId, c.contentVersion || 1])));
+  const contentIds = [...contentVersionById.keys()];
   if (!contentIds.length) return null;
 
   const progress = await prisma.contentProgress.findMany({
@@ -233,20 +235,38 @@ async function getCurriculumActivity(batch, dayStart, dayEnd, trainees, label, k
   const gaps = [];
   let completed = 0, inProgress = 0, notStarted = 0;
 
+  // "Completed" here requires acknowledgement, not just time-based completion
+  // (see moduleCompletionStatus.js) -- a trainee who has viewed everything but
+  // not yet acknowledged shows as In Progress with an acknowledgement-pending
+  // note, matching how the Module Completion Detail Report treats the same
+  // content.
   for (const t of trainees) {
     const rows = progressByEmp.get(t.employeeId) || [];
     const relevant = rows.filter(r => contentIds.includes(r.contentId));
     if (!relevant.length) { perTrainee.set(t.employeeId, { status: 'Not Started', observation: 'Not Started – Follow-up Required' }); notStarted++; gaps.push({ employeeId: t.employeeId, reason: `${label} Completion Focus` }); continue; }
-    const allDone = relevant.every(r => r.completionStatus === 'Completed');
-    const anyDone = relevant.some(r => r.completionStatus === 'Completed' || r.completionPct > 0);
+
+    const statuses = relevant.map(r => computeContentStatus(r, contentVersionById.get(r.contentId) || 1));
+    const allDone = statuses.every(s => s === 'Completed');
+    const anyTouched = statuses.some(s => s !== 'Not Started');
+    const acknowledgementPending = statuses.some(s => s === 'Content Completed' || s === 'Re-acknowledgement Required');
     const avgPct = Math.round(relevant.reduce((s, r) => s + (r.completionPct || 0), 0) / relevant.length);
-    let status;
-    if (allDone) { status = 'Completed'; completed++; }
-    else if (anyDone) { status = 'In Progress'; inProgress++; gaps.push({ employeeId: t.employeeId, reason: `${label} Completion Focus` }); }
-    else { status = 'Not Started'; notStarted++; gaps.push({ employeeId: t.employeeId, reason: `${label} Completion Focus` }); }
+
+    let status, observation;
+    if (allDone) {
+      status = 'Completed'; completed++;
+      observation = `${label} Completed`;
+    } else if (anyTouched) {
+      status = 'In Progress'; inProgress++;
+      gaps.push({ employeeId: t.employeeId, reason: `${label} Completion Focus` });
+      observation = acknowledgementPending ? `${label} viewed – acknowledgement pending` : 'In Progress';
+    } else {
+      status = 'Not Started'; notStarted++;
+      gaps.push({ employeeId: t.employeeId, reason: `${label} Completion Focus` });
+      observation = 'Not Started – Follow-up Required';
+    }
     perTrainee.set(t.employeeId, {
-      status, detail: { completionPct: avgPct, modulesTouchedToday: relevantModules.length },
-      observation: status === 'Completed' ? `${label} Completed` : status === 'In Progress' ? 'In Progress' : 'Not Started – Follow-up Required',
+      status, detail: { completionPct: avgPct, modulesTouchedToday: relevantModules.length, acknowledgementPending },
+      observation,
     });
   }
 
@@ -264,10 +284,14 @@ async function getNuggetActivity(batch, dayStart, dayEnd, trainees) {
   // Mirrors the existing GET /independent-modules/:moduleId/reading-report join
   // (routes/adminStability.js) but scoped to this batch's trainees across all of
   // their active broadcast/independent-module ("nugget") assignments rather than
-  // one module at a time.
+  // one module at a time. One row per (employee, module, content item) -- not
+  // pre-aggregated -- so computeContentStatus can be applied per content item
+  // and rolled up per trainee, the same way getCurriculumActivity does.
   const rows = await prisma.$queryRawUnsafe(
     `SELECT t.employee_id AS employeeId, a.module_id AS moduleId, a.module_name AS moduleName,
-            MAX(p.acknowledged_at) AS acknowledgedAt, MAX(p.completion_status) AS completionStatus
+            r.repository_content_id AS contentId, r.version_no AS versionNo,
+            p.opened AS opened, p.completion_status AS completionStatus, p.completion_pct AS completionPct,
+            p.acknowledged_at AS acknowledgedAt, p.acknowledged_version AS acknowledgedVersion
        FROM assigned_modules a
        INNER JOIN independent_module_content_map c ON c.module_id = a.module_id AND c.active = 1
        INNER JOIN content_repository_master r ON r.repository_content_id = c.repository_content_id
@@ -279,8 +303,7 @@ async function getNuggetActivity(batch, dayStart, dayEnd, trainees) {
                 OR (a.assigned_to_type = 'branch'     AND t.branch      = a.assigned_to)
                 OR  a.assigned_to_type = 'company')
        LEFT JOIN content_progress p ON p.employee_id = t.employee_id AND p.content_id = r.repository_content_id
-      WHERE a.active = 1
-      GROUP BY t.employee_id, a.module_id, a.module_name`,
+      WHERE a.active = 1`,
     ...empIds,
   );
   if (!rows.length) return null;
@@ -296,17 +319,32 @@ async function getNuggetActivity(batch, dayStart, dayEnd, trainees) {
   let acknowledged = 0, pending = 0;
   const nuggetNames = new Set();
 
+  // "Acknowledged" now requires both time-based completion AND a current-version
+  // acknowledgement (see moduleCompletionStatus.js) -- previously this looked at
+  // acknowledgedAt alone, so an unfinished nugget with a stale acknowledgement
+  // could incorrectly read as done.
   for (const t of trainees) {
     const assigned = byEmp.get(t.employeeId) || [];
     if (!assigned.length) { perTrainee.set(t.employeeId, { status: 'Not Assigned' }); continue; }
     assigned.forEach(a => nuggetNames.add(a.moduleName));
-    const allAck = assigned.every(a => a.acknowledgedAt);
-    const pendingNames = assigned.filter(a => !a.acknowledgedAt).map(a => a.moduleName);
-    if (allAck) { acknowledged++; perTrainee.set(t.employeeId, { status: 'Acknowledged' }); }
-    else {
+
+    const statuses = assigned.map(a => computeContentStatus(
+      { opened: a.opened, completionStatus: a.completionStatus, completionPct: a.completionPct, acknowledgedAt: a.acknowledgedAt, acknowledgedVersion: a.acknowledgedVersion },
+      a.versionNo || 1,
+    ));
+    const allDone = statuses.every(s => s === 'Completed');
+    const pendingNames = [...new Set(assigned.filter((_, i) => statuses[i] !== 'Completed').map(a => a.moduleName))];
+
+    if (allDone) {
+      acknowledged++;
+      perTrainee.set(t.employeeId, { status: 'Acknowledged' });
+    } else {
       pending++;
+      const reasonText = statuses.every(s => s === 'Not Started') ? 'not started'
+        : statuses.some(s => s === 'In Progress' || s === 'Not Started') ? 'in progress'
+        : 'acknowledgement pending';
       gaps.push({ employeeId: t.employeeId, reason: 'Learning Activity Pending' });
-      perTrainee.set(t.employeeId, { status: 'Pending', detail: { pendingNuggets: pendingNames } });
+      perTrainee.set(t.employeeId, { status: 'Pending', detail: { pendingNuggets: pendingNames, reasonText } });
     }
   }
 
@@ -338,7 +376,7 @@ function computeTraineeOverall(t, attendanceStatus, activities) {
         reasons.push(`Assessment not cleared.${topics}`); significantGaps++;
       } else if (rec.status === 'Not Attempted') { reasons.push('Assessment Not Attempted'); significantGaps++; }
     } else if (act.key === 'learningNugget') {
-      if (rec.status === 'Pending') { reasons.push('Learning Nugget acknowledgement pending'); minorGaps++; }
+      if (rec.status === 'Pending') { reasons.push(`Learning Nugget ${rec.detail?.reasonText || 'acknowledgement pending'}`); minorGaps++; }
     } else if (act.key === 'classroomCurriculum' || act.key === 'videoCourse') {
       if (rec.status === 'Not Started') { reasons.push(`${act.label} not started`); significantGaps++; }
       else if (rec.status === 'In Progress') { reasons.push(`${act.label} in progress`); minorGaps++; }
