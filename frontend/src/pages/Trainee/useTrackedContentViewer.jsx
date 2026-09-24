@@ -163,6 +163,11 @@ export function useTrackedContentViewer(onRefresh) {
   async function openContent(content) {
     setLockedMsg(null);
 
+    if (!content?.contentId) {
+      setLockedMsg('This item has no content to open. Contact your admin.');
+      return;
+    }
+
     if (content.accessLocked) {
       setLockedMsg(content.lockReason || 'Complete the previous required content first.');
       return;
@@ -176,29 +181,36 @@ export function useTrackedContentViewer(onRefresh) {
       }
     }
 
-    if (viewingContentRef.current) await stopHeartbeat(true);
+    try {
+      if (viewingContentRef.current) await stopHeartbeat(true);
 
-    const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
-    if (openRes.locked || openRes.ok === false) {
-      setLockedMsg(openRes.message || 'Complete the previous content first.');
-      return;
-    }
-
-    let resolvedMedia = renderContentUrl(content);
-    if (resolvedMedia?.requiresAuth) {
-      const protectedResult = await fetchAuthenticatedBlobUrl(resolvedMedia.url, 'trainee');
-      if (!protectedResult.ok) {
-        setLockedMsg(protectedResult.message || 'Unable to open protected learning content.');
+      const openRes = await api.post(`/trainee/content/${content.contentId}/open`, {}, 'trainee');
+      if (openRes.locked || openRes.ok === false) {
+        setLockedMsg(openRes.message || 'Complete the previous content first.');
         return;
       }
-      resolvedMedia = { ...resolvedMedia, url: protectedResult.url, requiresAuth: false, objectUrl: true };
-    }
 
-    const resolved = { ...content, resolvedMedia };
-    viewingContentRef.current = resolved;
-    setViewingContent(resolved);
-    lastSentRef.current = Date.now();
-    startHeartbeat(content.contentId);
+      let resolvedMedia = renderContentUrl(content);
+      if (resolvedMedia?.requiresAuth) {
+        const protectedResult = await fetchAuthenticatedBlobUrl(resolvedMedia.url, 'trainee');
+        if (!protectedResult.ok) {
+          setLockedMsg(protectedResult.message || 'Unable to open protected learning content.');
+          return;
+        }
+        resolvedMedia = { ...resolvedMedia, url: protectedResult.url, requiresAuth: false, objectUrl: true };
+      }
+
+      const resolved = { ...content, resolvedMedia };
+      viewingContentRef.current = resolved;
+      setViewingContent(resolved);
+      lastSentRef.current = Date.now();
+      startHeartbeat(content.contentId);
+    } catch (err) {
+      // Any unexpected exception here previously vanished silently -- the
+      // click looked like it did nothing at all. Surface it instead.
+      console.error('[useTrackedContentViewer] openContent failed:', err);
+      setLockedMsg(err?.message || 'Unable to open this content. Please try again.');
+    }
   }
 
   async function closeContent() {
