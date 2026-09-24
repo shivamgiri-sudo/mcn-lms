@@ -1,0 +1,54 @@
+name: Send Sample Emails (one-shot)
+
+on:
+  workflow_dispatch:
+    inputs:
+      emails:
+        description: 'Comma-separated email addresses to send samples to'
+        required: true
+        default: 'harneet.kaur@teammas.in,shivam.giri@teammas.in'
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    name: Send sample email templates on production server
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 10
+
+    steps:
+      - name: Run send-sample-emails script via SSH
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17
+        with:
+          host: ${{ secrets.LMS_PROD_HOST }}
+          username: ${{ secrets.LMS_PROD_USER }}
+          password: ${{ secrets.LMS_PROD_SSH_PASS }}
+          port: 22
+          timeout: 120s
+          script: |
+            set -euo pipefail
+            cd /var/www/mcn-lms
+
+            # Pull latest (script was just committed)
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Unlock any locked admin accounts (may have been locked by login attempts)
+            cd /var/www/mcn-lms/backend
+            /usr/bin/node --input-type=module --eval "
+              import { PrismaClient } from '@prisma/client';
+              const prisma = new PrismaClient();
+              const r = await prisma.adminUserMaster.updateMany({
+                data: { failedAttempts: 0, locked: false }
+              });
+              console.log('[unlock] Updated', r.count, 'admin accounts');
+              await prisma.\$disconnect();
+            " 2>&1 || true
+
+            # Run the email script
+            EMAILS=$(echo '${{ github.event.inputs.emails }}' | tr ',' ' ')
+            /usr/bin/node /var/www/mcn-lms/backend/scripts/send-sample-emails.mjs $EMAILS
+
+            echo "==> Done"
