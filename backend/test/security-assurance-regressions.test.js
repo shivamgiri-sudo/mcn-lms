@@ -65,6 +65,13 @@ test('server mounts governed headers and protects production content delivery', 
 });
 
 test('learner media uses cookie-authenticated blobs and never browser bearer credentials', () => {
+  // The tracked content viewer (open/heartbeat/authenticated blob fetch) used
+  // to live entirely inside LearningTab.jsx; it was extracted into a shared
+  // hook so the Assigned tab's independent modules get the same tracked
+  // viewing and Acknowledge behaviour as classroom content, rather than
+  // opening via a raw, untracked link. The properties this test guards now
+  // live in that shared file.
+  const viewer = read('frontend/src/pages/Trainee/useTrackedContentViewer.jsx');
   const learning = read('frontend/src/pages/Trainee/LearningTab.jsx');
   const api = read('frontend/src/utils/api.js');
 
@@ -75,11 +82,13 @@ test('learner media uses cookie-authenticated blobs and never browser bearer cre
   assert.match(api, /URL\.createObjectURL/);
   assert.doesNotMatch(api, /Authorization:\s*`Bearer/);
   assert.doesNotMatch(api, /localStorage\.setItem\([^\n]*token\s*\)/i);
-  assert.match(learning, /fetchAuthenticatedBlobUrl/);
-  assert.match(learning, /URL\.revokeObjectURL/);
-  assert.match(learning, /protectedLocalUrl/);
+  assert.match(viewer, /fetchAuthenticatedBlobUrl/);
+  assert.match(viewer, /URL\.revokeObjectURL/);
+  assert.match(viewer, /protectedLocalUrl/);
+  assert.doesNotMatch(viewer, /[?&]token=/);
+  assert.doesNotMatch(viewer, /encodeURIComponent\(token\)/);
+  assert.match(learning, /useTrackedContentViewer/, 'the learner player must actually use the shared tracked viewer, not a bespoke one');
   assert.doesNotMatch(learning, /[?&]token=/);
-  assert.doesNotMatch(learning, /encodeURIComponent\(token\)/);
 });
 
 test('migration and route security validators pass the complete repository', () => {

@@ -64,6 +64,12 @@ for (const file of sourceFiles) {
 const server = readFileSync(join(root, 'backend', 'src', 'server.js'), 'utf8');
 const contentRoute = readFileSync(join(routesRoot, 'contentFiles.js'), 'utf8');
 const uploadRoute = readFileSync(join(routesRoot, 'upload.js'), 'utf8');
+// The tracked viewer (open/heartbeat/authenticated blob fetch) is shared
+// between classroom content (LearningTab.jsx) and independent-module content
+// (the Assigned tab, via DashboardView.jsx) so both get identical Acknowledge
+// and tracking behaviour, rather than the Assigned tab falling back to a raw,
+// untracked link. The properties this policy guards live in that shared file.
+const trackedViewer = readFileSync(join(root, 'frontend', 'src', 'pages', 'Trainee', 'useTrackedContentViewer.jsx'), 'utf8');
 const traineeLearning = readFileSync(join(root, 'frontend', 'src', 'pages', 'Trainee', 'LearningTab.jsx'), 'utf8');
 const apiUtility = readFileSync(join(root, 'frontend', 'src', 'utils', 'api.js'), 'utf8');
 
@@ -75,7 +81,8 @@ const requiredContracts = [
   [contentRoute, /traineeCanAccess/, 'trainee content must be classroom scoped'],
   [uploadRoute, /\/api\/content\/files\//, 'new uploads must return protected URLs'],
   [apiUtility, /fetchAuthenticatedBlobUrl/, 'frontend must support bearer-authenticated blob delivery'],
-  [traineeLearning, /fetchAuthenticatedBlobUrl/, 'learner player must use authenticated blob delivery'],
+  [trackedViewer, /fetchAuthenticatedBlobUrl/, 'the shared tracked content viewer must use authenticated blob delivery'],
+  [traineeLearning, /useTrackedContentViewer/, 'the learner player must use the shared tracked content viewer'],
 ];
 for (const [content, expression, message] of requiredContracts) {
   if (!expression.test(content)) errors.push(message);
