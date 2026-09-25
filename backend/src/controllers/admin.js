@@ -11,6 +11,7 @@ import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
 import { ensureContentRepositoryTable, ensureIndependentWrapperForAssessment, ensureIndependentWrapperForContent, ensureIndependentWrapperForDay } from '../services/independentModules.js';
 import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
+import { assignIsmsQuarterlyToEmployee } from '../services/ismsQuarterlyAssessment.js';
 import { computeContentStatus } from '../services/moduleCompletionStatus.js';
 import path from 'path';
 
@@ -3402,6 +3403,10 @@ export async function adminBulkAddTrainees(req, res) {
         branch: batch.branch, process: batch.process, lob: batch.lob,
         assignedBy: req.userId, triggerSource: 'BulkAddTrainees',
       });
+      await assignIsmsQuarterlyToEmployee({
+        employeeId: normEmpId, traineeName: traineeName || normEmpId, designation: t.designation || null, status: 'Active',
+        assignedBy: req.userId, triggerSource: 'NewJoiner:BulkAddTrainees',
+      });
       results.push({ ok: true, employeeId: normEmpId });
     }
 
@@ -4669,6 +4674,10 @@ export async function bulkImportExecute(req, res) {
           employeeId, traineeName: r.traineeName || r.name, batchNo: trimmedBatchNo || null,
           branch: r.branch, process: r.process, lob: r.lob,
           assignedBy: req.userId, triggerSource: 'BulkImport',
+        });
+        await assignIsmsQuarterlyToEmployee({
+          employeeId, traineeName: r.traineeName || r.name, designation: r.designation || null, status: 'Active',
+          assignedBy: req.userId, triggerSource: 'NewJoiner:BulkImport',
         });
         created.push(employeeId);
       } catch (e) {

@@ -39,6 +39,7 @@ import VoiceAccentTab from '../Coordinator/VoiceAccentTab.jsx';
 import TypingTestTab from './TypingTestTab.jsx';
 import DailyBatchReportTab from './DailyBatchReportTab.jsx';
 import ComplianceTrainingTab from './ComplianceTrainingTab.jsx';
+import IsmsQuarterlyTab from './IsmsQuarterlyTab.jsx';
 import TypingPassagesTab from './TypingPassagesTab.jsx';
 import TrainingCalendarEntryCard from '../TrainingCalendar/TrainingCalendarEntryCard.jsx';
 
@@ -80,6 +81,7 @@ const NAV = [
   { section: 'Compliance', items: [
     { id: 'compliance-audit', label: 'Compliance Audit', icon: '🔒' },
     { id: 'compliance-training', label: 'Compliance Training', icon: '🎯' },
+    { id: 'isms-quarterly', label: 'ISMS Quarterly Test', icon: '🛡️' },
     { id: 'audit-logs', label: 'Audit Logs', icon: '📋' },
   ]},
   { section: 'Import', items: [{ id: 'bulk-import', label: 'Bulk Import', icon: '📥' }] },
@@ -188,6 +190,7 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'daily-batch-report' && <DailyBatchReportTab isSuper={isSuper} />}
           {activeId === 'compliance-audit' && <ComplianceExport />}
           {activeId === 'compliance-training' && <ComplianceTrainingTab isSuper={isSuper} />}
+          {activeId === 'isms-quarterly' && <IsmsQuarterlyTab isSuper={isSuper} />}
           {activeId === 'processlob' && <ProcessLobTab />}
           {activeId === 'certrules' && <CertRulesTab />}
           {activeId === 'branches' && <BranchTab />}

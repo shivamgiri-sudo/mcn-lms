@@ -13,6 +13,7 @@ import {
   getIndependentModuleById,
 } from '../services/independentModules.js';
 import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
+import { assignIsmsQuarterlyToEmployee } from '../services/ismsQuarterlyAssessment.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('admin')];
@@ -229,6 +230,10 @@ router.post('/lms-users', ...auth, async (req, res) => {
         employeeId: finalEmployeeId, traineeName,
         batchNo: payload.batchNo, branch: payload.branch, process: payload.process, lob: payload.lob,
         assignedBy: req.userId, triggerSource: 'LmsUserCreate',
+      });
+      await assignIsmsQuarterlyToEmployee({
+        employeeId: finalEmployeeId, traineeName, designation: clean(req.body?.designation), status: 'Active',
+        assignedBy: req.userId, triggerSource: 'NewJoiner:LmsUserCreate',
       });
     }
 

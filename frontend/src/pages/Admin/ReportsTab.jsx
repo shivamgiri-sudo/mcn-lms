@@ -193,6 +193,13 @@ export default function ReportsTab() {
       url: `/admin/reports/assessment-results?${p}`, filename: `assessment-results-${bl}-${d}.csv`,
     },
     {
+      key: 'isms-quarterly',
+      icon: '🛡️', title: 'ISMS Quarterly Assessment', btnColor: '#0891b2',
+      desc: "Every employee's ISMS Test - Quarterly assignment, one row per financial-year quarter, with completion status, score, and pass/fail.",
+      cols: 'Employee Name, Employee ID, Designation, Department, Financial Year, Quarter, Assignment Date, Completion Status, Score, Pass/Fail, Attempt Date',
+      url: `/isms-quarterly/report`, filename: `isms-quarterly-${d}.csv`,
+    },
+    {
       key: 'attendance-log',
       icon: '📅', title: 'Attendance Log', btnColor: '#0891b2',
       desc: 'Daily attendance inferences per trainee showing activity source and flags.',

@@ -12,6 +12,7 @@ import { sendDailySummaryEmail } from './utils/mailer.js';
 import { cleanExpiredSessions, validateSessionSecurityConfig } from './utils/session.js';
 import { startScheduler } from './utils/scheduler.js';
 import { startDailyBatchReportScheduler } from './services/dailyBatchReportScheduler.js';
+import { startIsmsQuarterlyScheduler } from './services/ismsQuarterlyScheduler.js';
 import { runNotificationCampaignCycle } from './services/notificationCampaigns.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
@@ -52,6 +53,7 @@ import typingTestRoutes from './routes/typingTest.js';
 import typingPracticeRoutes from './routes/typingPractice.js';
 import dailyBatchReportRoutes from './routes/dailyBatchReport.js';
 import complianceTrainingRoutes from './routes/complianceTraining.js';
+import ismsQuarterlyRoutes from './routes/ismsQuarterly.js';
 import calibrationCatalogRoutes from './routes/calibrationCatalog.js';
 import calibrationOperationsRoutes from './routes/calibrationOperations.js';
 import calibrationAppealsRoutes from './routes/calibrationAppeals.js';
@@ -216,6 +218,7 @@ app.use('/api/typing-test', typingTestRoutes);
 app.use('/api/typing', typingPracticeRoutes);
 app.use('/api/daily-batch-report', dailyBatchReportRoutes);
 app.use('/api/compliance-training', complianceTrainingRoutes);
+app.use('/api/isms-quarterly', ismsQuarterlyRoutes);
 
 // These twelve routers existed on disk but were never mounted, so every page
 // that called them got the SPA shell instead of an API response. Their hook
@@ -373,6 +376,7 @@ function startBackgroundWork() {
   scheduleDailyEmail();
   startScheduler();
   startDailyBatchReportScheduler();
+  startIsmsQuarterlyScheduler();
   runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] initial run failed:', e.message));
   const campaignTimer = setInterval(() => {
     runNotificationCampaignCycle().catch(e => console.error('[NotifCampaign] cycle failed:', e.message));

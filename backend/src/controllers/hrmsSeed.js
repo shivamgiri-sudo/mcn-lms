@@ -5,6 +5,7 @@ import { queryHrms } from '../utils/hrmsDb.js';
 import { generateSalt, hashPassword, normalize, firstTimePassword } from '../utils/hash.js';
 import { autoAssignModulesForNewUser } from '../services/independentModules.js';
 import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
+import { assignIsmsQuarterlyToEmployee } from '../services/ismsQuarterlyAssessment.js';
 
 const HRMS_DB = process.env.HRMS_DB_NAME || 'mas_hrms';
 
@@ -350,6 +351,10 @@ export async function syncEmployees(req, res) {
         employeeId, traineeName,
         branch: payload.branch, process: payload.process, lob: payload.lob,
         assignedBy: req.userId, triggerSource: 'HrmsSync',
+      });
+      await assignIsmsQuarterlyToEmployee({
+        employeeId, traineeName, designation, status: 'Active',
+        assignedBy: req.userId, triggerSource: 'NewJoiner:HrmsSync',
       });
 
       await audit({

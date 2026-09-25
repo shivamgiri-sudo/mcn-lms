@@ -1564,3 +1564,53 @@ model ComplianceAssignmentLog {
   @@index([createdAt])
   @@map("compliance_assignment_log")
 }
+
+// One row per employee per financial-year quarter the existing "ISMS Test -
+// Quarterly" assessment was assigned to them. The assessment itself is
+// reused unchanged every quarter (never duplicated), so there is nowhere
+// else in the schema that distinguishes "this employee's Q1 attempt" from
+// their Q2 attempt on the very same assessmentId -- assessment_results is a
+// single running best-ever row per (employeeId, assessmentId). This ledger
+// is what lets reporting correlate an AssessmentAttempt back to the quarter
+// it belongs to (by falling inside this row's assignment window), and its
+// unique constraint is also the de-dupe guarantee against ever assigning the
+// same employee twice for the same quarter. Rows are never updated or
+// deleted -- each quarter gets its own permanent record for audit.
+model IsmsQuarterlyAssignment {
+  id               String   @id @default(uuid())
+  employeeId       String   @map("employee_id")
+  traineeName      String?  @map("trainee_name")
+  designation      String?
+  department       String?
+  fyLabel          String   @map("fy_label")     // e.g. "FY 2026-27"
+  quarter          Int                            // 1-4
+  quarterKey       String   @map("quarter_key")  // e.g. "Q2 FY 2026-27"
+  assessmentId     String   @map("assessment_id")
+  moduleId         String   @map("module_id")
+  assignedModuleId String   @map("assigned_module_id") // assigned_modules.id, no formal FK (same loosely-coupled convention as assigned_modules.assessmentId)
+  assignedAt       DateTime @default(now()) @map("assigned_at")
+  assignedBy       String?  @map("assigned_by")
+  triggerSource    String   @map("trigger_source") // QuarterlyScheduler | NewJoiner:<path> | ManualBulkRun
+
+  @@unique([employeeId, quarterKey])
+  @@index([quarterKey])
+  @@index([employeeId])
+  @@map("isms_quarterly_assignment")
+}
+
+// Idempotency + history for the quarterly scheduler: one row per quarter
+// actually processed, so a daily check ("has this quarter's bulk assignment
+// already run?") never re-scans every active employee once it has, and a
+// server restart that lands exactly on a quarter boundary can't double-run.
+model IsmsQuarterlyRunLog {
+  id             String   @id @default(uuid())
+  quarterKey     String   @unique @map("quarter_key")
+  runAt          DateTime @default(now()) @map("run_at")
+  triggerType    String   @default("Automatic") @map("trigger_type") // Automatic | Manual
+  totalEmployees Int      @default(0) @map("total_employees")
+  assignedCount  Int      @default(0) @map("assigned_count")
+  skippedSummary Json?    @map("skipped_summary")
+  triggeredBy    String?  @map("triggered_by")
+
+  @@map("isms_quarterly_run_log")
+}

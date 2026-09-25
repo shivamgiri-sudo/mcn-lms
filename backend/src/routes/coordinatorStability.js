@@ -10,6 +10,7 @@ import { evaluateCriteria, parseEvidenceType } from '../services/certificationCr
 import { notifyCertification, notifyOnboarding, notifyBatchAssignment } from '../utils/notify.js';
 import { queryHrms } from '../utils/hrmsDb.js';
 import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
+import { assignIsmsQuarterlyToEmployee } from '../services/ismsQuarterlyAssessment.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('coordinator')];
@@ -169,6 +170,10 @@ async function createTraineeAccount(raw, batch, coordinatorLoginId) {
     employeeId, traineeName, batchNo: batch.batchNo,
     branch: batch.branch, process: batch.process, lob: batch.lob,
     assignedBy: coordinatorLoginId, triggerSource: 'CoordinatorOnboard',
+  });
+  await assignIsmsQuarterlyToEmployee({
+    employeeId, traineeName, designation: raw?.designation || null, status: 'Active',
+    assignedBy: coordinatorLoginId, triggerSource: 'NewJoiner:CoordinatorOnboard',
   });
 
   let deliveryResults = [];
