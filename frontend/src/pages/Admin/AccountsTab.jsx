@@ -17,11 +17,36 @@ export default function AccountsTab({ isSuper }) {
   const [newBatchNo, setNewBatchNo] = useState('');
   const [changingBatch, setChangingBatch] = useState(false);
 
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState('');
+  const [pasteBusy, setPasteBusy] = useState(false);
+  const [pasteNotFound, setPasteNotFound] = useState(null);
+
   async function search(e) {
     e?.preventDefault?.();
     setSearched(true);
+    setPasteNotFound(null);
     const res = await api.get(`/admin/trainees/search?q=${encodeURIComponent(query)}`, 'admin');
     if (res.ok) setTrainees(res.data);
+  }
+
+  // Exact-match lookup for a pasted list of Employee IDs -- the free-text `q`
+  // search above only ever matches one term at a time, so looking up a known
+  // batch of employee codes (e.g. from an HR list) meant searching them one by
+  // one. Reuses the same searchTrainees endpoint with its employeeIds param.
+  async function searchByPastedIds() {
+    const ids = [...new Set(pasteText.split(/[\n,;\t]+/).map(s => s.trim().toUpperCase()).filter(Boolean))];
+    if (!ids.length) return;
+    setPasteBusy(true);
+    setSearched(true);
+    setQuery('');
+    const res = await api.get(`/admin/trainees/search?employeeIds=${encodeURIComponent(ids.join(','))}&limit=500`, 'admin');
+    setPasteBusy(false);
+    if (res.ok) {
+      setTrainees(res.data);
+      const foundIds = new Set(res.data.map(t => t.employeeId));
+      setPasteNotFound(ids.filter(id => !foundIds.has(id)));
+    }
   }
 
   async function createIndependentUser(e) {
@@ -127,6 +152,7 @@ export default function AccountsTab({ isSuper }) {
           <button className="btn" type="submit">Search</button>
         </form>
         <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn small secondary" onClick={() => setPasteOpen(o => !o)}>{pasteOpen ? '▾' : '▸'} Paste Multiple Employee IDs</button>
           <button className="btn small secondary" onClick={() => downloadCsv('/admin/trainees/export', 'all-trainees.csv')}>⬇ Export All CSV</button>
           {trainees.length > 0 && (
             <button className="btn small secondary" onClick={() => {
@@ -138,6 +164,31 @@ export default function AccountsTab({ isSuper }) {
           )}
         </div>
       </div>
+
+      {pasteOpen && (
+        <div className="card" style={{ padding: 14 }}>
+          <label style={{ fontSize: 12.5, fontWeight: 700, display: 'block', marginBottom: 6 }}>Paste Multiple Employee IDs</label>
+          <textarea
+            className="input" rows={3} style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }}
+            placeholder="Paste one or more Employee IDs — one per line, or separated by commas/semicolons/tabs (e.g. EMP1001, EMP1002, EMP1003)…"
+            value={pasteText} onChange={e => setPasteText(e.target.value)}
+          />
+          <div style={{ display: 'flex', gap: 8, marginTop: 8, alignItems: 'center' }}>
+            <button className="btn small" onClick={searchByPastedIds} disabled={pasteBusy || !pasteText.trim()}>{pasteBusy ? 'Searching…' : 'Search These IDs'}</button>
+            {pasteText.trim() && (
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                {[...new Set(pasteText.split(/[\n,;\t]+/).map(s => s.trim()).filter(Boolean))].length} ID(s) entered
+              </span>
+            )}
+          </div>
+          {pasteNotFound && pasteNotFound.length > 0 && (
+            <div style={{ fontSize: 11.5, marginTop: 8, color: '#dc2626' }}>
+              {pasteNotFound.length} not found: {pasteNotFound.slice(0, 10).join(', ')}{pasteNotFound.length > 10 ? '…' : ''}
+            </div>
+          )}
+        </div>
+      )}
+
       {msg && <div className={msg.startsWith('✓') ? 'toast ok' : 'toast bad'} style={{ marginBottom: 10 }}>{msg}</div>}
 
       {searched && trainees.length === 0 && <div className="empty">No trainees found.</div>}

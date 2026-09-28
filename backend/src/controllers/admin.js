@@ -1116,10 +1116,14 @@ export async function deleteQuestion(req, res) {
 // pagination with a real `total` count, and an optional per-row
 // `enrollmentStatus` relative to a given batchNo (NotEnrolled /
 // EnrolledThisBatch / EnrolledOtherActiveBatch / EnrolledOtherBatch) for the
-// Search & Enroll Existing Trainee screen.
+// Search & Enroll Existing Trainee screen. Also additive: an `employeeIds`
+// param (comma-separated) for the Trainee Accounts page's "paste multiple
+// Employee IDs" lookup -- an exact-match IN() filter that takes over from
+// `q`'s fuzzy OR search when present, since the caller already knows exactly
+// which employeeIds they want back.
 export async function searchTrainees(req, res) {
   try {
-    const { q, designation, branch, process: processFilter, lob, department, batchNo } = req.query;
+    const { q, designation, branch, process: processFilter, lob, department, batchNo, employeeIds } = req.query;
     const status = req.query.status; // 'Active' | 'Inactive' | undefined -> both (not Deleted)
 
     let designationIn;
@@ -1129,6 +1133,12 @@ export async function searchTrainees(req, res) {
       if (!designationIn.length) return res.json({ ok: true, data: [], total: 0 }); // no designation maps to this department
     }
 
+    let employeeIdIn;
+    if (employeeIds) {
+      employeeIdIn = [...new Set(String(employeeIds).split(',').map(s => s.trim().toUpperCase()).filter(Boolean))];
+      if (!employeeIdIn.length) return res.json({ ok: true, data: [], total: 0 });
+    }
+
     const where = {
       status: status === 'Active' || status === 'Inactive' ? status : { not: 'Deleted' },
       ...(req.userBranch ? { branch: req.userBranch } : (branch ? { branch } : {})),
@@ -1136,19 +1146,21 @@ export async function searchTrainees(req, res) {
       ...(lob ? { lob } : {}),
       ...(designation ? { designation: { contains: designation } } : {}),
       ...(designationIn ? { designation: { in: designationIn } } : {}),
-      ...(q ? {
-        OR: [
-          { employeeId: { contains: q } },
-          { traineeName: { contains: q } },
-          { email: { contains: q } },
-          { mobile: { contains: q } },
-          { batchNo: { contains: q } },
-          { process: { contains: q } },
-          { lob: { contains: q } },
-        ],
-      } : {}),
+      ...(employeeIdIn
+        ? { employeeId: { in: employeeIdIn } }
+        : q ? {
+          OR: [
+            { employeeId: { contains: q } },
+            { traineeName: { contains: q } },
+            { email: { contains: q } },
+            { mobile: { contains: q } },
+            { batchNo: { contains: q } },
+            { process: { contains: q } },
+            { lob: { contains: q } },
+          ],
+        } : {}),
     };
-    const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
+    const take = Math.min(Math.max(parseInt(req.query.limit, 10) || (employeeIdIn ? employeeIdIn.length : 50), 1), 500);
     const skip = Math.max(parseInt(req.query.offset, 10) || 0, 0);
     const [trainees, total] = await Promise.all([
       prisma.traineeMaster.findMany({
