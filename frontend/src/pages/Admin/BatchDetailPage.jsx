@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Papa from 'papaparse';
 import { api, downloadCsv } from '../../utils/api.js';
 import { BranchSelect, ProcessSelect, LobSelect } from '../../components/OrgSelect.jsx';
+import SearchEnrollPanel from './SearchEnrollPanel.jsx';
 
 const TRAINEE_CSV_TEMPLATE = 'EmployeeID,Name,Email,Mobile\nEMP1001,John Doe,john@example.com,9876543210\n';
 
@@ -75,41 +76,7 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
     else setEditErr(res.message || 'Save failed.');
   }
 
-  // Search & enroll existing trainee
-  const [searchQ, setSearchQ] = useState('');
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchLoading, setSearchLoading] = useState(false);
-  const [enrolling, setEnrolling] = useState(null);
-
   function addToast(text, ok = true) { setAddMsg({ text, ok }); setTimeout(() => setAddMsg({ text: '', ok: true }), 5000); }
-
-  async function searchTrainees(q) {
-    setSearchQ(q);
-    if (q.trim().length < 2) { setSearchResults([]); return; }
-    setSearchLoading(true);
-    const res = await api.get(`/admin/trainees/search?q=${encodeURIComponent(q)}&limit=10`, 'admin');
-    setSearchLoading(false);
-    if (res.ok) setSearchResults(res.data || []);
-  }
-
-  async function enrollExisting(trainee) {
-    setEnrolling(trainee.employeeId);
-    // A search hit is, by definition, a trainee who already has a trainee_master
-    // row. /trainees/bulk now transfers/reactivates existing trainees too, but this
-    // single-record flow still goes through the dedicated enroll-existing endpoint.
-    const res = await api.post(`/admin/batches/${batchNo}/trainees/enroll-existing`, {
-      employeeId: trainee.employeeId,
-    }, 'admin');
-    setEnrolling(null);
-    if (res.ok) {
-      addToast(res.alreadyEnrolled ? `${trainee.traineeName} is already enrolled in this batch.` : `${trainee.traineeName} enrolled.`);
-      setSearchQ('');
-      setSearchResults([]);
-      reload();
-    } else {
-      addToast(res.message || 'Enroll failed.', false);
-    }
-  }
 
   async function reload() {
     const [d, a] = await Promise.all([
@@ -192,52 +159,10 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
       {tab === 'trainees' && (
         <div>
           {/* Search & enroll existing trainee */}
-          <div className="glass-panel" style={{marginBottom:'14px'}}>
-            <div className="panel-title">Search & Enroll Existing Trainee</div>
-            {addMsg.text && (
-              <div className={`${addMsg.ok ? 'toast ok' : 'toast bad'}`} style={{ marginBottom: 10, fontSize: 12 }}>{addMsg.text}</div>
-            )}
-            <div style={{ position: 'relative' }}>
-              <input
-                className="input"
-                placeholder="Search by name or Employee ID (min 2 chars)..."
-                value={searchQ}
-                onChange={e => searchTrainees(e.target.value)}
-                style={{ width: '100%', paddingRight: 36 }}
-              />
-              {searchLoading && <span style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', fontSize: 12, color: 'var(--muted)' }}>⟳</span>}
-            </div>
-            {searchResults.length > 0 && (
-              <div style={{ marginTop: 8, background: 'rgba(255,255,255,.04)', borderRadius: 10, border: '1px solid rgba(255,255,255,.1)', overflow: 'hidden' }}>
-                {searchResults.map(t => {
-                  const alreadyEnrolled = data?.trainees?.some(et => et.employeeId === t.employeeId);
-                  return (
-                    <div key={t.employeeId} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,.06)' }}>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{t.traineeName}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                          <span style={{ fontFamily: 'monospace' }}>{t.employeeId}</span>
-                          {t.empIdType === 'TEMP' && (
-                            <span style={{ marginLeft: 5, background: '#d97706', color: '#fff', borderRadius: 4, fontSize: 9, fontWeight: 700, padding: '1px 5px' }}>TEMP</span>
-                          )}
-                          {t.email ? ` · ${t.email}` : ''}{t.batchNo ? ` · Batch: ${t.batchNo}` : ''}
-                        </div>
-                      </div>
-                      {alreadyEnrolled
-                        ? <span style={{ fontSize: 11, color: 'var(--ok)', fontWeight: 700 }}>✓ Enrolled</span>
-                        : <button className="btn small" onClick={() => enrollExisting(t)} disabled={enrolling === t.employeeId}>
-                            {enrolling === t.employeeId ? '...' : '+ Enroll'}
-                          </button>
-                      }
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-            {searchQ.length >= 2 && !searchLoading && searchResults.length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 8, textAlign: 'center', padding: '12px 0' }}>No trainees found for "{searchQ}"</div>
-            )}
-          </div>
+          {addMsg.text && (
+            <div className={`${addMsg.ok ? 'toast ok' : 'toast bad'}`} style={{ marginBottom: 10, fontSize: 12 }}>{addMsg.text}</div>
+          )}
+          <SearchEnrollPanel batchNo={batchNo} batch={batch} onEnrolled={reload} />
 
           {/* Add trainees via CSV */}
           <div className="glass-panel" style={{marginBottom:'14px'}}>

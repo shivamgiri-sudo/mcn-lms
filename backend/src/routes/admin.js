@@ -26,7 +26,7 @@ import {
   getRiskLevel,
   uploadQuestionsCSV,
   adminCreateBatch, adminUpdateBatch, adminUpdateBatchCoordinator, listAllCoordinators, closeBatch, deleteBatch,
-  adminBulkAddTrainees, enrollExistingTraineeAdmin, adminChangeTraineeBatch, resetAdminPassword,
+  adminBulkAddTrainees, enrollExistingTraineeAdmin, enrollExistingTraineesBulk, adminChangeTraineeBatch, resetAdminPassword,
   setContentLock, unlockContentForTrainee,
   listBranches, getBranchDetail,
   listPortalUsers, createPortalUser, updatePortalUser, changeUserRole, deletePortalUser, resetPortalUserPin,
@@ -166,6 +166,7 @@ router.put('/batches/:batchNo/classrooms/:classroomId/primary', ...auth, setPrim
 router.delete('/batches/:batchNo/classrooms/:classroomId', ...auth, removeBatchClassroom);
 router.post('/batches/:batchNo/trainees/bulk', ...auth, adminBulkAddTrainees);
 router.post('/batches/:batchNo/trainees/enroll-existing', ...auth, enrollExistingTraineeAdmin);
+router.post('/batches/:batchNo/trainees/enroll-existing-bulk', ...auth, enrollExistingTraineesBulk);
 router.get('/batches/:batchNo', ...auth, getBatchDetail);
 router.get('/batches/:batchNo/analytics', ...auth, getBatchAnalytics);
 router.get('/batches/:batchNo/content-progress', ...auth, getBatchContentProgress);

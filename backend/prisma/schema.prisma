@@ -1614,3 +1614,30 @@ model IsmsQuarterlyRunLog {
 
   @@map("isms_quarterly_run_log")
 }
+
+// One row per trainee successfully enrolled via "Search & Enroll Existing
+// Trainee" (Batch Detail > Trainees). trainee_master/batch_master carry no
+// per-enrollment fields of their own (batch_master.start_date is one date for
+// the whole batch, trainee_master has no enrollment-date column), so the
+// details captured on that screen -- enrollment date, training start date,
+// trainer/facilitator, batch code, training mode, remarks -- live here as a
+// permanent, append-only record, never updated or deleted.
+model BatchEnrollmentLog {
+  id                 String   @id @default(uuid())
+  employeeId         String   @map("employee_id")
+  traineeName        String?  @map("trainee_name")
+  batchNo            String   @map("batch_no")
+  previousBatchNo    String?  @map("previous_batch_no")
+  enrollmentDate     DateTime? @map("enrollment_date")
+  trainingStartDate  DateTime? @map("training_start_date")
+  trainerName        String?  @map("trainer_name")
+  batchCode          String?  @map("batch_code")
+  trainingMode       String?  @map("training_mode")
+  remarks            String?  @db.Text
+  enrolledBy         String?  @map("enrolled_by")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([batchNo])
+  @@index([employeeId])
+  @@map("batch_enrollment_log")
+}

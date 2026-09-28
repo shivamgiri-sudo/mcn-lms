@@ -5,7 +5,7 @@ import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from 
 import { sendCertificateEmail } from '../utils/mailer.js';
 import { audit } from '../utils/audit.js';
 import { createSession, deleteAllSessions } from '../utils/session.js';
-import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned } from '../utils/notify.js';
+import { notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned, notifyBatchAssignment } from '../utils/notify.js';
 import * as cache from '../utils/cache.js';
 import { listDriveFolderAny } from '../services/drive.js';
 import { generateTempEmpId, mapEmployeeId } from '../utils/empIdMapping.js';
@@ -1109,30 +1109,77 @@ export async function deleteQuestion(req, res) {
 }
 
 // ── Trainee Accounts ──────────────────────────────────────────────────────────
+// Backward compatible with every existing caller (BroadcastTab's employee
+// search, the old single-select enroll box) -- q/designation/limit keep their
+// original meaning and `data` keeps its original row shape. Everything below
+// is additive: branch/process/lob/department/status filters, offset-based
+// pagination with a real `total` count, and an optional per-row
+// `enrollmentStatus` relative to a given batchNo (NotEnrolled /
+// EnrolledThisBatch / EnrolledOtherActiveBatch / EnrolledOtherBatch) for the
+// Search & Enroll Existing Trainee screen.
 export async function searchTrainees(req, res) {
   try {
-    const { q, designation } = req.query;
+    const { q, designation, branch, process: processFilter, lob, department, batchNo } = req.query;
+    const status = req.query.status; // 'Active' | 'Inactive' | undefined -> both (not Deleted)
+
+    let designationIn;
+    if (department) {
+      const rows = await prisma.designationMaster.findMany({ where: { department: { contains: department } }, select: { title: true } });
+      designationIn = rows.map(r => r.title);
+      if (!designationIn.length) return res.json({ ok: true, data: [], total: 0 }); // no designation maps to this department
+    }
+
     const where = {
-      status: { not: 'Deleted' },
-      ...(req.userBranch ? { branch: req.userBranch } : {}),
+      status: status === 'Active' || status === 'Inactive' ? status : { not: 'Deleted' },
+      ...(req.userBranch ? { branch: req.userBranch } : (branch ? { branch } : {})),
+      ...(processFilter ? { process: processFilter } : {}),
+      ...(lob ? { lob } : {}),
       ...(designation ? { designation: { contains: designation } } : {}),
+      ...(designationIn ? { designation: { in: designationIn } } : {}),
       ...(q ? {
         OR: [
           { employeeId: { contains: q } },
           { traineeName: { contains: q } },
           { email: { contains: q } },
+          { mobile: { contains: q } },
           { batchNo: { contains: q } },
+          { process: { contains: q } },
+          { lob: { contains: q } },
         ],
       } : {}),
     };
     const take = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 500);
-    const trainees = await prisma.traineeMaster.findMany({
-      where, take, orderBy: { createdAt: 'desc' },
-      include: { userAccount: { select: { locked: true, failedAttempts: true, active: true, forcePasswordReset: true } } },
+    const skip = Math.max(parseInt(req.query.offset, 10) || 0, 0);
+    const [trainees, total] = await Promise.all([
+      prisma.traineeMaster.findMany({
+        where, take, skip, orderBy: { createdAt: 'desc' },
+        include: { userAccount: { select: { locked: true, failedAttempts: true, active: true, forcePasswordReset: true } } },
+      }),
+      prisma.traineeMaster.count({ where }),
+    ]);
+
+    let otherBatchStatus = {};
+    if (batchNo) {
+      const otherBatchNos = [...new Set(trainees.map(t => t.batchNo).filter(b => b && b !== batchNo))];
+      if (otherBatchNos.length) {
+        const rows = await prisma.batchMaster.findMany({ where: { batchNo: { in: otherBatchNos } }, select: { batchNo: true, batchStatus: true } });
+        otherBatchStatus = Object.fromEntries(rows.map(b => [b.batchNo, b.batchStatus]));
+      }
+    }
+
+    const data = trainees.map(t => {
+      const row = { ...t, locked: t.userAccount?.locked ?? false, hasAccount: !!t.userAccount };
+      if (batchNo) {
+        if (t.batchNo === batchNo) row.enrollmentStatus = 'EnrolledThisBatch';
+        else if (t.batchNo && otherBatchStatus[t.batchNo] === 'Active') row.enrollmentStatus = 'EnrolledOtherActiveBatch';
+        else if (t.batchNo) row.enrollmentStatus = 'EnrolledOtherBatch';
+        else row.enrollmentStatus = 'NotEnrolled';
+      }
+      return row;
     });
-    const data = trainees.map(t => ({ ...t, locked: t.userAccount?.locked ?? false, hasAccount: !!t.userAccount }));
-    res.json({ ok: true, data });
+    res.json({ ok: true, data, total });
   } catch (err) {
+    console.error('[admin] searchTrainees failed:', err);
     res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
@@ -3516,6 +3563,131 @@ export async function enrollExistingTraineeAdmin(req, res) {
     res.json({ ok: true, message: `${trainee.traineeName || employeeId} was enrolled in ${batch.batchNo}.` });
   } catch (err) {
     console.error('[admin] existing trainee enrolment failed:', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
+// ── Bulk "Search & Enroll Existing Trainee" enrollment ──────────────────────────
+// Same underlying transfer as enrollExistingTraineeAdmin (above) -- reused
+// unchanged so classroom mapping, totalTrainees counters and progress/risk
+// resets stay correct -- but for an array of employeeIds at once, with two
+// confirmations the caller can request up front before anything is written:
+// "overrides" (some selected trainees are active in ANOTHER batch) and
+// "capacity" (enrolling all of them would exceed the batch's expectedTrainees).
+// A soft-deleted employeeId is treated as not-found here (not reactivated):
+// unlike adminBulkAddTrainees / POST /lms-users, which have a name/mobile/email
+// to reactivate a row WITH, this endpoint's inputs (search picks, pasted IDs,
+// an uploaded ID list) only ever carry an employeeId -- nothing to safely
+// resurrect a deleted record with -- so it stays consistent with the existing
+// single-employee enrollExistingTraineeAdmin's same "not found" behaviour.
+export async function enrollExistingTraineesBulk(req, res) {
+  try {
+    const { batchNo } = req.params;
+    const employeeIds = Array.isArray(req.body?.employeeIds)
+      ? [...new Set(req.body.employeeIds.map(id => String(id || '').trim().toUpperCase()).filter(Boolean))]
+      : [];
+    if (!employeeIds.length) return res.status(400).json({ ok: false, message: 'At least one Employee ID is required.' });
+
+    const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
+    if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    if (req.userBranch && batch.branch !== req.userBranch) {
+      return res.status(403).json({ ok: false, message: 'You can only enroll trainees into batches in your own branch.' });
+    }
+
+    const confirmOverrides = !!req.body?.confirmOverrides;
+    const confirmCapacity = !!req.body?.confirmCapacity;
+    const notify = req.body?.notify !== false;
+
+    // Enrollment Details -- optional, recorded to batch_enrollment_log for every
+    // trainee actually transferred/enrolled below. None of these are required:
+    // an admin who just wants to move people into the batch can skip the form.
+    const enrollmentDate = req.body?.enrollmentDate ? new Date(req.body.enrollmentDate) : null;
+    const trainingStartDate = req.body?.trainingStartDate ? new Date(req.body.trainingStartDate) : null;
+    const trainerName = String(req.body?.trainerName || '').trim() || null;
+    const batchCode = String(req.body?.batchCode || '').trim() || null;
+    const trainingMode = String(req.body?.trainingMode || '').trim() || null;
+    const remarks = String(req.body?.remarks || '').trim() || null;
+
+    const trainees = await prisma.traineeMaster.findMany({ where: { employeeId: { in: employeeIds } } });
+    const byId = new Map(trainees.map(t => [t.employeeId, t]));
+
+    const otherBatchNos = [...new Set(trainees.map(t => t.batchNo).filter(b => b && b !== batchNo))];
+    const otherBatches = otherBatchNos.length
+      ? await prisma.batchMaster.findMany({ where: { batchNo: { in: otherBatchNos } }, select: { batchNo: true, batchStatus: true } })
+      : [];
+    const otherBatchStatus = Object.fromEntries(otherBatches.map(b => [b.batchNo, b.batchStatus]));
+
+    // Classify every requested id first so a confirmation can be requested
+    // without writing anything yet.
+    const plan = [];
+    for (const employeeId of employeeIds) {
+      const trainee = byId.get(employeeId);
+      if (!trainee || trainee.status === 'Deleted') { plan.push({ employeeId, kind: 'NotFound' }); continue; }
+      if (trainee.batchNo === batchNo) { plan.push({ employeeId, trainee, kind: 'AlreadyEnrolled' }); continue; }
+      const needsOverride = trainee.batchNo && otherBatchStatus[trainee.batchNo] === 'Active';
+      if (needsOverride && !confirmOverrides) { plan.push({ employeeId, trainee, kind: 'NeedsOverride' }); continue; }
+      plan.push({ employeeId, trainee, kind: 'Transfer' });
+    }
+
+    const needsOverride = plan.filter(p => p.kind === 'NeedsOverride');
+    if (needsOverride.length) {
+      return res.json({
+        ok: true, needsConfirmation: 'overrides',
+        message: `${needsOverride.length} of the selected trainees are already enrolled in another active batch. Confirm to move them into ${batchNo}.`,
+        employeeIds: needsOverride.map(p => p.employeeId),
+      });
+    }
+
+    const toTransfer = plan.filter(p => p.kind === 'Transfer');
+    if (batch.expectedTrainees > 0 && !confirmCapacity) {
+      const projectedTotal = batch.totalTrainees + toTransfer.length;
+      if (projectedTotal > batch.expectedTrainees) {
+        return res.json({
+          ok: true, needsConfirmation: 'capacity',
+          message: `Enrolling these ${toTransfer.length} trainees would bring ${batchNo} to ${projectedTotal}, above its expected capacity of ${batch.expectedTrainees}.`,
+        });
+      }
+    }
+
+    const results = [];
+    for (const item of plan) {
+      if (item.kind === 'NotFound') { results.push({ employeeId: item.employeeId, ok: false, reason: 'NotFound' }); continue; }
+      if (item.kind === 'AlreadyEnrolled') { results.push({ employeeId: item.employeeId, traineeName: item.trainee.traineeName, ok: true, alreadyEnrolled: true }); continue; }
+      const { trainee } = item;
+      const previousBatchNo = trainee.batchNo;
+      try {
+        await transferTraineeToBatch({ employeeId: trainee.employeeId, batch, previousBatchNo, req });
+        await prisma.batchEnrollmentLog.create({
+          data: {
+            employeeId: trainee.employeeId, traineeName: trainee.traineeName,
+            batchNo: batch.batchNo, previousBatchNo,
+            enrollmentDate, trainingStartDate, trainerName, batchCode, trainingMode, remarks,
+            enrolledBy: req.userId,
+          },
+        });
+        if (notify) {
+          try {
+            await notifyBatchAssignment({ traineeName: trainee.traineeName, mobile: trainee.mobile, email: trainee.email, batchNo: batch.batchNo, classroomName: batch.classroomName, process: batch.process });
+          } catch (notifyErr) {
+            console.error('[admin] bulk enroll notification failed:', notifyErr);
+          }
+        }
+        results.push({ employeeId: trainee.employeeId, traineeName: trainee.traineeName, ok: true, transferred: true });
+      } catch (err) {
+        console.error('[admin] bulk enroll failed for', trainee.employeeId, err);
+        results.push({ employeeId: trainee.employeeId, traineeName: trainee.traineeName, ok: false, reason: 'Error' });
+      }
+    }
+
+    const enrolledCount = results.filter(r => r.ok && !r.alreadyEnrolled).length;
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'BULK_ENROLL_EXISTING', module: 'Trainee', referenceId: batchNo,
+      newValue: { batchNo, requested: employeeIds.length, enrolled: enrolledCount, results: results.map(r => ({ employeeId: r.employeeId, ok: r.ok, reason: r.reason })) },
+    });
+
+    res.json({ ok: true, message: `${enrolledCount} of ${employeeIds.length} trainee(s) enrolled in ${batchNo}.`, results });
+  } catch (err) {
+    console.error('[admin] bulk existing-trainee enrolment failed:', err);
     res.status(500).json({ ok: false, message: err.message || 'Server error' });
   }
 }
