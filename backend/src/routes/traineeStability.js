@@ -191,7 +191,25 @@ async function hasClassroomAccess(trainee, classroomId) {
     where: { employeeId: trainee.employeeId, classroomId, active: true },
     select: { id: true },
   });
-  return Boolean(mapping);
+  if (mapping) return true;
+
+  // Self-heal: a batch's classroom can be attached (or bulk trainees added)
+  // before/without the mapping ever being written for this trainee -- see
+  // backfillMissingBatchClassroomAssignments for the boot-time sweep. Repair
+  // it here too so a trainee is never stuck 403ing on content their own
+  // batch's classroom genuinely includes, even between deploys.
+  if (!trainee.batchNo) return false;
+  const batch = await prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo }, select: { classroomId: true } });
+  const belongsToBatch = batch?.classroomId === classroomId
+    || Boolean(await prisma.batchClassroomMap.findFirst({ where: { batchNo: trainee.batchNo, classroomId, active: true }, select: { id: true } }));
+  if (!belongsToBatch) return false;
+
+  await prisma.traineeClassroomMap.upsert({
+    where: { employeeId_classroomId: { employeeId: trainee.employeeId, classroomId } },
+    create: { employeeId: trainee.employeeId, classroomId, batchNo: trainee.batchNo, remarks: 'Self-healed: batch classroom was not yet mapped to this trainee' },
+    update: { active: true },
+  });
+  return true;
 }
 
 // Broadcast content lives in content_repository_master and reaches a learner through

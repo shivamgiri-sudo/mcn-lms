@@ -131,6 +131,12 @@ export default function BatchDetailPage({ batchNo, navigate, onBack }) {
         <button className="btn small secondary" onClick={openEdit}>✎ Edit Batch</button>
       </div>
 
+      {!batch.classroomId && trainees.length > 0 && (
+        <div className="toast bad" style={{ marginBottom: 14, fontSize: 12.5 }}>
+          ⚠ No classroom is assigned to this batch yet. {trainees.length} trainee(s) cannot open any curriculum content until one is set — click <b>Edit Batch</b> and select a classroom, then Save.
+        </div>
+      )}
+
       <div className="inner-tabs">
         {tabs.map(t => <button key={t} className={`itab${tab===t?' active':''}`} onClick={() => setTab(t)}>{t.charAt(0).toUpperCase()+t.slice(1)}</button>)}
       </div>

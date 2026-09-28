@@ -21,6 +21,7 @@ import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStabili
 import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 import { ensureCertificationRuleColumns } from './services/certificationSchema.js';
 import { ensureContentProgressAcknowledgementColumns } from './services/contentProgressSchema.js';
+import { backfillMissingBatchClassroomAssignments } from './services/classroomAssignmentBackfill.js';
 
 import browserAuthRoutes from './routes/browserAuth.js';
 import passwordStabilityRoutes from './routes/passwordStability.js';
@@ -415,6 +416,7 @@ const server = app.listen(PORT, () => {
   // rule columns are read by every portal.
   ensureCertificationRuleColumns().catch(error => console.error('[schema] certification rule columns failed:', error.message));
   ensureContentProgressAcknowledgementColumns().catch(error => console.error('[schema] content progress acknowledgement columns failed:', error.message));
+  backfillMissingBatchClassroomAssignments().catch(error => console.error('[schema] classroom assignment backfill failed:', error.message));
   runTalentGovernanceCleanup();
   startBackgroundWork();
 });
