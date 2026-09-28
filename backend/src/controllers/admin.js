@@ -49,6 +49,21 @@ const parseOptionalDate = (value) => {
 };
 const drivePreviewUrl = (driveFileId) => driveFileId ? `https://drive.google.com/file/d/${driveFileId}/preview` : null;
 
+// A batch can carry more than one classroom (batch_classroom_map), but
+// batch.classroomId only ever names the primary. Every enrollment path below
+// used to map a trainee to the primary alone, so a batch's SECONDARY
+// classroom (and whatever days/modules live there) was never reachable by a
+// trainee added through bulk-add, reactivate, or transfer -- only a manual
+// "Edit Batch -> Save" (adminUpdateBatch/syncBatchClassroomAssignment) ever
+// mapped every classroom. This returns every classroom the trainee should
+// actually get, falling back to the single classroomId column for batches
+// with no batch_classroom_map rows at all (pre-multi-classroom data).
+async function getBatchClassroomIds(batchNo, batch, db = prisma) {
+  const maps = await db.batchClassroomMap.findMany({ where: { batchNo, active: true }, select: { classroomId: true } });
+  const ids = [...new Set(maps.map(m => m.classroomId))];
+  return ids.length ? ids : (batch.classroomId ? [batch.classroomId] : []);
+}
+
 async function syncBatchClassroomAssignment({ batch, classroomId, classroomName, assignedBy, db = prisma }) {
   const batchNo = batch.batchNo;
 
@@ -3294,6 +3309,7 @@ export async function adminBulkAddTrainees(req, res) {
 
     const batch = await prisma.batchMaster.findUnique({ where: { batchNo } });
     if (!batch) return res.status(404).json({ ok: false, message: 'Batch not found.' });
+    const batchClassroomIds = await getBatchClassroomIds(batchNo, batch);
 
     const results = [];
     for (const t of trainees) {
@@ -3346,10 +3362,10 @@ export async function adminBulkAddTrainees(req, res) {
             where: { employeeId: existing.employeeId },
             data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
           });
-          if (batch.classroomId) {
+          for (const classroomId of batchClassroomIds) {
             await tx.traineeClassroomMap.upsert({
-              where: { employeeId_classroomId: { employeeId: existing.employeeId, classroomId: batch.classroomId } },
-              create: { employeeId: existing.employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+              where: { employeeId_classroomId: { employeeId: existing.employeeId, classroomId } },
+              create: { employeeId: existing.employeeId, classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
               update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
             });
           }
@@ -3394,10 +3410,10 @@ export async function adminBulkAddTrainees(req, res) {
           });
           const userPayload = { employeeId: existing.employeeId, traineeName: traineeName || existing.traineeName, email: normEmail || existing.email, mobile: effectiveMobile, batchNo: batch.batchNo, classroomId: batch.classroomId, passwordHash, salt, forcePasswordReset: true, active: true };
           await tx.userMaster.upsert({ where: { employeeId: existing.employeeId }, create: userPayload, update: userPayload });
-          if (batch.classroomId) {
+          for (const classroomId of batchClassroomIds) {
             await tx.traineeClassroomMap.upsert({
-              where: { employeeId_classroomId: { employeeId: existing.employeeId, classroomId: batch.classroomId } },
-              create: { employeeId: existing.employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+              where: { employeeId_classroomId: { employeeId: existing.employeeId, classroomId } },
+              create: { employeeId: existing.employeeId, classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
               update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
             });
           }
@@ -3446,11 +3462,11 @@ export async function adminBulkAddTrainees(req, res) {
             forcePasswordReset: true,
           },
         });
-        if (batch.classroomId) {
+        for (const classroomId of batchClassroomIds) {
           await tx.traineeClassroomMap.upsert({
-            where: { employeeId_classroomId: { employeeId: normEmpId, classroomId: batch.classroomId } },
-            create: { employeeId: normEmpId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
-            update: {},
+            where: { employeeId_classroomId: { employeeId: normEmpId, classroomId } },
+            create: { employeeId: normEmpId, classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+            update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
           });
         }
       });
@@ -3507,6 +3523,7 @@ export async function adminBulkAddTrainees(req, res) {
 // progress/risk/certification reset stay consistent in exactly one place instead of
 // two copies drifting apart.
 async function transferTraineeToBatch({ employeeId, batch, previousBatchNo, req }) {
+  const batchClassroomIds = await getBatchClassroomIds(batch.batchNo, batch);
   await prisma.$transaction(async tx => {
     await tx.traineeMaster.update({
       where: { employeeId },
@@ -3535,10 +3552,10 @@ async function transferTraineeToBatch({ employeeId, batch, previousBatchNo, req 
       data: { batchNo: batch.batchNo, branch: batch.branch, process: batch.process, lob: batch.lob, classroomId: batch.classroomId, active: true },
     });
     await tx.traineeClassroomMap.updateMany({ where: { employeeId }, data: { active: false } });
-    if (batch.classroomId) {
+    for (const classroomId of batchClassroomIds) {
       await tx.traineeClassroomMap.upsert({
-        where: { employeeId_classroomId: { employeeId, classroomId: batch.classroomId } },
-        create: { employeeId, classroomId: batch.classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
+        where: { employeeId_classroomId: { employeeId, classroomId } },
+        create: { employeeId, classroomId, batchNo: batch.batchNo, assignedBy: req.userId },
         update: { active: true, batchNo: batch.batchNo, assignedBy: req.userId },
       });
     }

@@ -1,19 +1,23 @@
 import { prisma } from '../utils/db.js';
 
-// A batch's classroom can be attached (adminUpdateBatch's syncBatchClassroomAssignment)
-// AFTER trainees were already bulk-added to it -- adminBulkAddTrainees, and the
-// enroll-existing / change-batch transfer path, only ever write batch.classroomId
-// as it stood AT THAT MOMENT, so a batch created via the wizard's default
-// "No classroom yet" option and then bulk-imported leaves every trainee with
-// classroom_id NULL and zero trainee_classroom_map rows -- invisible/unreachable
-// curriculum content for the whole batch (reported live for Batch 445 / ONF-SEP26-005:
-// Day 1-4 unreachable, "classrooms not assigned automatic to users"). This project
-// deploys by pulling code rather than running migrations, so the repair runs here at
-// boot instead of a one-off script somebody has to remember to run. Idempotent: only
-// trainees with a NULL classroom_id (or missing the active map row) are touched, so a
-// deliberately multi-classroom trainee whose classroom_id is already set to something
-// else is never overwritten -- this backfills the "nobody ever assigned one" gap, not a
-// disagreement about which classroom is correct.
+// Two distinct gaps land here, both because enrollment code (adminBulkAddTrainees,
+// the enroll-existing/change-batch transfer path) only ever maps a trainee against
+// batch.classroomId as it stood at that exact moment, and never loops over a
+// batch's OTHER classrooms:
+//   1. A batch created with no classroom picked, then bulk-imported, leaves every
+//      trainee with classroom_id NULL and zero trainee_classroom_map rows.
+//   2. A batch with MULTIPLE classrooms (batch_classroom_map) only ever propagates
+//      its PRIMARY classroom to trainees -- any secondary classroom (and whatever
+//      days/modules live only there) is never mapped to them at all, even though
+//      the batch itself correctly shows that classroom as attached.
+// Reported live for Batch 445 / ONF-SEP26-005 (Day 1-4 unreachable, "classrooms
+// not assigned automatic to users") -- confirmed the classroom(s) genuinely were
+// picked at batch-creation time, which points at gap #2 rather than #1 for that
+// batch specifically, but both are real and this repairs both. This project
+// deploys by pulling code rather than running migrations, so the repair runs here
+// at boot instead of a one-off script somebody has to remember to run. Idempotent
+// and additive only: a trainee's EXISTING classroom_id/map rows are never
+// overwritten or deactivated, only missing ones are added.
 export async function backfillMissingBatchClassroomAssignments() {
   const traineeResult = await prisma.$executeRawUnsafe(`
     UPDATE trainee_master t
@@ -40,7 +44,30 @@ export async function backfillMissingBatchClassroomAssignments() {
     console.log(`[schema] user_master: backfilled classroom_id for ${userResult} account(s) whose batch had a classroom they were never assigned to`);
   }
 
-  const mapResult = await prisma.$executeRawUnsafe(`
+  // Every classroom a batch has attached (primary included -- adminCreateBatch and
+  // attachBatchClassrooms both insert a batch_classroom_map row for it) against
+  // every currently-enrolled trainee in that batch. This is gap #2: a batch's
+  // secondary classroom(s) were never looped over when trainees were bulk-added.
+  const mapFromBatchClassrooms = await prisma.$executeRawUnsafe(`
+    INSERT INTO trainee_classroom_map (id, employee_id, classroom_id, batch_no, assigned_date, active, remarks)
+    SELECT UUID(), t.employee_id, bcm.classroom_id, t.batch_no, NOW(3), 1,
+           'Backfilled: batch classroom had not been mapped to this trainee'
+      FROM trainee_master t
+      INNER JOIN batch_classroom_map bcm ON bcm.batch_no = t.batch_no AND bcm.active = 1
+     WHERE t.status <> 'Deleted'
+       AND NOT EXISTS (
+         SELECT 1 FROM trainee_classroom_map m
+          WHERE m.employee_id = t.employee_id AND m.classroom_id = bcm.classroom_id AND m.active = 1
+       )
+    ON DUPLICATE KEY UPDATE active = 1, batch_no = VALUES(batch_no)
+  `);
+  if (mapFromBatchClassrooms > 0) {
+    console.log(`[schema] trainee_classroom_map: backfilled/reactivated ${mapFromBatchClassrooms} mapping(s) from batch_classroom_map (covers secondary classrooms too)`);
+  }
+
+  // Fallback for older/legacy batches that have classroom_id set but somehow no
+  // batch_classroom_map row at all (gap #1, or a map row that failed to write).
+  const mapFromPrimary = await prisma.$executeRawUnsafe(`
     INSERT INTO trainee_classroom_map (id, employee_id, classroom_id, batch_no, assigned_date, active, remarks)
     SELECT UUID(), t.employee_id, b.classroom_id, t.batch_no, NOW(3), 1,
            'Backfilled: batch classroom had not been mapped to this trainee'
@@ -54,7 +81,7 @@ export async function backfillMissingBatchClassroomAssignments() {
        )
     ON DUPLICATE KEY UPDATE active = 1, batch_no = VALUES(batch_no)
   `);
-  if (mapResult > 0) {
-    console.log(`[schema] trainee_classroom_map: backfilled/reactivated ${mapResult} mapping(s) for trainees whose batch classroom was missing an active map row`);
+  if (mapFromPrimary > 0) {
+    console.log(`[schema] trainee_classroom_map: backfilled/reactivated ${mapFromPrimary} mapping(s) for batches with a primary classroom but no batch_classroom_map row`);
   }
 }
