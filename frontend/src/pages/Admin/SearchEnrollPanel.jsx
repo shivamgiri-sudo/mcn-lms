@@ -38,7 +38,7 @@ export default function SearchEnrollPanel({ batchNo, batch, onEnrolled }) {
 
   const [selected, setSelected] = useState(new Map()); // employeeId -> trainee row
 
-  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteOpen, setPasteOpen] = useState(true);
   const [pasteText, setPasteText] = useState('');
   const [pasteBusy, setPasteBusy] = useState(false);
   const [pasteResult, setPasteResult] = useState(null);
@@ -237,23 +237,33 @@ export default function SearchEnrollPanel({ batchNo, batch, onEnrolled }) {
             </div>
           )}
 
-          <div style={{ marginTop: 12 }}>
-            <button className="btn small secondary" onClick={() => setPasteOpen(o => !o)}>{pasteOpen ? '▾' : '▸'} Paste Employee IDs / Upload a list</button>
+          <div style={{ marginTop: 12, background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 10, padding: 10 }}>
+            <button
+              onClick={() => setPasteOpen(o => !o)}
+              style={{ border: 0, background: 'transparent', cursor: 'pointer', color: 'var(--ink)', fontSize: 12.5, fontWeight: 700, padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              {pasteOpen ? '▾' : '▸'} Paste Multiple Employee IDs / Upload a List
+            </button>
             {pasteOpen && (
               <div style={{ marginTop: 8 }}>
                 <textarea
-                  className="input" rows={3} style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }}
-                  placeholder="Paste Employee IDs (one per line, or comma-separated)…"
+                  className="input" rows={4} style={{ width: '100%', fontFamily: 'monospace', fontSize: 12 }}
+                  placeholder="Paste one or more Employee IDs — one per line, or separated by commas/semicolons/tabs (e.g. EMP1001, EMP1002, EMP1003)…"
                   value={pasteText} onChange={e => setPasteText(e.target.value)}
                 />
-                <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-                  <button className="btn small" onClick={validatePaste} disabled={pasteBusy || !pasteText.trim()}>{pasteBusy ? 'Validating…' : 'Validate & Add'}</button>
-                  <button className="btn small secondary" onClick={() => fileRef.current?.click()}>Upload CSV/Excel</button>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button className="btn small" onClick={validatePaste} disabled={pasteBusy || !pasteText.trim()}>{pasteBusy ? 'Validating…' : 'Validate & Add to Selection'}</button>
+                  <button className="btn small secondary" onClick={() => fileRef.current?.click()}>⬆ Upload CSV/Excel List</button>
                   <input ref={fileRef} type="file" accept=".csv,.txt" hidden onChange={e => handleCsvFile(e.target.files?.[0])} />
+                  {pasteText.trim() && (
+                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      {[...new Set(pasteText.split(/[\n,;\t]+/).map(s => s.trim()).filter(Boolean))].length} ID(s) entered
+                    </span>
+                  )}
                 </div>
                 {pasteResult && (
                   <div style={{ fontSize: 11.5, marginTop: 6, color: 'var(--muted)' }}>
-                    ✓ {pasteResult.found.length} matched and added
+                    ✓ {pasteResult.found.length} matched and added to selection
                     {pasteResult.notFound.length > 0 && <span style={{ color: '#dc2626' }}> · {pasteResult.notFound.length} not found: {pasteResult.notFound.slice(0, 8).join(', ')}{pasteResult.notFound.length > 8 ? '…' : ''}</span>}
                     {pasteResult.duplicates > 0 && <span> · {pasteResult.duplicates} duplicate ID(s) ignored</span>}
                   </div>
