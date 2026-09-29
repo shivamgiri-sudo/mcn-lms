@@ -1841,6 +1841,92 @@ export async function broadcastModuleBulk(req, res) {
   }
 }
 
+// ── Assign an entire classroom (every day, every module) to a broader audience ──
+// broadcastModule/broadcastModuleBulk assign ONE module at a time via
+// assignedModule -- there was no way to hand a classroom's WHOLE curriculum to
+// an individual, branch, process or the whole company in one action, so admins
+// had to broadcast one day/module at a time and could easily miss one (exactly
+// what was reported live: Day 3 broadcast and reachable, Day 1 never was).
+// This does what "Search & Enroll Existing Trainee" already does for a single
+// batch -- an active trainee_classroom_map row, the thing that actually turns
+// on Curriculum listing, per-day sequential unlock and progress tracking --
+// but for any of the scopes broadcastModuleBulk already supports, not just
+// "whoever is currently in one batch". A trainee who already has a primary
+// classroom (their own batch's) keeps it; this one rides alongside it, the
+// same way a multi-classroom batch already works.
+export async function assignClassroomToScope(req, res) {
+  try {
+    const { classroomId } = req.params;
+    const { employeeIds, scopeType, scopeValues } = req.body;
+
+    const classroom = await prisma.classroomMaster.findUnique({ where: { classroomId } });
+    if (!classroom || !classroom.active) return res.status(400).json({ ok: false, message: 'Classroom not found.' });
+
+    let trainees = [];
+    let notFound = [];
+    if (Array.isArray(employeeIds) && employeeIds.length > 0) {
+      const empWhere = { employeeId: { in: employeeIds }, status: { not: 'Deleted' } };
+      if (req.userBranch) empWhere.branch = req.userBranch;
+      const found = await prisma.traineeMaster.findMany({ where: empWhere, select: { employeeId: true, batchNo: true, classroomId: true } });
+      const foundIds = new Set(found.map(t => t.employeeId));
+      notFound = employeeIds.filter(id => !foundIds.has(id));
+      trainees = found;
+    } else if (scopeType === 'company') {
+      if (req.userBranch) return res.status(403).json({ ok: false, message: 'Branch admin cannot assign to the entire company.' });
+      trainees = await prisma.traineeMaster.findMany({ where: { status: 'Active' }, select: { employeeId: true, batchNo: true, classroomId: true } });
+    } else if (scopeType && Array.isArray(scopeValues) && scopeValues.length > 0) {
+      if (req.userBranch && scopeType === 'branch') {
+        const invalid = scopeValues.filter(v => v !== req.userBranch);
+        if (invalid.length) return res.status(403).json({ ok: false, message: `You can only assign to your own branch: ${req.userBranch}` });
+      }
+      const where = { status: 'Active' };
+      if (scopeType === 'batch') where.batchNo = { in: scopeValues };
+      else if (scopeType === 'process') where.process = { in: scopeValues };
+      else if (scopeType === 'branch') where.branch = { in: scopeValues };
+      else return res.status(400).json({ ok: false, message: 'scopeType must be batch, process, branch, or company.' });
+      if (req.userBranch) where.branch = req.userBranch;
+      trainees = await prisma.traineeMaster.findMany({ where, select: { employeeId: true, batchNo: true, classroomId: true } });
+    } else {
+      return res.status(400).json({ ok: false, message: 'Provide employeeIds[], scopeType "company", or scopeType + scopeValues[].' });
+    }
+
+    if (trainees.length === 0) {
+      return res.json({ ok: true, assigned: 0, notFound, message: 'No matching active trainees found.' });
+    }
+
+    const seen = new Set();
+    const unique = trainees.filter(t => (seen.has(t.employeeId) ? false : seen.add(t.employeeId)));
+
+    for (const t of unique) {
+      await prisma.traineeClassroomMap.upsert({
+        where: { employeeId_classroomId: { employeeId: t.employeeId, classroomId } },
+        create: { employeeId: t.employeeId, classroomId, batchNo: t.batchNo, assignedBy: req.userId },
+        update: { active: true, assignedBy: req.userId },
+      });
+      // A trainee with no primary classroom at all gets this one as primary,
+      // matching what a fresh batch/classroom assignment normally does;
+      // someone who already has one keeps it and this rides alongside.
+      if (!t.classroomId) {
+        await prisma.traineeMaster.update({ where: { employeeId: t.employeeId }, data: { classroomId, classroomName: classroom.classroomName } });
+        await prisma.userMaster.updateMany({ where: { employeeId: t.employeeId }, data: { classroomId } });
+      }
+      cache.del(`dashboard:${t.employeeId}`);
+    }
+
+    await audit({
+      userIdentity: req.userId, userRole: 'Admin', action: 'ASSIGN_CLASSROOM', module: 'Classroom', referenceId: classroomId,
+      newValue: { assigned: unique.length, notFound: notFound.length, scopeType: scopeType || 'individual/specific' },
+    });
+    res.json({
+      ok: true, assigned: unique.length, notFound,
+      message: `${classroom.classroomName} assigned to ${unique.length} trainee(s).${notFound.length ? ` ${notFound.length} ID(s) not found.` : ''}`,
+    });
+  } catch (err) {
+    console.error('[assignClassroomToScope]', err);
+    res.status(500).json({ ok: false, message: err.message || 'Server error' });
+  }
+}
+
 // PKT/test-attached notification — resolves a single (non-bulk) broadcast scope to its
 // trainee list and emails each one. Reuses the notifyModuleAssigned config toggle since
 // this is still "a module got assigned to you", just with a test attached.

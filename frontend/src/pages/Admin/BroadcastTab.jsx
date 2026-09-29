@@ -273,6 +273,7 @@ export default function BroadcastTab() {
     if (assignMode === 'content' && !selectedDirectContent) return setMsg({ type: 'bad', text: 'Select a content item to assign.' });
     if (assignMode === 'day' && !form.classroomId) return setMsg({ type: 'bad', text: 'Select a classroom.' });
     if (assignMode === 'day' && !directDayNo) return setMsg({ type: 'bad', text: 'Select a day.' });
+    if (assignMode === 'classroom' && !form.classroomId) return setMsg({ type: 'bad', text: 'Select a classroom.' });
 
     const isMultiScope = ['batch', 'process', 'branch'].includes(form.scope);
     const isBulk = form.scope === 'specific' || isMultiScope;
@@ -299,6 +300,26 @@ export default function BroadcastTab() {
     }
 
     setLoading(true); setMsg(null);
+
+    // Entire Classroom enrolls into trainee_classroom_map rather than assigning a
+    // single moduleId via assignedModule, so it goes through its own endpoint —
+    // none of the module/MCQ/assessment resolution below applies to it.
+    if (assignMode === 'classroom') {
+      const payload = form.scope === 'individual' ? { employeeIds: [form.scopeValue.trim()] }
+        : form.scope === 'specific' ? { employeeIds: selectedEmployees.map(e => e.employeeId) }
+        : form.scope === 'company' ? { scopeType: 'company' }
+        : { scopeType: form.scope, scopeValues: form.scopeValues };
+      const res = await api.post(`/admin/classrooms/${form.classroomId}/assign`, payload, 'admin');
+      setLoading(false);
+      if (res.ok) {
+        setMsg({ type: 'ok', text: res.message || 'Classroom assigned.' });
+        setForm(f => ({ ...f, broadcastTitle: '', scopeValue: '', scopeValues: [], classroomId: '' }));
+        setSelectedEmployees([]); setPasteText(''); setPasteResult(null); setDesignationFilter('');
+      } else {
+        setMsg({ type: 'bad', text: res.message || 'Assignment failed.' });
+      }
+      return;
+    }
 
     // Resolve the assessmentId to attach — either reuse an already-created assessment as-is
     // (no re-creation, no duplicate questions), or create a fresh one first. Either way this
@@ -627,12 +648,13 @@ export default function BroadcastTab() {
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 10 }}>
                 Step {2 + stepBase} — What to Assign
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 14 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 14 }}>
                 {[
                   ['module', 'Classroom Module', 'Pick a classroom → module (whole module\'s content)'],
                   ['assessment', 'Specific Assessment', 'Search any assessment — classroom-bound or standalone'],
                   ['content', 'Specific Content', 'Search any content item — classroom or repository'],
                   ['day', 'A Specific Day', 'Pick a classroom + day — every module\'s content that day'],
+                  ['classroom', 'Entire Classroom', 'Pick a classroom — every day, every module, in order'],
                 ].map(([val, label, desc]) => (
                   <div key={val} onClick={() => changeAssignMode(val)} style={{
                     border: `2px solid ${assignMode === val ? 'var(--brand)' : 'var(--line)'}`,
@@ -765,6 +787,28 @@ export default function BroadcastTab() {
                         {(dayGroups.find(d => String(d.dayNo) === String(directDayNo))?.moduleCount ?? 0) > 1
                           ? 'More than one module that day — will be wrapped for direct delivery as a single assignment.'
                           : 'Only one module that day — that module will be used directly.'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {assignMode === 'classroom' && (
+                <div>
+                  <div className="field" style={{ margin: 0 }}>
+                    <label>Classroom</label>
+                    <select className="select" value={form.classroomId} onChange={e => setF('classroomId', e.target.value)} required>
+                      <option value="">Select classroom…</option>
+                      {classrooms.map(c => <option key={c.classroomId} value={c.classroomId}>{c.classroomName}</option>)}
+                    </select>
+                  </div>
+                  {form.classroomId && (
+                    <div style={{ marginTop: 10, background: 'rgba(22,163,74,.08)', border: '1px solid rgba(22,163,74,.25)', borderRadius: 10, padding: '10px 12px' }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ok)' }}>
+                        ✓ {classrooms.find(c => c.classroomId === form.classroomId)?.classroomName}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        Enrolls the recipient(s) into this classroom (same as Search &amp; Enroll Existing Trainee) — Curriculum, day-by-day unlock and progress tracking all work normally, not a one-off broadcast. Anyone who already has a different primary classroom keeps it; this one rides alongside it.
                       </div>
                     </div>
                   )}
