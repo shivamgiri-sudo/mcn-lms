@@ -154,9 +154,14 @@ router.get('/files/:filename', contentFileLimiter, requireSession, async (req, r
 // carry our session cookie. Access control already happened when the token
 // was issued (the normal requireContentAccess check); this only has to
 // confirm the opaque, short-lived (5 min), 192-bit random token is one this
-// server actually minted and hasn't expired. Never lists a filename or
-// contentId in the URL itself, so there is nothing to guess or enumerate.
-router.get('/preview/:token', contentFileLimiter, async (req, res) => {
+// server actually minted and hasn't expired. The trailing :displayName
+// segment is purely cosmetic -- Office Online's viewer sniffs the file type
+// from the URL's own extension and fails with a generic error on an
+// extensionless URL even though the file streams fine, so the token
+// endpoint hands back a display filename to put there. It is NEVER used to
+// locate the actual file (that's resolved from the token alone), so there
+// is nothing to guess or enumerate by tampering with it.
+router.get('/preview/:token/:displayName', contentFileLimiter, async (req, res) => {
   try {
     const record = cache.get(`office-preview:${req.params.token}`);
     if (!record) return res.status(404).json({ ok: false, message: 'This preview link has expired. Reopen the content to try again.' });
@@ -184,7 +189,7 @@ router.get('/preview/:token', contentFileLimiter, async (req, res) => {
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="${filename.replaceAll('"', '')}"`);
-    return res.sendFile(filename, { root: contentRoot, dotfiles: 'deny' });
+    return res.sendFile(filename, { root: contentRoot, dotfiles: 'deny', acceptRanges: true });
   } catch (error) {
     console.error('[contentFiles] office preview stream failed:', error.message);
     return res.status(500).json({ ok: false, message: 'Server error' });

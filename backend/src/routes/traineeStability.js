@@ -849,8 +849,8 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
 // single-purpose, cryptographically random token instead, only after the
 // SAME requireContentAccess check every other content route uses -- a
 // narrow, time-boxed exception to session auth, not a general bypass. See
-// GET /api/content/preview/:token (routes/contentFiles.js) for where it's
-// redeemed, and the frame-src CSP entry for view.officeapps.live.com.
+// GET /api/content/preview/:token/:filename (routes/contentFiles.js) for
+// where it's redeemed, and the frame-src CSP entry for view.officeapps.live.com.
 router.post('/content/:contentId/preview-token', ...auth, async (req, res) => {
   try {
     const employeeId = req.userId;
@@ -859,7 +859,19 @@ router.post('/content/:contentId/preview-token', ...auth, async (req, res) => {
 
     const token = randomBytes(24).toString('hex');
     cache.set(`office-preview:${token}`, { contentId: req.params.contentId }, 300);
-    return res.json({ ok: true, token, expiresInSeconds: 300 });
+
+    // Office Online's embed viewer sniffs the file type from the URL's own
+    // extension, not just the Content-Type header it gets back -- an
+    // extensionless URL (the token alone) reliably fails with a generic
+    // "might be having issues" error even though the file streams fine. The
+    // filename here is purely cosmetic for the viewer's benefit; the actual
+    // file served is still resolved server-side from the token alone.
+    const source = access.content.directMediaUrl || access.content.localFilePath || '';
+    const ext = (source.split('?')[0].split('.').pop() || '').toLowerCase();
+    const safeTitle = String(access.content.contentTitle || 'document').replace(/[^A-Za-z0-9 _-]/g, '').trim().replace(/\s+/g, '-').slice(0, 60) || 'document';
+    const filename = `${safeTitle}.${['ppt', 'pptx', 'doc', 'docx', 'xls', 'xlsx'].includes(ext) ? ext : 'pptx'}`;
+
+    return res.json({ ok: true, token, filename, expiresInSeconds: 300 });
   } catch (error) {
     console.error('[traineeStability] preview token failed:', error);
     return res.status(500).json({ ok: false, message: 'Server error' });

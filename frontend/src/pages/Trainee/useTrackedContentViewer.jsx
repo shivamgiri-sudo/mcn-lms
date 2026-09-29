@@ -226,7 +226,12 @@ export function useTrackedContentViewer(onRefresh) {
       if (resolvedMedia?.officePreview) {
         const tokenRes = await api.post(`/trainee/content/${content.contentId}/preview-token`, {}, 'trainee');
         if (tokenRes.ok && tokenRes.token) {
-          const fileUrl = `${window.location.origin}/api/content/preview/${tokenRes.token}`;
+          // The trailing filename is cosmetic (see contentFiles.js) but required:
+          // Office Online's viewer sniffs the file type from the URL's own
+          // extension and fails on an extensionless URL even when the file
+          // itself streams fine.
+          const displayName = encodeURIComponent(tokenRes.filename || 'document.pptx');
+          const fileUrl = `${window.location.origin}/api/content/preview/${tokenRes.token}/${displayName}`;
           const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
           resolvedMedia = { type: 'msoffice', url: viewerUrl };
         }
