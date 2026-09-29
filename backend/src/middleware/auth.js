@@ -134,6 +134,14 @@ export async function requireSession(req, res, next) {
     return next();
   } catch (err) {
     console.error('[AUTH] Session validation failed:', err.message);
+    // DB connection pool exhaustion or timeout — return 503 so the client can
+    // retry without clearing the session token. A 500 here caused the frontend
+    // to treat every DB hiccup as "session expired" and force-logout all users.
+    const isPoolError = /timed out|connection pool|can't reach database|econnrefused|etimedout/i.test(err.message || '');
+    if (isPoolError) {
+      res.setHeader('Retry-After', '5');
+      return res.status(503).json({ ok: false, code: 'DB_UNAVAILABLE', message: 'Server busy, please retry in a few seconds.' });
+    }
     return res.status(500).json({ ok: false, message: 'Authentication service unavailable.' });
   }
 }

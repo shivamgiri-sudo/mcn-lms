@@ -4,6 +4,42 @@ import { prisma } from './db.js';
 const IDLE_TTL_SECONDS = Number.parseInt(process.env.SESSION_TTL_SECONDS || '21600', 10);
 const ABSOLUTE_TTL_SECONDS = Number.parseInt(process.env.SESSION_ABSOLUTE_TTL_SECONDS || '43200', 10);
 const TOUCH_INTERVAL_SECONDS = Number.parseInt(process.env.SESSION_TOUCH_INTERVAL_SECONDS || '300', 10);
+
+// In-memory session cache — keeps valid sessions in RAM for SESSION_CACHE_TTL_MS
+// so each authenticated request avoids a round-trip DB read. With 1000 concurrent
+// users each polling every few seconds this saves thousands of DB reads per minute.
+// Sessions are evicted on revoke/logout so the cache never serves a dead session
+// longer than SESSION_CACHE_TTL_MS (default 20s).
+const SESSION_CACHE_TTL_MS = Number.parseInt(process.env.SESSION_CACHE_TTL_MS || '20000', 10);
+const SESSION_CACHE_MAX = Number.parseInt(process.env.SESSION_CACHE_MAX || '5000', 10);
+const _sessionCache = new Map(); // fingerprint → { session, cachedAt }
+
+function _cacheSet(fingerprint, session) {
+  if (_sessionCache.size >= SESSION_CACHE_MAX) {
+    _sessionCache.delete(_sessionCache.keys().next().value);
+  }
+  _sessionCache.set(fingerprint, { session, cachedAt: Date.now() });
+}
+
+function _cacheGet(fingerprint) {
+  const entry = _sessionCache.get(fingerprint);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > SESSION_CACHE_TTL_MS) {
+    _sessionCache.delete(fingerprint);
+    return null;
+  }
+  return entry.session;
+}
+
+function _cacheInvalidate(fingerprint) {
+  _sessionCache.delete(fingerprint);
+}
+
+function _cacheInvalidateByUserId(userId) {
+  for (const [key, entry] of _sessionCache) {
+    if (entry.session?.userId === String(userId)) _sessionCache.delete(key);
+  }
+}
 const ROLE_COOKIE = {
   trainee: 'lms_trainee_session',
   coordinator: 'lms_coordinator_session',
@@ -150,6 +186,11 @@ async function findSessionByToken(token) {
   const raw = String(token || '').trim();
   if (!raw) return null;
   const fingerprint = hashSessionToken(raw);
+
+  // Serve from cache when available — avoids a DB round-trip on every request.
+  const cached = _cacheGet(fingerprint);
+  if (cached) return cached;
+
   const rows = await prisma.$queryRawUnsafe(
     `SELECT id, session_family_id AS sessionFamilyId, token,
             user_id AS userId, user_type AS userType, auth_method AS authMethod,
@@ -186,6 +227,8 @@ async function findSessionByToken(token) {
       return null;
     }
   }
+
+  _cacheSet(fingerprint, session);
   return session;
 }
 
@@ -388,9 +431,18 @@ export async function revokeSessionById(sessionId, reason = 'Revoked') {
     String(reason).slice(0, 500),
     String(sessionId),
   );
+  // Evict all cached entries for this session (we don't store id→fingerprint, so
+  // scan and remove any entry whose session.id matches — O(n) but cache is small).
+  for (const [key, entry] of _sessionCache) {
+    if (entry.session?.id === String(sessionId)) _sessionCache.delete(key);
+  }
 }
 
 export async function deleteSession(token, reason = 'Logout') {
+  const raw = String(token || '').trim();
+  if (!raw) return;
+  _cacheInvalidate(hashSessionToken(raw));
+  _cacheInvalidate(raw);
   const session = await findSessionByToken(token);
   if (!session) return;
   await revokeSessionById(session.id, reason);
@@ -407,6 +459,7 @@ export async function deleteAllSessions(userId, reason = 'All sessions revoked')
     String(reason).slice(0, 500),
     String(userId),
   );
+  _cacheInvalidateByUserId(userId);
 }
 
 export async function listUserSessions(userId, userType, currentSessionId = null) {
