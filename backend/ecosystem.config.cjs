@@ -21,7 +21,7 @@ module.exports = {
       name: 'lms-api',
       script: 'src/server.js',
       cwd: __dirname,
-      instances: 'max',          // one per CPU core
+      instances: 'max', // one per CPU core
       exec_mode: 'cluster',
       node_args: '--max-old-space-size=512',
       env: {
@@ -31,7 +31,7 @@ module.exports = {
         // Keep per-worker pool small when running many workers so total
         // DB connections stay within MySQL max_connections. Override with
         // DB_POOL_SIZE env var on the server if needed.
-        DB_POOL_SIZE: '50',
+        DB_POOL_SIZE: '100',
         DB_POOL_TIMEOUT: '20',
         DB_CONNECT_TIMEOUT: '10',
         // Cache: 20 s TTL, max 5000 sessions in RAM per worker
@@ -44,9 +44,8 @@ module.exports = {
       kill_timeout: 5000,
       // Restart if worker exceeds 400 MB RSS (memory leak guard)
       max_memory_restart: '400M',
-      // Log paths — adjust to match your server layout
-      out_file: '/var/log/lms/api-out.log',
-      error_file: '/var/log/lms/api-err.log',
+      out_file: '/var/www/mcn-lms/backend/lms-out.log',
+      error_file: '/var/www/mcn-lms/backend/lms-err.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
     },
@@ -59,16 +58,16 @@ module.exports = {
       node_args: '--max-old-space-size=256',
       env: {
         NODE_ENV: 'production',
-        PORT: 4001,               // not exposed publicly; only internal health checks
+        PORT: 4001, // not exposed publicly; only internal health checks
         LMS_RUN_SCHEDULERS: 'true',
-        DB_POOL_SIZE: '10',
+        DB_POOL_SIZE: '20',
         DB_POOL_TIMEOUT: '20',
         SESSION_CACHE_TTL_MS: '20000',
         SESSION_CACHE_MAX: '1000',
       },
       max_memory_restart: '256M',
-      out_file: '/var/log/lms/worker-out.log',
-      error_file: '/var/log/lms/worker-err.log',
+      out_file: '/var/www/mcn-lms/backend/lms-worker-out.log',
+      error_file: '/var/www/mcn-lms/backend/lms-worker-err.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
     },
   ],
