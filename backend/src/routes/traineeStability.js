@@ -269,24 +269,33 @@ async function resolveRepositoryContentAccess(trainee, employeeId, repositoryCon
   return { trainee, content, classroomId: '', isRepository: true };
 }
 
-// "A Specific Day" direct-broadcast mode (ensureIndependentWrapperForDay in
-// services/independentModules.js) assigns a day's REAL content_master items
-// straight to an individual/batch/process/branch/company, riding on an
-// independent wrapper module whose independent_module_content_map rows mark
-// each one "CM:<contentId>" -- by design, specifically so it can reach people
-// who are NOT in that classroom at all. requireContentAccess used to ignore
-// that entirely and gate every content_master item on classroom membership
-// alone, so a directly-broadcast day's content 403'd with "This content is
-// not assigned to your classroom" for exactly the people it was broadcast TO.
-// This checks the same assignedModule scopes enrichIndependentAssignments/
-// resolveRepositoryContentAccess already use to decide what a learner sees.
-async function hasDirectAssignmentAccessToContent(trainee, employeeId, contentId) {
+// A classroom module can reach a learner who was never enrolled in that
+// classroom at all, two different ways -- both by design, both bypassed by
+// classroom membership entirely:
+//   1. BroadcastTab's default "module" mode assigns a REAL classroom module
+//      directly (assignedModule.moduleId = that module's own id) to an
+//      individual/batch/process/branch/company. resolveBroadcastTarget also
+//      falls back to this for "a specific day" when that day has only ONE
+//      module, and for "a specific content item" when the picked item's
+//      module has never been wrapped.
+//   2. "A Specific Day" mode for a day with MULTIPLE modules
+//      (ensureIndependentWrapperForDay) instead rides on a synthetic
+//      independent wrapper module, whose independent_module_content_map rows
+//      mark each real content_master item "CM:<contentId>".
+// requireContentAccess used to ignore both and gate every content_master item
+// on classroom membership alone, so a directly-assigned item 403'd with
+// "This content is not assigned to your classroom" for exactly the people it
+// was assigned to. This checks the same assignedModule scopes
+// enrichIndependentAssignments/resolveRepositoryContentAccess already use to
+// decide what a learner sees, against both the content's own real moduleId
+// (case 1) and any wrapper module built for it (case 2).
+async function hasDirectAssignmentAccessToContent(trainee, employeeId, contentId, moduleId) {
   const marker = `CM:${contentId}`;
   const mapRows = await prisma.$queryRawUnsafe(
     'SELECT DISTINCT module_id FROM independent_module_content_map WHERE repository_content_id = ? AND active = 1',
     marker,
   );
-  const moduleIds = (mapRows || []).map(row => row.module_id);
+  const moduleIds = [...new Set([moduleId, ...(mapRows || []).map(row => row.module_id)].filter(Boolean))];
   if (!moduleIds.length) return false;
   const assignment = await prisma.assignedModule.findFirst({
     where: {
@@ -317,7 +326,7 @@ async function requireContentAccess(employeeId, contentId) {
   // Classroom membership covers the overwhelming majority of opens (and every
   // heartbeat tick after that), so check it first and only pay for the
   // direct-assignment query on the minority path where it actually matters.
-  if (!await hasClassroomAccess(trainee, classroomId) && !await hasDirectAssignmentAccessToContent(trainee, employeeId, contentId)) {
+  if (!await hasClassroomAccess(trainee, classroomId) && !await hasDirectAssignmentAccessToContent(trainee, employeeId, contentId, content.moduleId)) {
     return { error: { status: 403, message: 'This content is not assigned to your classroom.' } };
   }
   return { trainee, content, classroomId, isRepository: false };
