@@ -28,10 +28,10 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 8000,
         LMS_RUN_SCHEDULERS: 'false',
-        // Keep per-worker pool small when running many workers so total
-        // DB connections stay within MySQL max_connections. Override with
-        // DB_POOL_SIZE env var on the server if needed.
-        DB_POOL_SIZE: '100',
+        // Pool per worker: 10 workers × 30 = 300 connections + 20 for lms-worker = 320 total.
+        // MySQL max_connections is set to 500 on this server, leaving headroom for
+        // HRMS2 (~66 connections at idle) and MySQL internal overhead.
+        DB_POOL_SIZE: '30',
         DB_POOL_TIMEOUT: '20',
         DB_CONNECT_TIMEOUT: '10',
         // Cache: 20 s TTL, max 5000 sessions in RAM per worker
@@ -60,7 +60,7 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 8001, // not exposed publicly; only internal health checks
         LMS_RUN_SCHEDULERS: 'true',
-        DB_POOL_SIZE: '20',
+        DB_POOL_SIZE: '10',
         DB_POOL_TIMEOUT: '20',
         SESSION_CACHE_TTL_MS: '20000',
         SESSION_CACHE_MAX: '1000',
