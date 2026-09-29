@@ -74,7 +74,14 @@ export function renderContentUrl(c) {
       // blob: URL in a frame, which the Content-Security-Policy blocked outright.
       if (IMAGE_EXTENSIONS.includes(ext)) return { type: 'image', url: protectedUrl, requiresAuth: true };
       if (isPdf) return { type: 'proxy', url: protectedUrl, requiresAuth: true, directStream: true };
-      if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true };
+      // Same reasoning as video/PDF above: a locally-uploaded PPT/DOC/XLS is
+      // shown as a "Download" card, not played inline, but openContent() still
+      // used to fully buffer the whole file into memory via
+      // fetchAuthenticatedBlobUrl BEFORE that card could even render -- so a
+      // large deck timed out with "the server is taking too long to respond"
+      // before the trainee ever saw a download button. directStream skips that
+      // prefetch; the browser's own download does the actual authenticated GET.
+      if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true, directStream: true };
       return { type: 'proxy', url: protectedUrl, requiresAuth: true, directStream: true };
     }
 
