@@ -46,7 +46,7 @@ export function buildHttpSecurityPolicy(env = process.env) {
   // video worked, but every other file type renders in an iframe - without blob: here
   // the browser silently blocked it and PDFs and images showed an empty panel.
   const frameSrc = uniqueSources(
-    ["'self'", 'blob:', 'https://www.youtube.com', 'https://www.youtube-nocookie.com'],
+    ["'self'", 'blob:', 'https://www.youtube.com', 'https://www.youtube-nocookie.com', 'https://view.officeapps.live.com'],
     mcnmeet,
     validatedSources('CSP_FRAME_SRC', env.CSP_FRAME_SRC),
     validatedSources('SCORM_CONTENT_ORIGIN', env.SCORM_CONTENT_ORIGIN),

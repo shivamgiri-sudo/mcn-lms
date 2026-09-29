@@ -5,6 +5,7 @@ import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../utils/db.js';
 import { requireSession } from '../middleware/auth.js';
+import * as cache from '../utils/cache.js';
 
 const router = Router();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -16,6 +17,15 @@ const contentFileLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
 });
+
+const OFFICE_MIME_BY_EXT = {
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+};
 
 function safeFilename(value) {
   const decoded = decodeURIComponent(String(value || ''));
@@ -135,6 +145,49 @@ router.get('/files/:filename', contentFileLimiter, requireSession, async (req, r
     return res.sendFile(filename, { root: contentRoot, dotfiles: 'deny', acceptRanges: true });
   } catch (error) {
     return next(error);
+  }
+});
+
+// Redeems a token minted by POST /trainee/content/:contentId/preview-token
+// (routes/traineeStability.js) -- deliberately NOT session-gated, because
+// Microsoft's Office Online embed viewer fetches this URL itself and cannot
+// carry our session cookie. Access control already happened when the token
+// was issued (the normal requireContentAccess check); this only has to
+// confirm the opaque, short-lived (5 min), 192-bit random token is one this
+// server actually minted and hasn't expired. Never lists a filename or
+// contentId in the URL itself, so there is nothing to guess or enumerate.
+router.get('/preview/:token', contentFileLimiter, async (req, res) => {
+  try {
+    const record = cache.get(`office-preview:${req.params.token}`);
+    if (!record) return res.status(404).json({ ok: false, message: 'This preview link has expired. Reopen the content to try again.' });
+
+    const content = await prisma.contentMaster.findUnique({ where: { contentId: record.contentId } });
+    if (!content || !content.active) return res.status(404).json({ ok: false, message: 'Content not found.' });
+
+    const source = content.directMediaUrl || content.localFilePath || '';
+    // A query string on directMediaUrl would otherwise land inside "filename"
+    // and fail safeFilename's strict character check for a file that's
+    // actually fine -- strip it the same way the frontend's own
+    // protectedLocalUrl (useTrackedContentViewer.jsx) already does.
+    const pathOnly = source.split('?')[0];
+    const filename = safeFilename(pathOnly.split('/').pop());
+    if (!filename) return res.status(404).json({ ok: false, message: 'No local file for this content.' });
+
+    const target = path.resolve(contentRoot, filename);
+    if (!target.startsWith(`${contentRoot}${path.sep}`)) return res.status(400).json({ ok: false, message: 'Invalid content path.' });
+
+    const stat = await fs.promises.stat(target).catch(() => null);
+    if (!stat?.isFile()) return res.status(404).json({ ok: false, message: 'Content file not found.' });
+
+    const ext = filename.split('.').pop().toLowerCase();
+    res.setHeader('Content-Type', OFFICE_MIME_BY_EXT[ext] || 'application/octet-stream');
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Disposition', `inline; filename="${filename.replaceAll('"', '')}"`);
+    return res.sendFile(filename, { root: contentRoot, dotfiles: 'deny' });
+  } catch (error) {
+    console.error('[contentFiles] office preview stream failed:', error.message);
+    return res.status(500).json({ ok: false, message: 'Server error' });
   }
 });
 

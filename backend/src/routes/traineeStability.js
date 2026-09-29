@@ -1,4 +1,4 @@
-import { randomInt, randomUUID } from 'crypto';
+import { randomInt, randomUUID, randomBytes } from 'crypto';
 import { Router } from 'express';
 import { prisma } from '../utils/db.js';
 import { requireSession, requireRole } from '../middleware/auth.js';
@@ -7,6 +7,7 @@ import { attachAssessmentsToAssignments } from '../controllers/trainee.js';
 import { issueCertificate, renderCertificateHtml, ensureCertificateTable } from '../services/certificates.js';
 import { awardContentCompletion, awardAttendanceStreak } from '../utils/leaderboardEngine.js';
 import { audit } from '../utils/audit.js';
+import * as cache from '../utils/cache.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('trainee')];
@@ -835,6 +836,32 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
     return res.json({ ok: true, locked: false });
   } catch (error) {
     console.error('[traineeStability] content open failed:', error);
+    return res.status(500).json({ ok: false, message: 'Server error' });
+  }
+});
+
+// A browser cannot render a raw .pptx/.docx/.xlsx, and offering it as a plain
+// download exposes confidential decks to anyone who opens the content once.
+// Microsoft's Office Online embed viewer renders it inline instead, but it
+// fetches the source file itself, server-to-server -- it cannot send our
+// session cookie, so it cannot use the normal (session-gated)
+// /api/content/files/:filename route. This issues a short-lived (5 min),
+// single-purpose, cryptographically random token instead, only after the
+// SAME requireContentAccess check every other content route uses -- a
+// narrow, time-boxed exception to session auth, not a general bypass. See
+// GET /api/content/preview/:token (routes/contentFiles.js) for where it's
+// redeemed, and the frame-src CSP entry for view.officeapps.live.com.
+router.post('/content/:contentId/preview-token', ...auth, async (req, res) => {
+  try {
+    const employeeId = req.userId;
+    const access = await requireContentAccess(employeeId, req.params.contentId);
+    if (access.error) return res.status(access.error.status).json({ ok: false, message: access.error.message });
+
+    const token = randomBytes(24).toString('hex');
+    cache.set(`office-preview:${token}`, { contentId: req.params.contentId }, 300);
+    return res.json({ ok: true, token, expiresInSeconds: 300 });
+  } catch (error) {
+    console.error('[traineeStability] preview token failed:', error);
     return res.status(500).json({ ok: false, message: 'Server error' });
   }
 });

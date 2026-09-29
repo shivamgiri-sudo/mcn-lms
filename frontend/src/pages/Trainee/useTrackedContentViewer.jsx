@@ -74,14 +74,13 @@ export function renderContentUrl(c) {
       // blob: URL in a frame, which the Content-Security-Policy blocked outright.
       if (IMAGE_EXTENSIONS.includes(ext)) return { type: 'image', url: protectedUrl, requiresAuth: true };
       if (isPdf) return { type: 'proxy', url: protectedUrl, requiresAuth: true, directStream: true };
-      // Same reasoning as video/PDF above: a locally-uploaded PPT/DOC/XLS is
-      // shown as a "Download" card, not played inline, but openContent() still
-      // used to fully buffer the whole file into memory via
-      // fetchAuthenticatedBlobUrl BEFORE that card could even render -- so a
-      // large deck timed out with "the server is taking too long to respond"
-      // before the trainee ever saw a download button. directStream skips that
-      // prefetch; the browser's own download does the actual authenticated GET.
-      if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true, directStream: true };
+      // officePreview: a locally-uploaded PPT/DOC/XLS can't be rendered inline
+      // by the browser itself, and confidential decks should never hand out a
+      // raw downloadable file just to be viewed once -- openContent() uses
+      // this flag to fetch a short-lived preview token and swap in Microsoft's
+      // Office Online embed viewer instead of this 'download' card, falling
+      // back to the download card only if that token request fails.
+      if (isOffice) return { type: 'download', url: protectedUrl, requiresAuth: true, directStream: true, officePreview: true };
       return { type: 'proxy', url: protectedUrl, requiresAuth: true, directStream: true };
     }
 
@@ -224,6 +223,18 @@ export function useTrackedContentViewer(onRefresh) {
         resolvedMedia = { ...resolvedMedia, url: protectedResult.url, requiresAuth: false, objectUrl: true };
       }
 
+      if (resolvedMedia?.officePreview) {
+        const tokenRes = await api.post(`/trainee/content/${content.contentId}/preview-token`, {}, 'trainee');
+        if (tokenRes.ok && tokenRes.token) {
+          const fileUrl = `${window.location.origin}/api/content/preview/${tokenRes.token}`;
+          const viewerUrl = `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(fileUrl)}`;
+          resolvedMedia = { type: 'msoffice', url: viewerUrl };
+        }
+        // If the token request itself fails, resolvedMedia stays the 'download'
+        // card resolved above -- degraded but still usable, rather than blocking
+        // the trainee from the content entirely.
+      }
+
       const resolved = { ...content, resolvedMedia };
       viewingContentRef.current = resolved;
       setViewingContent(resolved);
@@ -297,7 +308,7 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
     setCompletionState({ saving: false, done: progress?.completionStatus === 'Completed' || Number(progress?.completionPct || 0) >= 100, error: '' });
     setAckState({ saving: false, at: progress?.acknowledgedAt || null, version: progress?.acknowledgedVersion ?? null, error: '' });
     setAckChecked(false);
-    if (media?.type === 'proxy' || media?.type === 'drive') {
+    if (media?.type === 'proxy' || media?.type === 'drive' || media?.type === 'msoffice') {
       const t = setTimeout(() => setLoadTimeout(true), 15000);
       return () => clearTimeout(t);
     }
@@ -417,7 +428,7 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
           )}
           {media?.type === 'youtube' && <iframe src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#000', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen referrerPolicy="no-referrer-when-downgrade" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" title={content.contentTitle} />}
 
-          {(media?.type === 'drive' || media?.type === 'proxy' || (media?.type === 'html5' && !isVideo)) && (
+          {(media?.type === 'drive' || media?.type === 'proxy' || media?.type === 'msoffice' || (media?.type === 'html5' && !isVideo)) && (
             <div style={{ position: 'relative', width: '100%', height: '100%' }}>
               {canMarkComplete && <div style={{ position: 'absolute', right: 14, top: 14, zIndex: 3 }}><button className="btn small accent" onClick={() => markComplete(false)} disabled={completionState.saving}>{completionState.saving ? 'Saving…' : '✓ Mark Complete'}</button></div>}
               {(iframeLoading || iframeError) && (
