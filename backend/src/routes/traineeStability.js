@@ -269,6 +269,42 @@ async function resolveRepositoryContentAccess(trainee, employeeId, repositoryCon
   return { trainee, content, classroomId: '', isRepository: true };
 }
 
+// "A Specific Day" direct-broadcast mode (ensureIndependentWrapperForDay in
+// services/independentModules.js) assigns a day's REAL content_master items
+// straight to an individual/batch/process/branch/company, riding on an
+// independent wrapper module whose independent_module_content_map rows mark
+// each one "CM:<contentId>" -- by design, specifically so it can reach people
+// who are NOT in that classroom at all. requireContentAccess used to ignore
+// that entirely and gate every content_master item on classroom membership
+// alone, so a directly-broadcast day's content 403'd with "This content is
+// not assigned to your classroom" for exactly the people it was broadcast TO.
+// This checks the same assignedModule scopes enrichIndependentAssignments/
+// resolveRepositoryContentAccess already use to decide what a learner sees.
+async function hasDirectAssignmentAccessToContent(trainee, employeeId, contentId) {
+  const marker = `CM:${contentId}`;
+  const mapRows = await prisma.$queryRawUnsafe(
+    'SELECT DISTINCT module_id FROM independent_module_content_map WHERE repository_content_id = ? AND active = 1',
+    marker,
+  );
+  const moduleIds = (mapRows || []).map(row => row.module_id);
+  if (!moduleIds.length) return false;
+  const assignment = await prisma.assignedModule.findFirst({
+    where: {
+      active: true,
+      moduleId: { in: moduleIds },
+      OR: [
+        { assignedTo: employeeId, assignedToType: 'individual' },
+        { assignedTo: trainee.batchNo || '__none__', assignedToType: 'batch' },
+        { assignedTo: trainee.process || '__none__', assignedToType: 'process' },
+        { assignedTo: trainee.branch || '__none__', assignedToType: 'branch' },
+        { assignedToType: 'company' },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(assignment);
+}
+
 async function requireContentAccess(employeeId, contentId) {
   const [trainee, content] = await Promise.all([
     getTrainee(employeeId),
@@ -278,7 +314,10 @@ async function requireContentAccess(employeeId, contentId) {
   if (!content) return resolveRepositoryContentAccess(trainee, employeeId, contentId);
   if (!content.active || !content.module?.active) return { error: { status: 404, message: 'Content not found.' } };
   const classroomId = content.module.classroomId;
-  if (!await hasClassroomAccess(trainee, classroomId)) {
+  // Classroom membership covers the overwhelming majority of opens (and every
+  // heartbeat tick after that), so check it first and only pay for the
+  // direct-assignment query on the minority path where it actually matters.
+  if (!await hasClassroomAccess(trainee, classroomId) && !await hasDirectAssignmentAccessToContent(trainee, employeeId, contentId)) {
     return { error: { status: 403, message: 'This content is not assigned to your classroom.' } };
   }
   return { trainee, content, classroomId, isRepository: false };

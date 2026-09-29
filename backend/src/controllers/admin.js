@@ -1681,7 +1681,7 @@ export async function broadcastModule(req, res) {
     }
     const resolved = await resolveBroadcastTarget(req.body, req.userId);
     if (resolved.error) return res.status(400).json({ ok: false, message: resolved.error });
-    const { moduleId, moduleName, assessmentId, contentIds } = resolved;
+    const { moduleId, moduleName, assessmentId } = resolved;
     if (req.userBranch && scope === 'branch' && scopeValue !== req.userBranch) {
       return res.status(403).json({ ok: false, message: 'You can only broadcast to your own branch.' });
     }
@@ -1700,10 +1700,12 @@ export async function broadcastModule(req, res) {
       assignedBy: req.userId,
       assessmentId: assessmentId || null,
     };
-    // Store optional content filter as JSON in the message field prefix if provided
-    if (Array.isArray(contentIds) && contentIds.length > 0) {
-      data.message = `[contentIds:${contentIds.join(',')}]${message ? ' ' + message : ''}`;
-    }
+    // NOTE: resolveBroadcastTarget can return a narrowing contentIds[] for the
+    // "Assign a specific Content item" direct-assign mode, but nothing ever
+    // reads it back out on the trainee side (enrichIndependentAssignments lists
+    // the WHOLE module's content regardless) -- it used to get stamped into the
+    // message field as a raw "[contentIds:...]" marker instead, which just
+    // leaked into what trainees actually see with no filtering effect at all.
     const assignment = await prisma.assignedModule.create({ data });
 
     // Invalidate the recipient(s)' dashboard cache immediately — without this, a trainee
