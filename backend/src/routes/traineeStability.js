@@ -326,10 +326,14 @@ async function requireContentAccess(employeeId, contentId) {
   // Classroom membership covers the overwhelming majority of opens (and every
   // heartbeat tick after that), so check it first and only pay for the
   // direct-assignment query on the minority path where it actually matters.
-  if (!await hasClassroomAccess(trainee, classroomId) && !await hasDirectAssignmentAccessToContent(trainee, employeeId, contentId, content.moduleId)) {
+  const viaClassroom = await hasClassroomAccess(trainee, classroomId);
+  if (!viaClassroom && !await hasDirectAssignmentAccessToContent(trainee, employeeId, contentId, content.moduleId)) {
     return { error: { status: 403, message: 'This content is not assigned to your classroom.' } };
   }
-  return { trainee, content, classroomId, isRepository: false };
+  // Callers use this to decide whether the classroom's cross-day sequential
+  // unlock applies at all -- see the /open handler for why it must not, for
+  // someone who only ever reached this item through a direct assignment.
+  return { trainee, content, classroomId, isRepository: false, viaClassroom };
 }
 
 async function requireAssessmentAccess(employeeId, assessmentId) {
@@ -778,11 +782,19 @@ router.post('/content/:contentId/open', ...auth, async (req, res) => {
     const employeeId = req.userId;
     const access = await requireContentAccess(employeeId, req.params.contentId);
     if (access.error) return res.status(access.error.status).json({ ok: false, message: access.error.message });
-    const { trainee, content, classroomId, isRepository } = access;
+    const { trainee, content, classroomId, isRepository, viaClassroom } = access;
 
-    // Sequential unlock is a property of a classroom day. Broadcast content has no
-    // classroom, so this lookup would scan every module with a blank classroomId.
-    const allContent = isRepository
+    // Sequential unlock is a property of a classroom day, enforced against the
+    // trainee's own progress through THAT classroom's full curriculum -- it
+    // never applied to broadcast content with no classroom (isRepository), but
+    // it used to still apply to a real classroom item reached ONLY through a
+    // direct assignment ("A Specific Day"/"a specific module" broadcast to
+    // someone not enrolled in that classroom at all), forcing them to first
+    // complete earlier days of a curriculum they were never assigned in the
+    // first place. Skip it whenever classroom membership itself is what's
+    // missing -- a trainee who genuinely belongs to the classroom still gets
+    // the normal day-by-day gate.
+    const allContent = isRepository || !viaClassroom
       ? []
       : await prisma.contentMaster.findMany({ where: { module: { classroomId }, active: true }, include: { module: true } });
     const priorRequired = allContent.filter(item => item.required).sort(contentSort);
