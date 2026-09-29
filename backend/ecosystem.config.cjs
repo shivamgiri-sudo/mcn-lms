@@ -26,7 +26,7 @@ module.exports = {
       node_args: '--max-old-space-size=512',
       env: {
         NODE_ENV: 'production',
-        PORT: 4000,
+        PORT: 8000,
         LMS_RUN_SCHEDULERS: 'false',
         // Keep per-worker pool small when running many workers so total
         // DB connections stay within MySQL max_connections. Override with
@@ -58,7 +58,7 @@ module.exports = {
       node_args: '--max-old-space-size=256',
       env: {
         NODE_ENV: 'production',
-        PORT: 4001, // not exposed publicly; only internal health checks
+        PORT: 8001, // not exposed publicly; only internal health checks
         LMS_RUN_SCHEDULERS: 'true',
         DB_POOL_SIZE: '20',
         DB_POOL_TIMEOUT: '20',
