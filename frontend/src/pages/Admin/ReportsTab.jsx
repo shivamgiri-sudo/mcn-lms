@@ -193,6 +193,13 @@ export default function ReportsTab() {
       url: `/admin/reports/assessment-results?${p}`, filename: `assessment-results-${bl}-${d}.csv`,
     },
     {
+      key: 'assessment-answers',
+      icon: '🗒️', title: 'Assessment Answer Detail', btnColor: CHART_COLORS.amber,
+      desc: 'One row per question per attempt — exactly which option the trainee selected, alongside the correct answer. Same filters as Assessment Results.',
+      cols: 'Employee ID, Name, Batch, Branch, Process, Assessment, Attempt No, Submitted At, Question No, Question Text, Option A-D, Selected Answer (+text), Correct Answer (+text), Is Correct, Marks Awarded',
+      url: `/admin/reports/assessment-answers?${p}`, filename: `assessment-answers-${bl}-${d}.csv`,
+    },
+    {
       key: 'isms-quarterly',
       icon: '🛡️', title: 'ISMS Quarterly Assessment', btnColor: '#0891b2',
       desc: "Every employee's ISMS Test - Quarterly assignment, one row per financial-year quarter, with completion status, score, and pass/fail.",

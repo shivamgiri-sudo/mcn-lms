@@ -34,7 +34,7 @@ import {
   listBatchClassrooms, addBatchClassrooms, removeBatchClassroom, setPrimaryBatchClassroom,
   bulkCreatePortalUsers,
   exportBatchSummary, exportAtRisk,
-  exportModuleCompletion, getModuleCompletionDetail, exportAssessmentResults, exportAttendanceLog,
+  exportModuleCompletion, getModuleCompletionDetail, exportAssessmentResults, exportAssessmentAnswerDetail, exportAttendanceLog,
   exportCertificationEvidence, exportBroadcastAssignments, exportContentReading, exportQAActivity,
   listBranchMaster, createBranchMaster, updateBranchMaster, deleteBranchMaster,
   listDesignations, createDesignation, updateDesignation, deleteDesignation,
@@ -118,6 +118,7 @@ router.get('/reports/at-risk', ...auth, exportAtRisk);
 router.get('/reports/module-completion', ...auth, exportModuleCompletion);
 router.get('/reports/module-completion-detail', ...auth, getModuleCompletionDetail);
 router.get('/reports/assessment-results', ...auth, exportAssessmentResults);
+router.get('/reports/assessment-answers', ...auth, exportAssessmentAnswerDetail);
 router.get('/reports/attendance-log', ...auth, exportAttendanceLog);
 router.get('/reports/certification-evidence', ...auth, exportCertificationEvidence);
 router.get('/reports/broadcast-assignments', ...auth, exportBroadcastAssignments);

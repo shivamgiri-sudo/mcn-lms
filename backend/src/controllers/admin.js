@@ -2390,6 +2390,87 @@ export async function exportAssessmentResults(req, res) {
   }
 }
 
+// ── Assessment Answer Detail ─────────────────────────────────────────────────
+// exportAssessmentResults (above) is one row per ATTEMPT -- score, correct/
+// wrong/blank counts, pass/fail. It never showed WHICH option the trainee
+// actually picked on any given question, which is what a QA/audit review or
+// a "why did they fail" investigation needs. One row per (attempt, question)
+// instead, with the selected answer's own text (not just the A/B/C/D letter)
+// alongside the correct one, so nothing needs cross-referencing the question
+// bank separately. Same batch/classroom/assessment filters as the results export.
+export async function exportAssessmentAnswerDetail(req, res) {
+  try {
+    const { batchNo, classroomId, assessmentId } = req.query;
+    const branchFilter = req.userBranch ? { branch: req.userBranch } : {};
+    const traineeWhere = { ...branchFilter };
+    if (batchNo) traineeWhere.batchNo = batchNo;
+    if (classroomId) traineeWhere.classroomId = classroomId;
+
+    const trainees = await prisma.traineeMaster.findMany({ where: traineeWhere, select: { employeeId: true, traineeName: true, batchNo: true, branch: true, process: true } });
+    const empIds = trainees.map(t => t.employeeId);
+    const traineeMap = Object.fromEntries(trainees.map(t => [t.employeeId, t]));
+
+    const attemptWhere = { employeeId: { in: empIds } };
+    if (assessmentId) attemptWhere.assessmentId = assessmentId;
+
+    const headers = [
+      'Employee ID', 'Trainee Name', 'Batch No', 'Branch', 'Process',
+      'Assessment Name', 'Attempt No', 'Attempt Submitted At',
+      'Question No', 'Question Text',
+      'Option A', 'Option B', 'Option C', 'Option D',
+      'Selected Answer', 'Selected Answer Text',
+      'Correct Answer', 'Correct Answer Text',
+      'Is Correct', 'Marks Awarded',
+    ];
+
+    const attempts = await prisma.assessmentAttempt.findMany({
+      where: attemptWhere,
+      orderBy: [{ employeeId: 'asc' }, { assessmentId: 'asc' }, { attemptNo: 'asc' }],
+    });
+    if (!attempts.length) {
+      return csvRes(res, `assessment-answers-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, []);
+    }
+
+    const assessmentIds = [...new Set(attempts.map(a => a.assessmentId))];
+    const [assessments, questions] = await Promise.all([
+      prisma.assessmentMaster.findMany({ where: { assessmentId: { in: assessmentIds } }, select: { assessmentId: true, assessmentName: true } }),
+      prisma.questionBank.findMany({ where: { assessmentId: { in: assessmentIds } }, orderBy: { createdAt: 'asc' } }),
+    ]);
+    const assessMap = Object.fromEntries(assessments.map(a => [a.assessmentId, a]));
+    const questionsByAssessment = {};
+    for (const q of questions) (questionsByAssessment[q.assessmentId] ||= []).push(q);
+
+    const optionText = (q, letter) => ({ A: q.optionA, B: q.optionB, C: q.optionC, D: q.optionD }[letter] || '');
+
+    const rows = [];
+    for (const a of attempts) {
+      const t = traineeMap[a.employeeId] || {};
+      const as = assessMap[a.assessmentId] || {};
+      const qs = questionsByAssessment[a.assessmentId] || [];
+      const answers = a.answerJson && typeof a.answerJson === 'object' && !Array.isArray(a.answerJson) ? a.answerJson : {};
+      qs.forEach((q, idx) => {
+        const selected = String(answers[q.questionId] || '').toUpperCase();
+        const selectedValid = ['A', 'B', 'C', 'D'].includes(selected);
+        const correctOption = String(q.correctOption || '').toUpperCase();
+        const isCorrect = selectedValid && selected === correctOption;
+        rows.push([
+          a.employeeId, t.traineeName || '', t.batchNo || '', t.branch || '', t.process || '',
+          as.assessmentName || a.assessmentId, a.attemptNo, fmtDt(a.submittedAt),
+          idx + 1, q.questionText,
+          q.optionA, q.optionB, q.optionC || '', q.optionD || '',
+          selectedValid ? selected : 'Not Answered', selectedValid ? optionText(q, selected) : '',
+          correctOption, optionText(q, correctOption),
+          isCorrect ? 'Yes' : 'No', isCorrect ? q.marks : (selectedValid ? -Math.abs(q.negativeMarks || 0) : 0),
+        ]);
+      });
+    }
+    csvRes(res, `assessment-answers-${batchNo || 'all'}-${fmtDate(new Date())}.csv`, headers, rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ ok: false, message: 'Export failed.' });
+  }
+}
+
 // ── 6. Attendance Log ──────────────────────────────────────────────────────────
 export async function exportAttendanceLog(req, res) {
   try {
