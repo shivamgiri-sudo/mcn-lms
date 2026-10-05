@@ -95,8 +95,9 @@ test('migration and route security validators pass the complete repository', () 
   const migration = runNode('deploy/scripts/validate-migration-safety.mjs', ['--json']);
   assert.equal(migration.status, 0, migration.stderr || migration.stdout);
   const migrationSummary = JSON.parse(migration.stdout);
+  const expectedMigrationCount = read('deploy/migrations.expected').trim().split(/\r?\n/).length;
   assert.equal(migrationSummary.ok, true);
-  assert.equal(migrationSummary.migrationCount, 36);
+  assert.equal(migrationSummary.migrationCount, expectedMigrationCount);
 
   const routes = runNode('deploy/scripts/validate-route-security.mjs', ['--json']);
   assert.equal(routes.status, 0, routes.stderr || routes.stdout);
