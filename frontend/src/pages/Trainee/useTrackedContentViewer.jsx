@@ -285,6 +285,7 @@ export function useTrackedContentViewer(onRefresh) {
 export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }) {
   const media = content.resolvedMedia || renderContentUrl(content);
   const isVideo = content.contentType === 'video';
+  const isHtml = content.contentType?.toLowerCase() === 'html';
   const progress = content.progress;
   const [iframeLoading, setIframeLoading] = useState(true);
   const [iframeError, setIframeError] = useState(false);
@@ -457,7 +458,7 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
                   )}
                 </div>
               )}
-              <iframe ref={iframeRef} src={media.url} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
+              <iframe ref={iframeRef} src={media.url} sandbox={isHtml ? 'allow-scripts allow-forms' : undefined} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
             </div>
           )}
         </div>

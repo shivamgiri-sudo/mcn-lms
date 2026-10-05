@@ -173,7 +173,20 @@ test('uploads require matching extension and MIME and reject generic octet strea
   const text = await source('src/utils/upload.js');
   assert.match(text, /MIME_BY_EXTENSION/);
   assert.match(text, /hasMatchingType/);
+  assert.match(text, /'\.html', new Set\(\['text\/html', 'application\/xhtml\+xml'\]\)/);
+  assert.match(text, /'\.htm', new Set\(\['text\/html', 'application\/xhtml\+xml'\]\)/);
   assert.doesNotMatch(text, /application\/octet-stream/);
+});
+
+test('repository HTML uploads are auto-typed and shown in an isolated learner viewer', async () => {
+  const repositoryRoutes = await source('src/routes/adminStability.js');
+  const repositoryUi = await source('frontend/src/pages/Admin/ContentRepositoryTab.jsx', repoRoot);
+  const viewer = await source('frontend/src/pages/Trainee/useTrackedContentViewer.jsx', repoRoot);
+
+  assert.match(repositoryRoutes, /\['\.html', '\.htm'\]\.includes\(ext\)\) return 'html'/);
+  assert.match(repositoryUi, /accept="[^"]*\.html,\.htm"/);
+  assert.match(repositoryUi, /<option>html<\/option>/);
+  assert.match(viewer, /sandbox=\{isHtml \? 'allow-scripts allow-forms' : undefined\}/);
 });
 
 test('seed is disabled by default and never embeds known passwords', async () => {

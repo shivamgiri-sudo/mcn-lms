@@ -121,9 +121,9 @@ export default function ContentRepositoryTab() {
         <form onSubmit={uploadLocalFile} style={{ display: 'grid', gap: 10 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1.5fr', gap: 10 }}>
             <input className="input" placeholder="Title optional" value={upload.title} onChange={e => setUploadField('title', e.target.value)} />
-            <select className="input" value={upload.contentType} onChange={e => setUploadField('contentType', e.target.value)}><option value="">Auto Type</option><option>document</option><option>video</option><option>pdf</option><option>ppt</option><option>image</option></select>
+            <select className="input" value={upload.contentType} onChange={e => setUploadField('contentType', e.target.value)}><option value="">Auto Type</option><option>document</option><option>video</option><option>pdf</option><option>ppt</option><option>image</option><option>html</option></select>
             <input className="input" placeholder="Category" value={upload.category} onChange={e => setUploadField('category', e.target.value)} />
-            <input className="input" type="file" onChange={e => setUploadField('file', e.target.files?.[0] || null)} />
+            <input className="input" type="file" accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.mp4,.webm,.ogg,.mov,.jpg,.jpeg,.png,.gif,.webp,.html,.htm" onChange={e => setUploadField('file', e.target.files?.[0] || null)} />
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 10 }}>
             <input className="input" placeholder="Sub Category" value={upload.subCategory} onChange={e => setUploadField('subCategory', e.target.value)} />
@@ -176,7 +176,7 @@ export default function ContentRepositoryTab() {
             <form onSubmit={saveEdit} style={{ padding: '16px 20px', display: 'grid', gap: 12 }}>
               <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
                 <div className="field"><label>Title *</label><input className="input" value={editItem.title} onChange={e => setEditField('title', e.target.value)} required /></div>
-                <div className="field"><label>Type</label><select className="input" value={editItem.contentType} onChange={e => setEditField('contentType', e.target.value)}><option>document</option><option>video</option><option>pdf</option><option>ppt</option><option>image</option><option>scorm</option><option>link</option></select></div>
+                <div className="field"><label>Type</label><select className="input" value={editItem.contentType} onChange={e => setEditField('contentType', e.target.value)}><option>document</option><option>video</option><option>pdf</option><option>ppt</option><option>image</option><option>html</option><option>scorm</option><option>link</option></select></div>
                 <div className="field"><label>Source</label><select className="input" value={editItem.sourceType} onChange={e => setEditField('sourceType', e.target.value)}><option>local</option><option>url</option><option>drive</option></select></div>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 10 }}>

@@ -61,6 +61,7 @@ function guessContentType(file, fallback = 'document') {
   const ext = path.extname(file?.originalname || '').toLowerCase();
   if (['.mp4', '.webm', '.ogg', '.mov'].includes(ext)) return 'video';
   if (ext === '.pdf') return 'pdf';
+  if (['.html', '.htm'].includes(ext)) return 'html';
   if (['.ppt', '.pptx'].includes(ext)) return 'ppt';
   if (['.doc', '.docx'].includes(ext)) return 'document';
   if (['.xls', '.xlsx'].includes(ext)) return 'spreadsheet';

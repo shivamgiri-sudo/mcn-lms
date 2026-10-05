@@ -33,6 +33,8 @@ const MIME_BY_EXTENSION = new Map([
   ['.docx', new Set(['application/vnd.openxmlformats-officedocument.wordprocessingml.document'])],
   ['.xls', new Set(['application/vnd.ms-excel'])],
   ['.xlsx', new Set(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'])],
+  ['.html', new Set(['text/html', 'application/xhtml+xml'])],
+  ['.htm', new Set(['text/html', 'application/xhtml+xml'])],
   ['.jpg', new Set(['image/jpeg'])],
   ['.jpeg', new Set(['image/jpeg'])],
   ['.png', new Set(['image/png', 'image/x-png'])],
