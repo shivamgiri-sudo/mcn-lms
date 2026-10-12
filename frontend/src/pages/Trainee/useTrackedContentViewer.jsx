@@ -307,6 +307,29 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
   // pattern audits expect.
   const [ackChecked, setAckChecked] = useState(false);
 
+  // HTML pages report scroll / section progress from inside their sandboxed frame
+  // (tracker injected by routes/contentFiles.js). Acknowledgement stays locked until
+  // every data-lms-section has been seen, or - for pages with none - the end of the
+  // page has been reached. Already-acknowledged content is never re-locked.
+  const [htmlView, setHtmlView] = useState({ visited: 0, total: 0, atEnd: false, seen: false });
+  const htmlViewed = !isHtml || Boolean(progress?.acknowledgedAt)
+    || (htmlView.seen && (htmlView.total > 0 ? htmlView.visited >= htmlView.total : htmlView.atEnd));
+  useEffect(() => {
+    if (!isHtml) return undefined;
+    setHtmlView({ visited: 0, total: 0, atEnd: false, seen: false });
+    const onMessage = (event) => {
+      const d = event.data;
+      if (!d || d.source !== 'lms-html' || event.source !== iframeRef.current?.contentWindow) return;
+      setHtmlView(prev => {
+        const next = { visited: Number(d.visited) || 0, total: Number(d.total) || 0, atEnd: prev.atEnd || Boolean(d.atEnd), seen: true };
+        next.visited = Math.max(prev.visited, next.visited);
+        return next.visited === prev.visited && next.total === prev.total && next.atEnd === prev.atEnd && prev.seen ? prev : next;
+      });
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [isHtml, content.contentId]);
+
   useEffect(() => {
     setIframeLoading(true);
     setIframeError(false);
@@ -340,7 +363,7 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
   }
 
   async function acknowledgeContent() {
-    if (ackState.saving || (ackState.at && !acknowledgedStale) || !ackChecked) return;
+    if (ackState.saving || (ackState.at && !acknowledgedStale) || !ackChecked || !htmlViewed) return;
     setAckState(prev => ({ ...prev, saving: true, error: '' }));
     const res = await api.post(`/trainee/content/${content.contentId}/acknowledge`, {}, 'trainee');
     if (!res.ok) {
@@ -400,7 +423,12 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
                       : 'I confirm that I have read and understood this content.'}
                   </span>
                 </label>
-                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving || !ackChecked}>{ackState.saving ? 'Recording…' : acknowledgedStale ? '✓ Re-Acknowledge' : '✓ I Acknowledge'}</button>
+                {!htmlViewed && (
+                  <span className="pill warn" style={{ fontSize: 12 }}>
+                    {htmlView.total > 0 ? `Visit all sections to continue (${htmlView.visited}/${htmlView.total})` : 'Scroll to the end of the page to continue'}
+                  </span>
+                )}
+                <button className="btn small accent" onClick={acknowledgeContent} disabled={ackState.saving || !ackChecked || !htmlViewed}>{ackState.saving ? 'Recording…' : acknowledgedStale ? '✓ Re-Acknowledge' : isHtml ? '✓ I Have Read & Understood' : '✓ I Acknowledge'}</button>
               </>
             )}
             {ackState.error && <span className="pill bad">{ackState.error}</span>}
@@ -458,7 +486,7 @@ export function ContentViewerModal({ content, onClose, videoRef, onPauseChange }
                   )}
                 </div>
               )}
-              <iframe ref={iframeRef} src={media.url} sandbox={isHtml ? 'allow-scripts allow-forms' : undefined} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
+              <iframe ref={iframeRef} src={media.url} sandbox={isHtml ? 'allow-scripts allow-forms allow-popups' : undefined} style={{ width: '100%', height: '100%', border: 0, background: '#fff', borderRadius: fullscreen ? 0 : '0 0 var(--radius-xl) var(--radius-xl)' }} allowFullScreen title={content.contentTitle} onLoad={() => { setIframeLoading(false); setIframeError(false); }} onError={() => { setIframeLoading(false); setIframeError(true); }} />
             </div>
           )}
         </div>

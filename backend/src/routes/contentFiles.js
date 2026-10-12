@@ -27,6 +27,48 @@ const OFFICE_MIME_BY_EXT = {
   xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 };
 
+// Uploaded HTML is untrusted, so it runs in a CSP sandbox WITHOUT allow-same-origin:
+// its scripts execute (interactive pages work) but in an opaque origin with no access
+// to this site's cookies, storage or API - even if the file is opened directly rather
+// than through the viewer iframe. The global policy (script-src 'self') would block
+// every inline script, hence the dedicated header.
+const HTML_CONTENT_CSP = [
+  'sandbox allow-scripts allow-forms allow-popups',
+  "default-src 'none'",
+  "script-src 'unsafe-inline' https:",
+  "style-src 'unsafe-inline' https:",
+  'img-src data: blob: https:',
+  'font-src data: https:',
+  'media-src data: blob: https:',
+  'connect-src https:',
+  "frame-ancestors 'self'",
+].join('; ');
+
+// Injected into the served page so the viewer can tell whether the learner has seen
+// all of it: elements marked data-lms-section must each be scrolled into view (or
+// clicked); a page with none must be scrolled to the end. Progress goes to the parent
+// frame via postMessage.
+const HTML_TRACKER = `<script>(function(){
+var secs=[].slice.call(document.querySelectorAll('[data-lms-section]')),seen={},st={source:'lms-html',visited:0,total:secs.length,atEnd:false};
+function post(){try{parent.postMessage(st,'*')}catch(e){}}
+function end(){var d=document.documentElement;st.atEnd=(window.innerHeight+window.scrollY)>=d.scrollHeight-24}
+function mark(i){if(i>=0&&!seen[i]){seen[i]=1;st.visited++}}
+if('IntersectionObserver' in window){var io=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.intersectionRect.height>=Math.min(e.boundingClientRect.height*0.5,window.innerHeight*0.4)&&e.intersectionRect.height>0){mark(secs.indexOf(e.target));io.unobserve(e.target);post()}})},{threshold:[0,0.1,0.25,0.5,0.75,1]});
+secs.forEach(function(s){io.observe(s)})}else{secs.forEach(function(s,i){mark(i)})}
+secs.forEach(function(s,i){s.addEventListener('click',function(){mark(i);post()})});
+window.addEventListener('scroll',function(){end();post()},{passive:true});window.addEventListener('resize',function(){end();post()});
+end();post();setInterval(function(){end();post()},2000)})();</script>`;
+
+async function sendHtmlContent(res, target) {
+  const html = await fs.promises.readFile(target, 'utf8');
+  const at = html.toLowerCase().lastIndexOf('</body>');
+  const page = at === -1 ? html + HTML_TRACKER : html.slice(0, at) + HTML_TRACKER + html.slice(at);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', HTML_CONTENT_CSP);
+  return res.send(page);
+}
+
 function safeFilename(value) {
   const decoded = decodeURIComponent(String(value || ''));
   if (!decoded || decoded !== path.basename(decoded) || decoded.includes('\0')) return '';
@@ -142,6 +184,7 @@ router.get('/files/:filename', contentFileLimiter, requireSession, async (req, r
     res.setHeader('Cache-Control', 'private, no-store, max-age=0');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Content-Disposition', `inline; filename="${filename.replaceAll('"', '')}"`);
+    if (/\.html?$/i.test(filename)) return await sendHtmlContent(res, target);
     return res.sendFile(filename, { root: contentRoot, dotfiles: 'deny', acceptRanges: true });
   } catch (error) {
     return next(error);
