@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { requireSession, requireRole, requireSuperAdmin, requireRecentElevation } from '../middleware/auth.js';
+import { exportTrainingCompletion, exportUserActiveTime } from '../controllers/lmsReports.js';
 import { validate, classroomSchema, moduleSchema, assessmentSchema, batchSchema } from '../utils/validate.js';
 import {
   getAdminDashboard,
@@ -124,6 +125,8 @@ router.get('/reports/certification-evidence', ...auth, exportCertificationEviden
 router.get('/reports/broadcast-assignments', ...auth, exportBroadcastAssignments);
 router.get('/reports/content-reading', ...auth, exportContentReading);
 router.get('/reports/qa-activity', ...auth, exportQAActivity);
+router.get('/reports/training-completion', ...auth, exportTrainingCompletion);
+router.get('/reports/user-active-time', ...auth, exportUserActiveTime);
 router.post('/trainees/:employeeId/reset-password', ...auth, resetTraineePassword);
 router.post('/trainees/:employeeId/unlock', ...auth, unlockTrainee);
 // Super Admin only, not superElevatedAuth: this transfers a trainee the same way
