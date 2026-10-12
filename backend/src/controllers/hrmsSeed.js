@@ -420,6 +420,67 @@ export async function provisionHrmsEmployees({ dryRun = false, limit = 200, sinc
   return payload;
 }
 
+// Finds HRMS employees who are now inactive/exited and deactivates the matching
+// LMS trainee records so they can no longer log in or appear in active batch lists.
+export async function deprovisionHrmsEmployees({ dryRun = false, userId = 'hrms-worker' } = {}) {
+  const mapping = loadMapping();
+  const cfg = mapping.employee;
+  if (!cfg?.table || !cfg?.cols?.employeeId || !cfg?.cols?.active) {
+    return { scanned: 0, deactivated: 0 };
+  }
+
+  const tables = await detectTables();
+  const sourceTable =
+    tables.find(t => t.toLowerCase() === cfg.table.toLowerCase()) ||
+    tables.find(t => t.toLowerCase().includes('employee')) ||
+    tables.find(t => t.toLowerCase().includes('staff'));
+  if (!sourceTable) return { scanned: 0, deactivated: 0 };
+
+  const inactiveRows = await queryHrms(
+    `SELECT ${quoteIdentifier(cfg.cols.employeeId)} AS eid
+     FROM ${quoteIdentifier(sourceTable)}
+     WHERE ${quoteIdentifier(cfg.cols.active)}
+           IN (0, '0', 'false', 'inactive', 'Inactive', 'no', 'Deleted', 'deleted')`,
+    [],
+  );
+
+  const inactiveIds = [...new Set((inactiveRows || []).map(r => normalize(r.eid)).filter(Boolean))];
+  if (!inactiveIds.length) return { scanned: 0, deactivated: 0 };
+
+  // Only touch trainees with a permanent HRMS employee ID — never auto-deactivate
+  // manually-onboarded trainees who have a temp ID that might collide.
+  const toDeactivate = await prisma.traineeMaster.findMany({
+    where: {
+      employeeId: { in: inactiveIds },
+      status: 'Active',
+      empIdType: { not: 'TEMP' },
+    },
+    select: { employeeId: true, traineeName: true },
+  });
+
+  const count = toDeactivate.length;
+  if (!count) return { scanned: inactiveIds.length, deactivated: 0 };
+  if (dryRun) return { scanned: inactiveIds.length, deactivated: count, dryRun: true };
+
+  const ids = toDeactivate.map(t => t.employeeId);
+  await prisma.traineeMaster.updateMany({
+    where: { employeeId: { in: ids } },
+    data: { status: 'Inactive' },
+  });
+
+  await audit({
+    userIdentity: userId,
+    userRole: 'System',
+    action: 'HRMS_EMPLOYEE_DEPROVISIONED',
+    module: 'HRMS',
+    referenceId: `batch:${count}`,
+    details: `Auto-deactivated ${count} LMS trainee(s) whose HRMS employment is now inactive`,
+    newValue: { deactivatedIds: ids },
+  });
+
+  return { scanned: inactiveIds.length, deactivated: count };
+}
+
 export async function detectHRMSTables(req, res) {
   try {
     const tables = await detectTables();

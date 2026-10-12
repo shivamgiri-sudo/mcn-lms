@@ -47,7 +47,7 @@ import {
 import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
 import { getNotifConfig, saveNotifConfig } from '../controllers/notifConfig.js';
 import { contentUpload } from '../utils/upload.js';
-import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, syncEmployees, detectHRMSTables, hrmsStatus } from '../controllers/hrmsSeed.js';
+import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, syncEmployees, detectHRMSTables, hrmsStatus, deprovisionHrmsEmployees } from '../controllers/hrmsSeed.js';
 import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigController.js';
 import { getLeaderboardAdmin } from '../controllers/leaderboard.js';
 import {
@@ -242,6 +242,15 @@ router.post('/hrms/sync/departments', ...superElevatedAuth, syncDepartments);
 router.post('/hrms/sync/designations', ...superElevatedAuth, syncDesignations);
 router.post('/hrms/sync/processlob', ...superElevatedAuth, syncProcessLob);
 router.post('/hrms/sync/employees', ...superElevatedAuth, syncEmployees);
+router.post('/hrms/sync/deprovision', ...superElevatedAuth, async (req, res) => {
+  try {
+    const dryRun = req.query?.dryRun === '1' || req.body?.dryRun === true;
+    const result = await deprovisionHrmsEmployees({ dryRun, userId: req.userId });
+    res.json({ ok: true, message: dryRun ? 'Deprovision dry run complete.' : `Deprovisioned ${result.deactivated} trainee(s).`, ...result });
+  } catch (err) {
+    res.status(400).json({ ok: false, message: err.message });
+  }
+});
 router.get('/hrms/config', ...superAuth, getHrmsConfig);
 router.put('/hrms/config', ...superElevatedAuth, setHrmsConfig);
 

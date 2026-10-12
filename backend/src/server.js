@@ -16,7 +16,7 @@ import { startIsmsQuarterlyScheduler } from './services/ismsQuarterlyScheduler.j
 import { runNotificationCampaignCycle } from './services/notificationCampaigns.js';
 import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
-import { provisionHrmsEmployees } from './controllers/hrmsSeed.js';
+import { provisionHrmsEmployees, deprovisionHrmsEmployees } from './controllers/hrmsSeed.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
 import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 import { ensureCertificationRuleColumns } from './services/certificationSchema.js';
@@ -348,6 +348,18 @@ async function runHrmsEmployeeProvisioning() {
   }
 }
 
+async function runHrmsEmployeeDeprovisioning() {
+  if (process.env.HRMS_EMPLOYEE_AUTO_SYNC === 'false') return;
+  try {
+    const result = await deprovisionHrmsEmployees({ dryRun: false, userId: 'hrms-worker' });
+    if (result.deactivated > 0) {
+      console.log(`[HRMS] Employee deprovisioning: scanned ${result.scanned}, deactivated ${result.deactivated}.`);
+    }
+  } catch (error) {
+    console.warn('[HRMS] Employee deprovisioning skipped:', error.message);
+  }
+}
+
 function scheduleDailyEmail() {
   const now = new Date();
   const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 1, 30, 0));
@@ -394,8 +406,12 @@ function startBackgroundWork() {
   certificationTimer.unref?.();
   runHrmsEmployeeProvisioning();
   const hrmsIntervalMinutes = Number.parseInt(process.env.HRMS_EMPLOYEE_SYNC_INTERVAL_MINUTES || '15', 10);
-  const hrmsTimer = setInterval(runHrmsEmployeeProvisioning, (Number.isFinite(hrmsIntervalMinutes) && hrmsIntervalMinutes > 0 ? hrmsIntervalMinutes : 15) * 60 * 1000);
+  const hrmsInterval = (Number.isFinite(hrmsIntervalMinutes) && hrmsIntervalMinutes > 0 ? hrmsIntervalMinutes : 15) * 60 * 1000;
+  const hrmsTimer = setInterval(runHrmsEmployeeProvisioning, hrmsInterval);
   hrmsTimer.unref?.();
+  runHrmsEmployeeDeprovisioning();
+  const hrmsDeprovisionTimer = setInterval(runHrmsEmployeeDeprovisioning, hrmsInterval);
+  hrmsDeprovisionTimer.unref?.();
   async function cleanVideoWatchLogs() {
     const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
     try {
