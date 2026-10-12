@@ -704,7 +704,7 @@ function CertificationTab({ batchNo, trainees, canEdit = true }) {
   async function certify(employeeId) {
     const res = await api.post(`/coordinator/batches/${batchNo}/certification/certify`, { employeeId }, 'coordinator');
     if (res.ok) { setMsg(`✓ ${employeeId} certified.`); load(); }
-    else setMsg(res.message || 'Failed.');
+    else setMsg(res.blockers?.length ? `Cannot certify: ${res.blockers.join(' • ')}` : (res.message || 'Failed.'));
   }
 
   async function handover(employeeId) {

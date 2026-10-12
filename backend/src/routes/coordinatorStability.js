@@ -257,7 +257,7 @@ async function evaluateCertification(trainee, batchNo) {
   if (trainee.status !== 'Active') blockers.push(`Trainee status is ${trainee.status || 'not active'}`);
   if (Number(trainee.courseCompletionPct || 0) < thresholds.courseCompletionMin) blockers.push(`Course completion ${Number(trainee.courseCompletionPct || 0)}% is below ${thresholds.courseCompletionMin}%`);
   if (Number(trainee.assessmentPassPct || 0) < thresholds.mcqPassPctMin) blockers.push(`Assessment pass ${Number(trainee.assessmentPassPct || 0)}% is below ${thresholds.mcqPassPctMin}%`);
-  if (Number(trainee.attendancePct || 0) < thresholds.attendancePctMin) blockers.push(`Attendance ${Number(trainee.attendancePct || 0)}% is below ${thresholds.attendancePctMin}%`);
+  // Attendance is not tracked in this deployment — do not block certification on it.
   const { results: criteriaResults, blockers: criteriaBlockers } = evaluateCriteria(criteria, evidence);
   blockers.push(...criteriaBlockers);
   if (blockingRisks.length) blockers.push(`Resolve ${blockingRisks.length} open critical risk${blockingRisks.length === 1 ? '' : 's'} before certification`);
