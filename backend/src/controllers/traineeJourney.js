@@ -1,239 +1,114 @@
 import { prisma } from '../utils/db.js';
-import { evaluateCriteria } from '../services/certificationCriteria.js';
 
-function pct(value) {
-  return Math.max(0, Math.min(100, Math.round(Number(value || 0))));
-}
+// My Process Certification Journey.
+//
+// Certification here is derived ONLY from assigned classrooms: a classroom is Certified
+// when every required module content is complete and every active assessment attached
+// to it has been passed; a process is Certified when all of its classrooms are. It is
+// computed from the live content_progress / assessment_results rows on every request,
+// so it follows completion and assessment changes with no sync step. It deliberately
+// ignores attendance, onboarding, typing, OJT and coordinator-recorded evidence, and it
+// does not write to trainee_master.certification_status.
 
-function evidenceLabel(type) {
-  return {
-    mock_call: 'Mock call',
-    internal: 'Internal certification',
-    external: 'External certification',
-  }[type] || type;
-}
+const pct = (n, d) => (d > 0 ? Math.round((n / d) * 100) : 0);
 
-function statusFor({ complete, available = true, attention = false }) {
-  if (complete) return 'complete';
-  if (!available) return 'locked';
-  if (attention) return 'attention';
-  return 'current';
+const contentDone = (p) => Boolean(p) && (p.completionStatus === 'Completed' || Number(p.completionPct || 0) >= 100);
+
+function assessmentSummary(assessments, resultByAssessment) {
+  if (!assessments.length) return { result: 'Not Required', passed: 0, total: 0, allPassed: true };
+  const results = assessments.map(a => resultByAssessment.get(a.assessmentId));
+  const passed = results.filter(r => r?.result === 'Pass').length;
+  const failed = results.some(r => r && r.result !== 'Pass');
+  // A failed attempt is shown as Fail until it is passed; otherwise anything not yet
+  // attempted keeps the classroom Pending.
+  const result = passed === assessments.length ? 'Pass' : failed ? 'Fail' : 'Pending';
+  return { result, passed, total: assessments.length, allPassed: passed === assessments.length };
 }
 
 export async function getLearningJourney(req, res) {
   try {
     const employeeId = req.userId;
-    const [trainee, user] = await Promise.all([
-      prisma.traineeMaster.findUnique({ where: { employeeId } }),
-      prisma.userMaster.findUnique({ where: { employeeId }, select: { active: true, forcePasswordReset: true, lastLogin: true } }),
-    ]);
-    if (!trainee || !user) return res.status(404).json({ ok: false, message: 'Trainee journey was not found.' });
+    const trainee = await prisma.traineeMaster.findUnique({
+      where: { employeeId },
+      select: { employeeId: true, classroomId: true, process: true, batchNo: true },
+    });
+    if (!trainee) return res.status(404).json({ ok: false, message: 'Certification journey was not found.' });
 
-    const [batch, rule, evidence, openRisks, pendingActivities, assessmentCount, assessmentResults, openQueries] = await Promise.all([
-      trainee.batchNo
-        ? prisma.batchMaster.findUnique({ where: { batchNo: trainee.batchNo }, select: { batchNo: true, batchName: true, batchStatus: true, startDate: true, endDate: true, coordinatorName: true } })
-        : null,
-      trainee.process && trainee.lob
-        ? prisma.certificationRuleMaster.findFirst({ where: { process: trainee.process, lob: trainee.lob, active: true } })
-        : null,
-      prisma.certificationEvidence.findMany({
-        where: { employeeId },
-        orderBy: { createdAt: 'desc' },
-        select: { evidenceType: true, result: true, scorePct: true, conductedAt: true, conductedBy: true },
-      }),
-      prisma.trainingRiskLog.findMany({
-        where: { employeeId, status: 'Open' },
-        orderBy: [{ severity: 'asc' }, { createdAt: 'asc' }],
-        take: 10,
-        select: { severity: true, riskType: true, riskTitle: true, currentValue: true, expectedValue: true },
-      }),
-      prisma.pendingActivityLog.count({ where: { employeeId, status: { in: ['Open', 'Actioned'] } } }),
-      trainee.classroomId ? prisma.assessmentMaster.count({ where: { classroomId: trainee.classroomId, active: true } }) : 0,
-      trainee.classroomId
-        ? prisma.assessmentResult.findMany({ where: { employeeId, classroomId: trainee.classroomId }, select: { result: true, bestPercentage: true } })
-        : [],
-      prisma.traineeQueryLog.count({ where: { employeeId, status: 'Open' } }),
-    ]);
+    const maps = await prisma.traineeClassroomMap.findMany({ where: { employeeId, active: true }, select: { classroomId: true } });
+    const classroomIds = [...new Set([...maps.map(m => m.classroomId), trainee.classroomId].filter(Boolean))];
 
-    const requirements = {
-      courseCompletionPct: Number(rule?.courseCompletionMin ?? 80),
-      assessmentPassPct: Number(rule?.mcqPassPctMin ?? 60),
-      attendancePct: Number(rule?.attendancePctMin ?? 70),
-    };
-
-    const metrics = {
-      courseCompletionPct: pct(trainee.courseCompletionPct),
-      assessmentAttemptPct: pct(trainee.assessmentAttemptPct),
-      assessmentPassPct: pct(trainee.assessmentPassPct),
-      attendancePct: pct(trainee.attendancePct),
-      assessmentsAvailable: assessmentCount,
-      assessmentsPassed: assessmentResults.filter(result => result.result === 'Pass').length,
-      bestAssessmentPct: assessmentResults.length ? Math.max(...assessmentResults.map(result => Number(result.bestPercentage || 0))) : null,
-    };
-
-    const onboardingComplete = Boolean(user.active && trainee.status === 'Active' && trainee.onboardingStatus !== 'Pending');
-    const classroomComplete = Boolean(trainee.classroomId && trainee.batchNo);
-    const learningComplete = metrics.courseCompletionPct >= requirements.courseCompletionPct;
-    const assessmentComplete = metrics.assessmentPassPct >= requirements.assessmentPassPct && (assessmentCount === 0 || metrics.assessmentAttemptPct > 0);
-    const hasCriticalRisk = openRisks.some(risk => risk.severity === 'CRITICAL');
-    const readinessComplete = metrics.attendancePct >= requirements.attendancePct && !hasCriticalRisk;
-    const ojtComplete = Boolean(trainee.ojtReady || ['Completed', 'Passed', 'Ready'].includes(String(trainee.nestingStatus || '')));
-    const certified = trainee.certificationStatus === 'Certified';
-    const handedOver = Boolean(trainee.handoverToOps);
-
-    // The gates a trainee still has to clear are whatever this process configures,
-    // so a client certification round or a sales target shows up here without this
-    // view needing to know about it.
-    const criteria = rule
-      ? await prisma.certificationCriterion.findMany({ where: { ruleId: rule.ruleId, active: true }, orderBy: { sortOrder: 'asc' } })
+    const classrooms = classroomIds.length
+      ? await prisma.classroomMaster.findMany({ where: { classroomId: { in: classroomIds } }, select: { classroomId: true, classroomName: true, process: true } })
       : [];
-    const { results: criteriaResults } = evaluateCriteria(criteria, evidence);
-    const missingEvidence = criteriaResults.filter(result => result.blocks && !result.met).map(result => result.label);
-    // Named so the learner sees the gates their own process actually uses.
-    requirements.evidenceGates = criteriaResults.filter(result => result.blocks).map(result => result.label);
+    const [modules, assessments, results] = classroomIds.length
+      ? await Promise.all([
+        prisma.moduleMaster.findMany({
+          where: { classroomId: { in: classroomIds }, active: true, required: true },
+          select: { moduleId: true, classroomId: true, contents: { where: { active: true, required: true }, select: { contentId: true } } },
+        }),
+        prisma.assessmentMaster.findMany({ where: { classroomId: { in: classroomIds }, active: true }, select: { assessmentId: true, classroomId: true } }),
+        prisma.assessmentResult.findMany({ where: { employeeId, classroomId: { in: classroomIds } }, select: { assessmentId: true, result: true } }),
+      ])
+      : [[], [], []];
 
-    const stages = [
-      {
-        id: 'onboarding',
-        order: 1,
-        title: 'Account & Onboarding',
-        icon: '👋',
-        status: statusFor({ complete: onboardingComplete, attention: user.forcePasswordReset }),
-        progressPct: onboardingComplete ? 100 : 25,
-        summary: onboardingComplete ? 'Your LMS identity and trainee record are active.' : 'Your onboarding record still needs activation.',
-        evidence: [
-          { label: 'Account', value: user.active ? 'Active' : 'Inactive' },
-          { label: 'Profile', value: trainee.onboardingStatus || 'Pending' },
-          { label: 'Password', value: user.forcePasswordReset ? 'Reset required' : 'Private password set' },
-        ],
-        action: user.forcePasswordReset ? 'Create your private password from the security prompt.' : 'Review your profile details.',
-      },
-      {
-        id: 'classroom',
-        order: 2,
-        title: 'Batch & Classroom',
-        icon: '🏫',
-        status: statusFor({ complete: classroomComplete, available: onboardingComplete }),
-        progressPct: classroomComplete ? 100 : 0,
-        summary: classroomComplete ? 'Your batch and classroom learning plan are assigned.' : 'A coordinator must assign your batch and classroom.',
-        evidence: [
-          { label: 'Batch', value: trainee.batchNo || 'Not assigned' },
-          { label: 'Classroom', value: trainee.classroomName || 'Not assigned' },
-          { label: 'Coordinator', value: batch?.coordinatorName || 'Not assigned' },
-        ],
-        action: classroomComplete ? 'Open your learning plan.' : 'Contact the training coordinator.',
-      },
-      {
-        id: 'learning',
-        order: 3,
-        title: 'Learning Modules',
-        icon: '📚',
-        status: statusFor({ complete: learningComplete, available: classroomComplete, attention: classroomComplete && metrics.courseCompletionPct < 40 }),
-        progressPct: metrics.courseCompletionPct,
-        summary: `${metrics.courseCompletionPct}% complete; certification requirement is ${requirements.courseCompletionPct}%.`,
-        evidence: [
-          { label: 'Completion', value: `${metrics.courseCompletionPct}%` },
-          { label: 'Required', value: `${requirements.courseCompletionPct}%` },
-          { label: 'Risk', value: trainee.riskStatus || 'HEALTHY' },
-        ],
-        action: learningComplete ? 'Keep content fresh before assessment.' : 'Continue the next unlocked required module.',
-      },
-      {
-        id: 'assessment',
-        order: 4,
-        title: 'Knowledge & Assessment',
-        icon: '🧠',
-        status: statusFor({ complete: assessmentComplete, available: learningComplete, attention: learningComplete && metrics.assessmentPassPct < requirements.assessmentPassPct }),
-        progressPct: assessmentCount === 0 ? 0 : metrics.assessmentAttemptPct,
-        summary: `${metrics.assessmentsPassed}/${metrics.assessmentsAvailable} assessments passed; required pass level is ${requirements.assessmentPassPct}%.`,
-        evidence: [
-          { label: 'Attempted', value: `${metrics.assessmentAttemptPct}%` },
-          { label: 'Pass rate', value: `${metrics.assessmentPassPct}%` },
-          { label: 'Best score', value: metrics.bestAssessmentPct == null ? 'No attempt' : `${Math.round(metrics.bestAssessmentPct)}%` },
-        ],
-        action: assessmentComplete ? 'Review explanations and weak topics.' : 'Complete the next available assessment.',
-      },
-      {
-        id: 'readiness',
-        order: 5,
-        title: 'Attendance & Readiness',
-        icon: '📈',
-        status: statusFor({ complete: readinessComplete, available: assessmentComplete, attention: hasCriticalRisk || pendingActivities > 0 }),
-        progressPct: metrics.attendancePct,
-        summary: `${metrics.attendancePct}% verified attendance; requirement is ${requirements.attendancePct}%.`,
-        evidence: [
-          { label: 'Attendance', value: `${metrics.attendancePct}%` },
-          { label: 'Open risks', value: String(openRisks.length) },
-          { label: 'Pending actions', value: String(pendingActivities) },
-          { label: 'Open questions', value: String(openQueries) },
-        ],
-        action: hasCriticalRisk ? 'Resolve the critical training risk with your coordinator.' : readinessComplete ? 'Prepare for OJT or practical readiness.' : 'Build verified activity and complete pending actions.',
-      },
-      {
-        id: 'ojt',
-        order: 6,
-        title: 'OJT & Nesting',
-        icon: '🎯',
-        status: statusFor({ complete: ojtComplete, available: readinessComplete }),
-        progressPct: ojtComplete ? 100 : trainee.ojtReady ? 75 : 0,
-        summary: ojtComplete ? 'Practical readiness or nesting is complete.' : `OJT readiness: ${trainee.ojtReady ? 'Ready' : 'Pending'}; nesting: ${trainee.nestingStatus || 'Not Started'}.`,
-        evidence: [
-          { label: 'OJT ready', value: trainee.ojtReady ? 'Yes' : 'No' },
-          { label: 'Nesting', value: trainee.nestingStatus || 'Not Started' },
-        ],
-        action: ojtComplete ? 'Submit or review practical evidence.' : 'Complete the assigned OJT and nesting activities.',
-      },
-      {
-        id: 'certification',
-        order: 7,
-        title: 'Certification',
-        icon: '🎓',
-        status: statusFor({ complete: certified, available: readinessComplete && (ojtComplete || !trainee.ojtReady), attention: missingEvidence.length > 0 }),
-        progressPct: certified ? 100 : Math.max(0, 100 - missingEvidence.length * 25),
-        summary: certified ? 'You are certified for the assigned training programme.' : missingEvidence.length ? `Missing evidence: ${missingEvidence.join(', ')}.` : 'Certification review is pending coordinator approval.',
-        evidence: evidence.slice(0, 5).map(item => ({
-          label: evidenceLabel(item.evidenceType),
-          value: `${item.result}${item.scorePct != null ? ` · ${Math.round(item.scorePct)}%` : ''}`,
-        })),
-        action: certified ? 'Download or verify your certificate when available.' : missingEvidence.length ? 'Complete the missing certification evidence.' : 'Request certification review from your coordinator.',
-      },
-      {
-        id: 'handover',
-        order: 8,
-        title: 'Operations Handover',
-        icon: '🚀',
-        status: statusFor({ complete: handedOver, available: certified }),
-        progressPct: handedOver ? 100 : 0,
-        summary: handedOver ? 'Your training record has been handed over to operations.' : 'Operations handover becomes available after certification.',
-        evidence: [
-          { label: 'Certification', value: trainee.certificationStatus || 'Not Certified' },
-          { label: 'Handover', value: handedOver ? 'Completed' : 'Pending' },
-        ],
-        action: handedOver ? 'Continue role-based development and refresher learning.' : certified ? 'Await coordinator operations handover.' : 'Complete certification first.',
-      },
-    ];
+    const contentIds = modules.flatMap(m => m.contents.map(c => c.contentId));
+    const progress = contentIds.length
+      ? await prisma.contentProgress.findMany({ where: { employeeId, contentId: { in: contentIds } }, select: { contentId: true, completionStatus: true, completionPct: true } })
+      : [];
+    const progressByContent = new Map(progress.map(p => [p.contentId, p]));
+    const resultByAssessment = new Map(results.map(r => [r.assessmentId, r]));
 
-    const nextStage = stages.find(stage => stage.status !== 'complete') || stages.at(-1);
-    const completedStages = stages.filter(stage => stage.status === 'complete').length;
+    const rows = classrooms.map(room => {
+      const ids = modules.filter(m => m.classroomId === room.classroomId).flatMap(m => m.contents.map(c => c.contentId));
+      const done = ids.filter(id => contentDone(progressByContent.get(id))).length;
+      const completionPct = pct(done, ids.length);
+      const assess = assessmentSummary(assessments.filter(a => a.classroomId === room.classroomId), resultByAssessment);
+      // No required content means nothing to complete - never certify an empty classroom.
+      const certified = ids.length > 0 && done === ids.length && assess.allPassed;
+      const started = done > 0 || assess.passed > 0 || assess.result === 'Fail';
+      return {
+        classroomId: room.classroomId,
+        classroomName: room.classroomName,
+        process: room.process || trainee.process || 'Unassigned',
+        completionPct,
+        contentsCompleted: done,
+        contentsTotal: ids.length,
+        assessmentResult: assess.result,
+        assessmentsPassed: assess.passed,
+        assessmentsTotal: assess.total,
+        certificationStatus: certified ? 'Certified' : started ? 'In Progress' : 'Not Certified',
+      };
+    }).sort((a, b) => a.process.localeCompare(b.process) || a.classroomName.localeCompare(b.classroomName));
 
+    const processes = [...new Set(rows.map(r => r.process))].map(name => {
+      const inProcess = rows.filter(r => r.process === name);
+      const certifiedCount = inProcess.filter(r => r.certificationStatus === 'Certified').length;
+      const certified = certifiedCount === inProcess.length;
+      return {
+        process: name,
+        classroomsTotal: inProcess.length,
+        classroomsCertified: certifiedCount,
+        progressPct: pct(certifiedCount, inProcess.length),
+        certificationStatus: certified ? 'Certified' : inProcess.some(r => r.certificationStatus !== 'Not Certified') ? 'In Progress' : 'Not Certified',
+      };
+    });
+
+    const certifiedClassrooms = rows.filter(r => r.certificationStatus === 'Certified').length;
     return res.json({
       ok: true,
       data: {
         employeeId,
-        batch,
-        requirements,
-        metrics,
-        stages,
-        nextStageId: nextStage.id,
-        nextAction: nextStage.action,
-        completedStages,
-        totalStages: stages.length,
-        journeyProgressPct: Math.round((completedStages / stages.length) * 100),
+        classrooms: rows,
+        processes,
+        classroomsTotal: rows.length,
+        classroomsCertified: certifiedClassrooms,
+        overallProgressPct: pct(certifiedClassrooms, rows.length),
+        overallCertified: rows.length > 0 && certifiedClassrooms === rows.length,
         generatedAt: new Date().toISOString(),
       },
     });
   } catch (error) {
-    console.error('[traineeJourney] journey load failed:', error);
-    return res.status(500).json({ ok: false, message: 'Learning journey could not be loaded.' });
+    console.error('[traineeJourney] certification journey load failed:', error);
+    return res.status(500).json({ ok: false, message: 'Certification journey could not be loaded.' });
   }
 }
