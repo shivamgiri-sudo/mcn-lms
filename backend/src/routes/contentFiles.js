@@ -33,7 +33,7 @@ const OFFICE_MIME_BY_EXT = {
 // than through the viewer iframe. The global policy (script-src 'self') would block
 // every inline script, hence the dedicated header.
 const HTML_CONTENT_CSP = [
-  'sandbox allow-scripts allow-forms allow-popups',
+  'sandbox allow-scripts allow-forms',
   "default-src 'none'",
   "script-src 'unsafe-inline' https:",
   "style-src 'unsafe-inline' https:",

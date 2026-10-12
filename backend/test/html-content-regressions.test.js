@@ -7,7 +7,7 @@ const read = (p) => readFileSync(new URL(p, import.meta.url), 'utf8');
 // Source-text checks (see CLAUDE.md): they prove wiring, not behaviour.
 test('HTML content is served in a script-capable CSP sandbox without allow-same-origin', () => {
   const src = read('../src/routes/contentFiles.js');
-  assert.match(src, /sandbox allow-scripts allow-forms allow-popups/);
+  assert.match(src, /sandbox allow-scripts allow-forms/);
   assert.doesNotMatch(src.match(/HTML_CONTENT_CSP = \[[\s\S]*?\]\.join/)[0], /allow-same-origin/);
   assert.match(src, /\.html\?\$\/i\.test\(filename\)\) return await sendHtmlContent/);
   assert.match(src, /data-lms-section/);
