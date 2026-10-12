@@ -82,20 +82,12 @@ function ReportPanel({ title, desc, path, filename, filters, extraFields, buildP
 
 export default function LmsActivityReports() {
   const [process, setProcess] = useState('');
-  const [user, setUser] = useState('');
   const [status, setStatus] = useState('');
   const [period, setPeriod] = useState('daily');
   const [range, setRange] = useState(defaultRange('daily'));
   const [activeProcess, setActiveProcess] = useState('');
-  const [activeUser, setActiveUser] = useState('');
   const d = ymd(new Date());
 
-  const userField = (value, set) => (
-    <div className="field" style={{ margin: 0 }}>
-      <label>User (name or ID)</label>
-      <input className="input" value={value} onChange={e => set(e.target.value)} placeholder="Employee ID or name" />
-    </div>
-  );
   const processField = (value, set) => (
     <div className="field" style={{ margin: 0 }}>
       <label>Process</label>
@@ -116,7 +108,7 @@ export default function LmsActivityReports() {
         desc="Every LMS user's assigned trainings (classroom courses and independent modules) with completion date and status."
         path="/admin/reports/training-completion"
         filename={() => `training-completion-${d}.xlsx`}
-        filters={<>{processField(process, setProcess)}{userField(user, setUser)}</>}
+        filters={processField(process, setProcess)}
         extraFields={(
           <div className="field" style={{ margin: 0 }}>
             <label>Status</label>
@@ -125,7 +117,7 @@ export default function LmsActivityReports() {
             </select>
           </div>
         )}
-        buildParams={() => new URLSearchParams({ process, user, status }).toString()}
+        buildParams={() => new URLSearchParams({ process, status }).toString()}
       />
 
       <ReportPanel
@@ -133,7 +125,7 @@ export default function LmsActivityReports() {
         desc="Daily login time and total active time on LMS (content engagement minutes). Weekly and monthly views roll the days up."
         path="/admin/reports/user-active-time"
         filename={() => `user-on-time-rate-${period}-${range.from}-to-${range.to}.xlsx`}
-        filters={<>{processField(activeProcess, setActiveProcess)}{userField(activeUser, setActiveUser)}</>}
+        filters={processField(activeProcess, setActiveProcess)}
         extraFields={(
           <>
             <div className="field" style={{ margin: 0 }}>
@@ -152,7 +144,7 @@ export default function LmsActivityReports() {
             </div>
           </>
         )}
-        buildParams={() => new URLSearchParams({ process: activeProcess, user: activeUser, period, from: range.from, to: range.to }).toString()}
+        buildParams={() => new URLSearchParams({ process: activeProcess, period, from: range.from, to: range.to }).toString()}
       />
     </div>
   );

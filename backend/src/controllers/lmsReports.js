@@ -20,17 +20,15 @@ function weekStart(ymd) {
 function filtersFrom(req) {
   return {
     process: String(req.query?.process || '').trim(),
-    user: String(req.query?.user || '').trim(),
     branch: req.userBranch || null,
   };
 }
 
 // Trainee-side WHERE shared by both reports. `t` is trainee_master.
-function traineeScope({ process, user, branch }, params) {
+function traineeScope({ process, branch }, params) {
   let sql = " AND t.status <> 'Deleted'";
   if (process) { sql += ' AND t.process = ?'; params.push(process); }
   if (branch) { sql += ' AND t.branch = ?'; params.push(branch); }
-  if (user) { sql += ' AND (t.employee_id = ? OR t.trainee_name LIKE ?)'; params.push(user, `%${user}%`); }
   return sql;
 }
 
