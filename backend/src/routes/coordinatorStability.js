@@ -11,6 +11,7 @@ import { notifyCertification, notifyOnboarding, notifyBatchAssignment } from '..
 import { queryHrms } from '../utils/hrmsDb.js';
 import { autoAssignComplianceTraining } from '../services/complianceTraining.js';
 import { assignIsmsQuarterlyToEmployee } from '../services/ismsQuarterlyAssessment.js';
+import { getClassroomCertification } from '../services/classroomCertification.js';
 
 const router = Router();
 const auth = [requireSession, requireRole('coordinator')];
@@ -255,8 +256,18 @@ async function evaluateCertification(trainee, batchNo) {
   };
   const blockers = [];
   if (trainee.status !== 'Active') blockers.push(`Trainee status is ${trainee.status || 'not active'}`);
-  if (Number(trainee.courseCompletionPct || 0) < thresholds.courseCompletionMin) blockers.push(`Course completion ${Number(trainee.courseCompletionPct || 0)}% is below ${thresholds.courseCompletionMin}%`);
-  if (Number(trainee.assessmentPassPct || 0) < thresholds.mcqPassPctMin) blockers.push(`Assessment pass ${Number(trainee.assessmentPassPct || 0)}% is below ${thresholds.mcqPassPctMin}%`);
+  // Course and assessment readiness come from the trainee's assigned classrooms (the
+  // same calculation as their My Journey), not the stored aggregate percentages, so
+  // the coordinator and the trainee always see the same answer.
+  const classroomCert = await getClassroomCertification(trainee.employeeId, trainee.process);
+  if (!classroomCert.classroomsTotal) blockers.push('No classroom is assigned to this trainee');
+  for (const room of classroomCert.classrooms.filter(r => r.certificationStatus !== 'Certified')) {
+    const parts = [];
+    if (room.completionPct < 100) parts.push(`${room.completionPct}% of required content complete`);
+    if (!['Pass', 'Not Required'].includes(room.assessmentResult)) parts.push(`assessment ${room.assessmentResult.toLowerCase()}`);
+    if (!room.contentsTotal) parts.push('no required content');
+    blockers.push(`${room.classroomName} (${room.process}): ${parts.join(', ')}`);
+  }
   // Attendance is not tracked in this deployment — do not block certification on it.
   const { results: criteriaResults, blockers: criteriaBlockers } = evaluateCriteria(criteria, evidence);
   blockers.push(...criteriaBlockers);
@@ -266,6 +277,7 @@ async function evaluateCertification(trainee, batchNo) {
     eligible: blockers.length === 0,
     blockers,
     thresholds,
+    classroomCertification: classroomCert,
     criteria: criteriaResults,
     ruleId: rule?.ruleId || null,
     evidenceCount: evidence.length,
