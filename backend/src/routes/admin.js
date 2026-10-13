@@ -50,6 +50,7 @@ import { contentUpload } from '../utils/upload.js';
 import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, syncEmployees, detectHRMSTables, hrmsStatus, deprovisionHrmsEmployees } from '../controllers/hrmsSeed.js';
 import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigController.js';
 import { getLeaderboardAdmin } from '../controllers/leaderboard.js';
+import { bulkCertifyTrainees } from '../controllers/adminCertifications.js';
 import {
   notifyOnboarding, notifyBatchAssignment, notifyCertification,
   notifyPasswordReset, notifyModuleAssigned, notifyAssessmentAssigned, sendEmail,
@@ -232,6 +233,7 @@ router.get('/certificates/:employeeId/generate', ...auth, generateCertificate);
 router.get('/certificates/verify/:code', ...auth, verifyCertificate);
 router.post('/trainees/import/preview', ...auth, bulkImportPreview);
 router.post('/trainees/import/execute', ...auth, bulkImportExecute);
+router.post('/certifications/bulk-certify', ...superElevatedAuth, bulkCertifyTrainees);
 
 // HRMS topology is readable by super admins; sync and configuration writes
 // require recent password-backed elevation with a recorded justification.

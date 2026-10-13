@@ -32,6 +32,7 @@ import SystemHealthTab from './SystemHealthTab.jsx';
 import RuntimeOperationsTab from './RuntimeOperationsTab.jsx';
 import AuditLogTab from './AuditLogTab.jsx';
 import BulkImportTab from './BulkImportTab.jsx';
+import BulkCertifyTab from './BulkCertifyTab.jsx';
 import LeaderboardTab from './LeaderboardTab.jsx';
 import MentorPairingTab from '../Coordinator/MentorPairingTab.jsx';
 import IJPManageTab from '../Coordinator/IJPManageTab.jsx';
@@ -84,7 +85,10 @@ const NAV = [
     { id: 'isms-quarterly', label: 'ISMS Quarterly Test', icon: '🛡️' },
     { id: 'audit-logs', label: 'Audit Logs', icon: '📋' },
   ]},
-  { section: 'Import', items: [{ id: 'bulk-import', label: 'Bulk Import', icon: '📥' }] },
+  { section: 'Import', items: [
+    { id: 'bulk-import', label: 'Bulk Import', icon: '📥' },
+    { id: 'bulk-certify', label: 'Bulk Certify', icon: '🎓' },
+  ]},
   { section: 'Config', items: [
     { id: 'processlob', label: 'Process & LOB', icon: '⚙️' },
     { id: 'certrules', label: 'Cert Rules', icon: '🎓' },
@@ -206,6 +210,8 @@ export default function AdminConsole({ user, onLogout }) {
           {activeId === 'coord-detail' && <CoordDetailPage loginId={page.context?.loginId} coordinatorName={page.context?.coordinatorName} navigate={navigate} onBack={() => navigate('coordinators')} />}
           {activeId === 'trainee-detail' && <TraineeDetailPage empId={page.context?.empId} context={page.context} navigate={navigate} />}
           {activeId === 'risk-detail' && <RiskDrilldownPage level={page.context?.level} navigate={navigate} onBack={() => navigate('dashboard')} />}
+          {activeId === 'bulk-import' && <BulkImportTab />}
+          {activeId === 'bulk-certify' && <BulkCertifyTab />}
         </div>
       </div>
 
