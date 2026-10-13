@@ -30,3 +30,10 @@ test('journey tab shows the process certification layout, not the 8-stage cards'
   assert.match(ui, /100% – Certified/);
   assert.doesNotMatch(ui, /Personal capability journey|Recommended next action|stages complete/i);
 });
+
+test('a certification already on record (incl. bulk historical import) lifts the process result', () => {
+  const src = read('../src/services/classroomCertification.js');
+  assert.match(src, /\['Certified', 'HandedOver'\]\.includes\(trainee\?\.certificationStatus\)/);
+  assert.match(src, /overallCertified: recordedCertified \|\|/);
+  assert.match(read('../../frontend/src/pages/Trainee/LearningJourneyTab.jsx'), /Certification on record/);
+});

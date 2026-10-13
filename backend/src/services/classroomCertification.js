@@ -26,7 +26,7 @@ function assessmentSummary(assessments, resultByAssessment) {
 export async function getClassroomCertification(employeeId, fallbackProcess = null) {
   const trainee = await prisma.traineeMaster.findUnique({
     where: { employeeId },
-    select: { classroomId: true, process: true },
+    select: { classroomId: true, process: true, certificationStatus: true },
   });
   const maps = await prisma.traineeClassroomMap.findMany({ where: { employeeId, active: true }, select: { classroomId: true } });
   const classroomIds = [...new Set([...maps.map(m => m.classroomId), trainee?.classroomId].filter(Boolean))];
@@ -88,12 +88,23 @@ export async function getClassroomCertification(employeeId, fallbackProcess = nu
   });
 
   const classroomsCertified = rows.filter(r => r.certificationStatus === 'Certified').length;
+
+  // A certification already on record (a coordinator's Certify, or a historical bulk
+  // import that has no classroom data) counts as certified for the trainee's processes.
+  // Classroom rows above stay real progress; only the process / overall result is lifted.
+  const recordedCertified = ['Certified', 'HandedOver'].includes(trainee?.certificationStatus);
+  const finalProcesses = recordedCertified
+    ? (processes.length ? processes : [{ process: traineeProcess || 'Unassigned', classroomsTotal: 0, classroomsCertified: 0 }])
+      .map(p => ({ ...p, progressPct: 100, certificationStatus: 'Certified', recordedCertification: true }))
+    : processes;
+
   return {
     classrooms: rows,
-    processes,
+    processes: finalProcesses,
     classroomsTotal: rows.length,
     classroomsCertified,
-    overallProgressPct: pct(classroomsCertified, rows.length),
-    overallCertified: rows.length > 0 && classroomsCertified === rows.length,
+    recordedCertified,
+    overallProgressPct: recordedCertified ? 100 : pct(classroomsCertified, rows.length),
+    overallCertified: recordedCertified || (rows.length > 0 && classroomsCertified === rows.length),
   };
 }

@@ -55,11 +55,11 @@ export default function LearningJourneyTab({ onNavigate }) {
           <div className="journey-score-ring" style={{ '--journey-progress': `${journey.overallProgressPct * 3.6}deg` }}>
             <div><strong>{journey.overallProgressPct}%</strong><span>{journey.overallCertified ? 'certified' : 'complete'}</span></div>
           </div>
-          <div className="journey-score-note">{journey.classroomsCertified}/{journey.classroomsTotal} classrooms certified</div>
+          <div className="journey-score-note">{journey.recordedCertified ? 'Certification on record' : `${journey.classroomsCertified}/${journey.classroomsTotal} classrooms certified`}</div>
         </div>
       </div>
 
-      {classrooms.length === 0 ? (
+      {classrooms.length === 0 && !journey.recordedCertified ? (
         <div className="card" style={{ padding: 24, textAlign: 'center' }}>
           <div style={{ fontSize: 30, marginBottom: 10 }}>🏫</div>
           <h3 style={{ margin: '0 0 7px' }}>No classrooms assigned yet</h3>
@@ -77,7 +77,7 @@ export default function LearningJourneyTab({ onNavigate }) {
                     {proc.certificationStatus === 'Certified' ? '✓ 100% – Certified' : proc.certificationStatus}
                   </div>
                 </div>
-                <div className="journey-progress-label"><span>{proc.classroomsCertified}/{proc.classroomsTotal} classrooms certified</span><strong>{proc.progressPct}%</strong></div>
+                <div className="journey-progress-label"><span>{proc.recordedCertification && proc.classroomsCertified < proc.classroomsTotal ? 'Certification on record' : proc.classroomsTotal === 0 ? 'Certification on record' : `${proc.classroomsCertified}/${proc.classroomsTotal} classrooms certified`}</span><strong>{proc.progressPct}%</strong></div>
                 <div className="journey-track" aria-hidden="true"><span style={{ width: `${proc.progressPct}%` }} /></div>
               </article>
             ))}
