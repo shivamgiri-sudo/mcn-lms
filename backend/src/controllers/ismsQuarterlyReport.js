@@ -1,10 +1,12 @@
 import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
+import { xlsxRes } from '../utils/xlsx.js';
 import {
-  getFinancialQuarter, getIsmsQuarterlyReport, runQuarterlyAssignment,
+  getFinancialQuarter, getIsmsQuarterlyReport, runQuarterlyAssignment, ISMS_COMPLETION_STATUSES,
 } from '../services/ismsQuarterlyAssessment.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+const PREVIEW_LIMIT = 5000;
 function toIST(v) { return new Date(new Date(v).getTime() + IST_OFFSET_MS); }
 function fmtDt(v) { if (!v) return ''; return toIST(v).toISOString().replace('T', ' ').slice(0, 19); }
 function fmtDate(v) { if (!v) return ''; return toIST(v).toISOString().slice(0, 10); }
@@ -17,23 +19,46 @@ function csvRes(res, filename, headers, rows) {
   res.send(toCsv(headers, rows));
 }
 
+// Filters: fy ("FY 2026-27"), quarter (1-4), quarterKey, employeeId, status
+// (Completed | Attempted | Not Attempted), minScore / maxScore (0-100).
+// format: json (preview table) | xlsx | csv (default, unchanged for existing callers).
 export async function exportIsmsQuarterlyReport(req, res) {
   try {
+    const q = req.query || {};
+    const quarter = q.quarter ? Number(q.quarter) : null;
+    if (quarter !== null && ![1, 2, 3, 4].includes(quarter)) return res.status(400).json({ ok: false, message: 'Quarter must be 1, 2, 3 or 4.' });
+    const status = q.status ? String(q.status) : null;
+    if (status && !ISMS_COMPLETION_STATUSES.includes(status)) return res.status(400).json({ ok: false, message: 'Invalid completion status.' });
+    for (const k of ['minScore', 'maxScore']) {
+      if (q[k] !== undefined && q[k] !== '' && !Number.isFinite(Number(q[k]))) return res.status(400).json({ ok: false, message: `${k} must be a number.` });
+    }
+
     const rows = await getIsmsQuarterlyReport({
-      quarterKey: req.query?.quarterKey || null,
-      employeeId: req.query?.employeeId || null,
+      quarterKey: q.quarterKey || null,
+      fyLabel: q.fy ? String(q.fy) : null,
+      quarter,
+      employeeId: q.employeeId ? String(q.employeeId).trim() : null,
+      status,
+      minScore: q.minScore ?? null,
+      maxScore: q.maxScore ?? null,
     });
     const headers = [
       'Employee Name', 'Employee ID', 'Designation', 'Department',
       'Financial Year', 'Quarter', 'Assignment Date',
-      'Completion Status', 'Score', 'Pass/Fail', 'Attempt Date',
+      'Completion Status', 'Attempts', 'Score', 'Pass/Fail', 'Attempt Date',
     ];
-    const csvRows = rows.map(r => [
-      r.traineeName, r.employeeId, r.designation, r.department,
+    const tableRows = rows.map(r => [
+      r.traineeName || '', r.employeeId, r.designation || '', r.department || '',
       r.fyLabel, `Q${r.quarter}`, fmtDt(r.assignmentDate),
-      r.completionStatus, r.score ?? '', r.passFail || '', fmtDt(r.attemptDate),
+      r.completionStatus, r.attempts, r.score ?? '', r.passFail || '', fmtDt(r.attemptDate),
     ]);
-    csvRes(res, `isms-quarterly-${req.query?.quarterKey || 'all'}-${fmtDate(new Date())}.csv`, headers, csvRows);
+    const label = [q.fy, quarter ? `Q${quarter}` : null].filter(Boolean).join('-').replace(/\s+/g, '') || 'all';
+    const format = String(q.format || 'csv').toLowerCase();
+    if (format === 'json') {
+      return res.json({ ok: true, data: { headers, rows: tableRows.slice(0, PREVIEW_LIMIT), total: tableRows.length, truncated: tableRows.length > PREVIEW_LIMIT } });
+    }
+    if (format === 'xlsx') return xlsxRes(res, `isms-quarterly-${label}-${fmtDate(new Date())}.xlsx`, 'ISMS Quarterly', headers, tableRows);
+    return csvRes(res, `isms-quarterly-${q.quarterKey || label}-${fmtDate(new Date())}.csv`, headers, tableRows);
   } catch (err) {
     console.error('[ismsQuarterly] export failed:', err);
     res.status(500).json({ ok: false, message: 'Export failed.' });

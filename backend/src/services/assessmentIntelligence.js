@@ -1,6 +1,7 @@
 import { createHmac, randomInt, randomUUID } from 'crypto';
 import { prisma } from '../utils/db.js';
 import { awardAssessmentPass } from '../utils/leaderboardEngine.js';
+import { currentCycleStart, cycleBestResult, attemptCycleFilter, grantCycleFilter } from './ismsCycle.js';
 
 const DISPLAY_KEYS = ['A', 'B', 'C', 'D'];
 const VALID_ANSWERS = new Set(DISPLAY_KEYS);
@@ -532,10 +533,13 @@ async function currentOrNewAttempt(employeeId, assessment) {
   }
 
   if (attempt) return attempt;
+  // Quarterly ISMS: attempts and extra-attempt grants are counted for the current
+  // quarter only, so last quarter's attempts never use up this quarter's allowance.
+  const cycleStart = await currentCycleStart(employeeId, assessment.assessmentId);
   return prisma.$transaction(async (tx) => {
     const [attemptsUsed, grantsAgg] = await Promise.all([
-      tx.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId, result: { not: 'Expired' } } }),
-      tx.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId: assessment.assessmentId, active: true }, _sum: { extraAttempts: true } }),
+      tx.assessmentAttempt.count({ where: { employeeId, assessmentId: assessment.assessmentId, result: { not: 'Expired' }, ...attemptCycleFilter(cycleStart) } }),
+      tx.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId: assessment.assessmentId, active: true, ...grantCycleFilter(cycleStart) }, _sum: { extraAttempts: true } }),
     ]);
     const attemptLimit = Math.max(1, asNumber(assessment.attemptLimit, 3)) + (grantsAgg._sum.extraAttempts || 0);
     if (attemptsUsed >= attemptLimit) {
@@ -559,10 +563,13 @@ export async function loadLearnerAssessment(employeeId, assessmentId) {
   const { assessment } = await learnerAssessmentAccess(employeeId, assessmentId);
   const attempt = await currentOrNewAttempt(employeeId, assessment);
   const form = await ensureAttemptForm({ employeeId, assessment, attempt });
+  const cycleStart = await currentCycleStart(employeeId, assessmentId);
   const [bestResult, attemptsUsed, grantsAgg] = await Promise.all([
-    prisma.assessmentResult.findUnique({ where: { employeeId_assessmentId: { employeeId, assessmentId } } }),
-    prisma.assessmentAttempt.count({ where: { employeeId, assessmentId } }),
-    prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId, active: true }, _sum: { extraAttempts: true } }),
+    cycleStart
+      ? cycleBestResult(employeeId, assessmentId, cycleStart)
+      : prisma.assessmentResult.findUnique({ where: { employeeId_assessmentId: { employeeId, assessmentId } } }),
+    prisma.assessmentAttempt.count({ where: { employeeId, assessmentId, ...attemptCycleFilter(cycleStart) } }),
+    prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId, active: true, ...grantCycleFilter(cycleStart) }, _sum: { extraAttempts: true } }),
   ]);
   const effectiveAttemptLimit = Math.max(1, asNumber(assessment.attemptLimit, 3)) + (grantsAgg._sum.extraAttempts || 0);
   const elapsedSeconds = Math.max(0, Math.floor((Date.now() - new Date(attempt.startedAt).getTime()) / 1000));
@@ -847,6 +854,7 @@ export async function submitLearnerAssessment(employeeId, assessmentId, payload 
   const scored = scoreAttempt(form.snapshot, answers, responseSeconds, flags);
   const result = scored.percentage >= asNumber(assessment.passingPct, 60) ? 'Pass' : 'Fail';
   const submittedAt = new Date();
+  const cycleStart = await currentCycleStart(employeeId, assessmentId);
 
   const transactionResult = await prisma.$transaction(async tx => {
     const claimed = await tx.assessmentAttempt.updateMany({
@@ -886,7 +894,10 @@ export async function submitLearnerAssessment(employeeId, assessmentId, payload 
     const existing = await tx.assessmentResult.findUnique({
       where: { employeeId_assessmentId: { employeeId, assessmentId } },
     });
-    const isBest = !existing || scored.percentage > asNumber(existing.bestPercentage, 0);
+    // A running-best row whose last attempt predates this quarter belongs to an earlier
+    // quarter: restart it for this one (the earlier attempts stay in assessment_attempts).
+    const carriedFromEarlierCycle = Boolean(cycleStart && existing && (!existing.lastAttemptAt || new Date(existing.lastAttemptAt) < new Date(cycleStart)));
+    const isBest = !existing || carriedFromEarlierCycle || scored.percentage > asNumber(existing.bestPercentage, 0);
     await tx.assessmentResult.upsert({
       where: { employeeId_assessmentId: { employeeId, assessmentId } },
       create: {
@@ -901,7 +912,7 @@ export async function submitLearnerAssessment(employeeId, assessmentId, payload 
         lastAttemptAt: submittedAt,
       },
       update: {
-        totalAttempts: { increment: 1 },
+        totalAttempts: carriedFromEarlierCycle ? 1 : { increment: 1 },
         lastAttemptAt: submittedAt,
         ...(isBest ? { bestScore: scored.scored, bestPercentage: scored.percentage, result } : {}),
       },
@@ -932,8 +943,8 @@ export async function submitLearnerAssessment(employeeId, assessmentId, payload 
   }
 
   const [attemptsUsed, grantsAggSubmit, recommendations] = await Promise.all([
-    prisma.assessmentAttempt.count({ where: { employeeId, assessmentId } }),
-    prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId, active: true }, _sum: { extraAttempts: true } }),
+    prisma.assessmentAttempt.count({ where: { employeeId, assessmentId, ...attemptCycleFilter(cycleStart) } }),
+    prisma.assessmentAttemptGrant.aggregate({ where: { employeeId, assessmentId, active: true, ...grantCycleFilter(cycleStart) }, _sum: { extraAttempts: true } }),
     createRemedialRecommendations({ employeeId, assessmentId, attemptId, responses: scored.responses }).catch(() => []),
     refreshAssessmentAnalytics(assessmentId).catch(error => console.error('[assessmentIntelligence] analytics refresh failed:', error.message)),
   ]);

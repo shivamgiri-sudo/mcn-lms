@@ -3,6 +3,7 @@ import { detectAndSyncRisks } from '../utils/riskEngine.js';
 import { v4 as uuidv4 } from 'uuid';
 import * as cache from '../utils/cache.js';
 import { awardContentCompletion, awardAssessmentPass, awardAttendanceStreak } from '../utils/leaderboardEngine.js';
+import { cycleStartsFor, resultInCycle } from '../services/ismsCycle.js';
 
 // ── Learner Dashboard ─────────────────────────────────────────────────────────
 export async function getLearnerDashboard(req, res) {
@@ -692,8 +693,12 @@ export async function attachAssessmentsToAssignments(assignments, employeeId) {
   ]);
   const assessmentMap = {};
   for (const a of assessments) assessmentMap[a.assessmentId] = a;
+  // The quarterly ISMS test reuses one assessmentId, so its running-best result row may
+  // be from an earlier quarter: only a result from the current quarter counts, otherwise
+  // the assignment shows as not yet attempted.
+  const cycleStarts = await cycleStartsFor(employeeId, assessmentIds);
   const resultMap = {};
-  for (const r of results) resultMap[r.assessmentId] = r;
+  for (const r of results) resultMap[r.assessmentId] = resultInCycle(r, cycleStarts.get(r.assessmentId));
 
   return assignments.map(a => a.assessmentId && assessmentMap[a.assessmentId]
     ? { ...a, assessment: assessmentMap[a.assessmentId], assessmentResult: resultMap[a.assessmentId] || null }

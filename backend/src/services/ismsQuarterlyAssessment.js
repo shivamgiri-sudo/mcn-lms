@@ -102,6 +102,17 @@ export async function assignIsmsQuarterlyToEmployee({
     },
   });
 
+  // One live ISMS assignment per employee: retire the earlier quarters' assigned_modules
+  // rows (kept, just inactive) so the learner sees only this quarter's. The ledger and
+  // every attempt record stay as they are.
+  if (q.key === getFinancialQuarter().key) await prisma.assignedModule.updateMany({
+    where: {
+      assignedTo: employeeId, assignedToType: 'individual', assessmentId: assessment.assessmentId,
+      active: true, id: { not: assignment.id }, broadcastTitle: { startsWith: `${ASSESSMENT_NAME} | ` },
+    },
+    data: { active: false },
+  });
+
   const department = await getDepartmentForDesignation(designation);
   await prisma.ismsQuarterlyAssignment.create({
     data: {
@@ -151,22 +162,39 @@ export async function runQuarterlyAssignment({ assignedBy = null, triggerSource 
 // result on that identical assessment. This correlates each ledger row
 // (a fixed, known assignment window: from its assignedAt to the NEXT
 // quarter's assignedAt for that employee, or open-ended for the current
-// quarter) against the employee's real AssessmentAttempt rows that fall
-// inside that window, and reports the best attempt found there.
-export async function getIsmsQuarterlyReport({ quarterKey = null, employeeId = null } = {}) {
+// quarter) against the employee's real, submitted AssessmentAttempt rows that
+// fall inside that window. Nothing here reads or alters assessment_results, so
+// every quarter stays separately reportable.
+//
+// completionStatus: 'Completed' = passed in that quarter; 'Attempted' = submitted
+// but not (yet) passed; 'Not Attempted' = nothing submitted in that quarter.
+export const ISMS_COMPLETION_STATUSES = ['Completed', 'Attempted', 'Not Attempted'];
+
+export async function getIsmsQuarterlyReport({
+  quarterKey = null, fyLabel = null, quarter = null, employeeId = null,
+  status = null, minScore = null, maxScore = null,
+} = {}) {
   const where = {};
   if (quarterKey) where.quarterKey = quarterKey;
+  if (fyLabel) where.fyLabel = fyLabel;
+  if (quarter) where.quarter = Number(quarter);
   if (employeeId) where.employeeId = employeeId;
 
+  // The window for a row ends at the employee's NEXT assignment, which may fall outside
+  // the filter (e.g. filtering to Q2 still needs Q3's start), so windows are built from
+  // every ledger row of the matching employees, then filtered afterwards.
+  const matched = await prisma.ismsQuarterlyAssignment.findMany({ where, select: { id: true, employeeId: true } });
+  if (!matched.length) return [];
+  const employeeIds = [...new Set(matched.map(r => r.employeeId))];
   const ledgerRows = await prisma.ismsQuarterlyAssignment.findMany({
-    where, orderBy: [{ employeeId: 'asc' }, { assignedAt: 'asc' }],
+    where: { employeeId: { in: employeeIds } }, orderBy: [{ employeeId: 'asc' }, { assignedAt: 'asc' }],
   });
-  if (!ledgerRows.length) return [];
-
-  const employeeIds = [...new Set(ledgerRows.map(r => r.employeeId))];
   const assessmentIds = [...new Set(ledgerRows.map(r => r.assessmentId))];
   const attempts = await prisma.assessmentAttempt.findMany({
-    where: { employeeId: { in: employeeIds }, assessmentId: { in: assessmentIds } },
+    where: {
+      employeeId: { in: employeeIds }, assessmentId: { in: assessmentIds },
+      submittedAt: { not: null }, result: { in: ['Pass', 'Fail'] },
+    },
     orderBy: [{ startedAt: 'asc' }],
   });
 
@@ -182,35 +210,48 @@ export async function getIsmsQuarterlyReport({ quarterKey = null, employeeId = n
     attemptsByKey.get(key(a)).push(a);
   }
 
+  const wanted = new Set(matched.map(r => r.id));
   const results = [];
   for (const [k, rows] of ledgerByKey.entries()) {
     const sorted = [...rows].sort((a, b) => a.assignedAt - b.assignedAt);
     const allAttempts = attemptsByKey.get(k) || [];
     for (let i = 0; i < sorted.length; i++) {
       const row = sorted[i];
+      if (!wanted.has(row.id)) continue;
       const windowStart = row.assignedAt;
-      const windowEnd = sorted[i + 1]?.assignedAt || null; // null = open-ended (this is their latest/current quarter)
+      const windowEnd = sorted[i + 1]?.assignedAt || null; // null = open-ended (their current quarter)
       const windowAttempts = allAttempts.filter(a => a.startedAt >= windowStart && (!windowEnd || a.startedAt < windowEnd));
 
       let completionStatus = 'Not Attempted', score = null, passFail = null, attemptDate = null;
       if (windowAttempts.length) {
-        completionStatus = 'Attempted';
         const best = windowAttempts.reduce((b, a) => (!b || a.percentage > b.percentage ? a : b), null);
+        const passed = windowAttempts.find(a => a.result === 'Pass');
+        completionStatus = passed ? 'Completed' : 'Attempted';
         score = Math.round(best.percentage || 0);
-        passFail = best.result;
-        attemptDate = windowAttempts[windowAttempts.length - 1].submittedAt || windowAttempts[windowAttempts.length - 1].startedAt;
+        passFail = passed ? 'Pass' : 'Fail';
+        const dated = passed || windowAttempts[windowAttempts.length - 1];
+        attemptDate = dated.submittedAt || dated.startedAt;
       }
 
       results.push({
         employeeId: row.employeeId, traineeName: row.traineeName,
         designation: row.designation, department: row.department,
         fyLabel: row.fyLabel, quarter: row.quarter, quarterKey: row.quarterKey,
-        assignmentDate: row.assignedAt,
+        assignmentDate: row.assignedAt, attempts: windowAttempts.length,
         completionStatus, score, passFail, attemptDate,
       });
     }
   }
-  return results;
+
+  const min = minScore === null || minScore === '' ? null : Number(minScore);
+  const max = maxScore === null || maxScore === '' ? null : Number(maxScore);
+  return results.filter(r => {
+    if (status && r.completionStatus !== status) return false;
+    // A score range only makes sense for rows that have a score.
+    if (min !== null && Number.isFinite(min) && (r.score === null || r.score < min)) return false;
+    if (max !== null && Number.isFinite(max) && (r.score === null || r.score > max)) return false;
+    return true;
+  }).sort((a, b) => a.fyLabel.localeCompare(b.fyLabel) || a.quarter - b.quarter || String(a.traineeName || '').localeCompare(String(b.traineeName || '')));
 }
 
 export { EXCLUDED_DESIGNATIONS, ASSESSMENT_NAME };

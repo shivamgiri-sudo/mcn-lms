@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { api, downloadCsv } from '../../utils/api.js';
 import ModuleCompletionDetailPanel from './ModuleCompletionDetailPanel.jsx';
 import LmsActivityReports from './LmsActivityReports.jsx';
+import IsmsQuarterlyReport from './IsmsQuarterlyReport.jsx';
 import {
   Chart as ChartJS,
   ArcElement, BarElement, CategoryScale, LinearScale,
@@ -386,6 +387,7 @@ export default function ReportsTab() {
       <ModuleCompletionDetailPanel batchNo={selectedBatch} classroomId={selectedClassroom} />
 
       <LmsActivityReports />
+      <IsmsQuarterlyReport />
 
       {/* Section header */}
       <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: .5, marginBottom: 14 }}>

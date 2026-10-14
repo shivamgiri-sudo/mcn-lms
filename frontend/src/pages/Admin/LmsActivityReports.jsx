@@ -18,7 +18,7 @@ function defaultRange(period) {
   return { from: to, to };
 }
 
-function ReportPanel({ title, desc, path, filename, filters, extraFields, buildParams }) {
+export function ReportPanel({ title, desc, path, filename, filters, extraFields, buildParams, previewQuery = '' }) {
   const [rows, setRows] = useState(null);
   const [headers, setHeaders] = useState([]);
   const [meta, setMeta] = useState(null);
@@ -28,7 +28,7 @@ function ReportPanel({ title, desc, path, filename, filters, extraFields, buildP
 
   async function load() {
     setLoading(true); setMsg(null);
-    const res = await api.get(`${path}?${buildParams()}`, 'admin');
+    const res = await api.get(`${path}?${buildParams()}${previewQuery ? `&${previewQuery}` : ''}`, 'admin');
     if (res.ok) { setHeaders(res.data.headers); setRows(res.data.rows); setMeta(res.data); }
     else { setRows(null); setMsg(res.message || 'Could not load report.'); }
     setLoading(false);
