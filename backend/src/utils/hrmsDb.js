@@ -17,7 +17,7 @@ function getConfig() {
   }
 
   const port = Number.parseInt(process.env.HRMS_DB_PORT || '3306', 10);
-  const connectionLimit = Number.parseInt(process.env.HRMS_DB_CONNECTION_LIMIT || '5', 10);
+  const connectionLimit = Number.parseInt(process.env.HRMS_DB_CONNECTION_LIMIT || '2', 10);
 
   return {
     host: requiredEnv('HRMS_DB_HOST'),
@@ -26,7 +26,7 @@ function getConfig() {
     password: requiredEnv('HRMS_DB_PASS'),
     database: requiredEnv('HRMS_DB_NAME'),
     waitForConnections: true,
-    connectionLimit: Number.isFinite(connectionLimit) && connectionLimit > 0 ? connectionLimit : 5,
+    connectionLimit: Number.isFinite(connectionLimit) && connectionLimit > 0 ? connectionLimit : 2,
     queueLimit: 0,
     enableKeepAlive: true,
     keepAliveInitialDelay: 0,
@@ -37,6 +37,11 @@ function getConfig() {
 export async function getHrmsPool() {
   if (!pool) {
     pool = mysql.createPool(getConfig());
+    // Kill any HRMS sync query that runs longer than 90 seconds so it cannot
+    // hold MySQL resources and block HRMS2 API queries.
+    pool.on('connection', (conn) => {
+      conn.query('SET SESSION max_execution_time = 90000');
+    });
   }
   return pool;
 }
