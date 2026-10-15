@@ -67,6 +67,11 @@ import calendarRoutes from './routes/calendar.js';
 import mobileLearningRoutes from './routes/mobileLearning.js';
 import assessmentIntelligenceRoutes from './routes/assessmentIntelligence.js';
 import assessmentIntelligenceCoordinatorRoutes from './routes/assessmentIntelligenceCoordinator.js';
+import analyticsRoutes from './routes/analytics.js';
+import contentEnhancementRoutes from './routes/contentEnhancement.js';
+import coordinatorEfficiencyRoutes from './routes/coordinatorEfficiency.js';
+import gamificationRoutes from './routes/gamification.js';
+import integrationsRoutes from './routes/integrations.js';
 
 validateSessionSecurityConfig(process.env);
 
@@ -236,6 +241,11 @@ app.use('/api/calendar', calendarRoutes);
 app.use('/api/mobile-learning', mobileLearningRoutes);
 app.use('/api/assessment-intelligence/coordinator', assessmentIntelligenceCoordinatorRoutes);
 app.use('/api/assessment-intelligence', assessmentIntelligenceRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/content-enhance', contentEnhancementRoutes);
+app.use('/api/coordinator/efficiency', coordinatorEfficiencyRoutes);
+app.use('/api/gamification', gamificationRoutes);
+app.use('/api/integrations', integrationsRoutes);
 
 if (process.env.SERVE_FRONTEND !== 'false' && fs.existsSync(frontendDist)) {
   app.use(express.static(frontendDist, { index: false }));
