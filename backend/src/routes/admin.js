@@ -47,6 +47,7 @@ import {
 import { getCommConfig, saveCommConfig, testEmailConfig, testSmsConfig, testWhatsAppConfig } from '../controllers/commConfig.js';
 import { getNotifConfig, saveNotifConfig } from '../controllers/notifConfig.js';
 import { contentUpload } from '../utils/upload.js';
+import { replaceContentFile } from '../controllers/contentReplace.js';
 import { syncBranches, syncDepartments, syncDesignations, syncProcessLob, syncEmployees, detectHRMSTables, hrmsStatus, deprovisionHrmsEmployees } from '../controllers/hrmsSeed.js';
 import { getHrmsConfig, setHrmsConfig } from '../controllers/hrmsConfigController.js';
 import { getLeaderboardAdmin } from '../controllers/leaderboard.js';
@@ -84,6 +85,7 @@ router.post('/modules/:moduleId/contents', ...auth, contentUpload.single('file')
 router.put('/contents/:contentId', ...auth, updateContent);
 router.delete('/contents/:contentId', ...auth, deleteContent);
 router.post('/contents/:contentId/publish-version', ...auth, publishContentVersion);
+router.post('/contents/:contentId/replace-file', ...auth, contentUpload.single('file'), replaceContentFile);
 
 router.get('/modules/:moduleId/faqs', ...auth, listFaqs);
 router.post('/modules/:moduleId/faqs', ...auth, createFaq);

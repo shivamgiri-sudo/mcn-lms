@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import TYPE_META from './constants.js';
 
-export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveUp, onMoveDown, onPublishVersion, isFirst, isLast }) {
+export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveUp, onMoveDown, onPublishVersion, onReplaceFile, isFirst, isLast }) {
   const meta = TYPE_META[c.contentType] || TYPE_META.link;
   const [editing, setEditing] = useState(false);
+  const [replacing, setReplacing] = useState(false);
   const [draft, setDraft] = useState({ estimatedMins: c.estimatedMins ?? '', completionRulePct: c.completionRulePct ?? 80 });
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState('');
@@ -15,6 +16,7 @@ export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveU
     }
   }, [c.estimatedMins, c.completionRulePct]);
   return (
+    <div>
     <div style={{
       borderRadius: 12,
       border: `1.5px solid ${c.locked ? '#d97706' : 'var(--line)'}`,
@@ -175,6 +177,18 @@ export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveU
             >▶</a>
           ) : null;
         })()}
+        {onReplaceFile && (
+          <button
+            onClick={() => setReplacing(r => !r)}
+            title="Replace the file (upload a new PDF / PPT / video / HTML) without deleting this content"
+            style={{
+              border: '1.5px solid rgba(37,99,235,.4)', background: 'rgba(37,99,235,.15)', color: '#60a5fa',
+              borderRadius: 8, padding: '5px 10px', cursor: 'pointer', fontSize: 13,
+            }}
+          >
+            ⬆ File
+          </button>
+        )}
         {onPublishVersion && (
           <button
             onClick={async () => {
@@ -215,6 +229,51 @@ export default function ContentCard({ c, onToggleLock, onDelete, onSave, onMoveU
         >
           ✕
         </button>
+      </div>
+    </div>
+    {replacing && onReplaceFile && <ReplaceFilePanel c={c} onReplace={onReplaceFile} onClose={() => setReplacing(false)} />}
+    </div>
+  );
+}
+
+// Swap the file behind this content item without deleting it. Progress, order, lock and
+// assignments stay; re-acknowledgement is an explicit opt-in.
+function ReplaceFilePanel({ c, onReplace, onClose }) {
+  const [file, setFile] = useState(null);
+  const [title, setTitle] = useState(c.contentTitle || '');
+  const [publish, setPublish] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  return (
+    <div style={{ marginTop: 8, padding: '14px 16px', borderRadius: 12, border: '1.5px dashed var(--line)', background: 'var(--card)', display: 'grid', gap: 10 }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--ink)' }}>Replace file — {c.contentTitle}</div>
+      <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+        Upload a new PDF, PPT, video, image or HTML file. The content item, its order and every trainee's progress are kept; only the file changes.
+      </div>
+      <input
+        className="input" type="file"
+        accept=".pdf,.ppt,.pptx,.doc,.docx,.xls,.xlsx,.mp4,.webm,.ogg,.mov,.jpg,.jpeg,.png,.gif,.webp,.html,.htm"
+        onChange={e => { setFile(e.target.files?.[0] || null); setErr(''); }}
+      />
+      <input className="input" placeholder="Title" value={title} onChange={e => setTitle(e.target.value)} />
+      <label style={{ display: 'flex', gap: 8, alignItems: 'flex-start', fontSize: 12, color: 'var(--ink)', cursor: 'pointer' }}>
+        <input type="checkbox" checked={publish} onChange={e => setPublish(e.target.checked)} style={{ marginTop: 2 }} />
+        <span>Also publish as a new version — trainees who already acknowledged this content will be asked to re-acknowledge it.</span>
+      </label>
+      {err && <div style={{ fontSize: 12, color: 'var(--bad)' }}>{err}</div>}
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button
+          className="btn small accent" disabled={!file || busy}
+          onClick={async () => {
+            setBusy(true); setErr('');
+            try { await onReplace(file, { title: title.trim(), publish }); onClose(); }
+            catch (e) { setErr(e.message || 'Upload failed.'); }
+            finally { setBusy(false); }
+          }}
+        >
+          {busy ? 'Uploading…' : '⬆ Upload & replace'}
+        </button>
+        <button className="btn small secondary" onClick={onClose} disabled={busy}>Cancel</button>
       </div>
     </div>
   );

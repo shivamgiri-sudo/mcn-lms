@@ -562,6 +562,16 @@ export default function CurriculumTab({ isSuper = false, user = null }) {
                         if (!res.ok) throw new Error(res.message || 'Save failed.');
                         loadContents(selectedMod.moduleId);
                       }}
+                      onReplaceFile={async (file, { title, publish }) => {
+                        const fd = new FormData();
+                        fd.append('file', file);
+                        if (title) fd.append('contentTitle', title);
+                        const res = await uploadFile(`/admin/contents/${c.contentId}/replace-file`, fd, 'admin');
+                        if (!res.ok) throw new Error(res.message || 'Upload failed.');
+                        if (publish) await api.post(`/admin/contents/${c.contentId}/publish-version`, {}, 'admin');
+                        setMsg(`File replaced for "${res.data?.contentTitle || c.contentTitle}"${publish ? ' and published as a new version' : ''}.`);
+                        loadContents(selectedMod.moduleId);
+                      }}
                       onPublishVersion={async () => {
                         await api.post(`/admin/contents/${c.contentId}/publish-version`, {}, 'admin');
                         loadContents(selectedMod.moduleId);
