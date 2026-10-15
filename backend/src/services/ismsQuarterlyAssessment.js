@@ -1,11 +1,12 @@
 import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
 import { ensureIndependentWrapperForAssessment } from './independentModules.js';
+import { ISMS_ASSESSMENT_NAME, ISMS_TITLE_PREFIX } from './ismsCycle.js';
 
 // The existing, already-configured assessment this whole feature assigns --
 // looked up by name (never created/duplicated/modified) so the automation
 // keeps working even if its assessmentId differs across environments.
-const ASSESSMENT_NAME = 'ISMS Test - Quarterly';
+const ASSESSMENT_NAME = ISMS_ASSESSMENT_NAME;
 const EXCLUDED_DESIGNATIONS = ['CEO', 'Chairman', 'COO'];
 
 function clean(value) {
@@ -108,7 +109,7 @@ export async function assignIsmsQuarterlyToEmployee({
   if (q.key === getFinancialQuarter().key) await prisma.assignedModule.updateMany({
     where: {
       assignedTo: employeeId, assignedToType: 'individual', assessmentId: assessment.assessmentId,
-      active: true, id: { not: assignment.id }, broadcastTitle: { startsWith: `${ASSESSMENT_NAME} | ` },
+      active: true, id: { not: assignment.id }, broadcastTitle: { startsWith: ISMS_TITLE_PREFIX },
     },
     data: { active: false },
   });
@@ -156,6 +157,62 @@ export async function runQuarterlyAssignment({ assignedBy = null, triggerSource 
   return { quarter: q.key, total: employees.length, assigned, skippedByReason };
 }
 
+// Restarts the CURRENT quarter's ISMS test for everyone, so every eligible employee
+// can attempt it fresh. Used when quarter assignments were made before the per-quarter
+// attempt logic existed, or an admin otherwise needs a clean slate for this quarter.
+//   - Employees with no row for this quarter yet are assigned normally.
+//   - Employees who already have one get a new "Reassigned" assignment row, which opens
+//     a new attempt window (see services/ismsCycle.js): attempts, extra-attempt grants
+//     and status all start from now. Their earlier assignment rows are deactivated, not
+//     deleted; no attempt, result or ledger row is touched, so history is preserved.
+// Eligibility is unchanged (active employees, CEO/Chairman/COO excluded).
+export async function reassignCurrentQuarter({ assignedBy = null } = {}) {
+  const q = getFinancialQuarter();
+  const assessment = await getAssessment();
+  if (!assessment) return { quarter: q.key, newlyAssigned: 0, restarted: 0, error: 'AssessmentNotFound' };
+
+  const [alreadyAssigned, active] = await Promise.all([
+    prisma.ismsQuarterlyAssignment.findMany({ where: { quarterKey: q.key }, select: { employeeId: true } }),
+    prisma.traineeMaster.findMany({ where: { status: 'Active' }, select: { employeeId: true, designation: true } }),
+  ]);
+  const eligible = new Set(active.filter(e => !isExcludedDesignation(e.designation)).map(e => e.employeeId));
+  const toRestart = [...new Set(alreadyAssigned.map(r => r.employeeId))].filter(id => eligible.has(id));
+
+  // Those with no row yet go through the normal path first.
+  const fresh = await runQuarterlyAssignment({ assignedBy, triggerSource: 'ManualReassign', quarter: q });
+
+  const { moduleId, moduleName } = await resolveAssignmentTarget(assessment, assignedBy);
+  const reassignedAt = new Date();
+  const stamp = new Date(reassignedAt.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 16).replace('T', ' ');
+  const broadcastTitle = `${ASSESSMENT_NAME} | ${q.key} | Reassigned ${stamp}`;
+  const CHUNK = 500;
+  for (let i = 0; i < toRestart.length; i += CHUNK) {
+    const ids = toRestart.slice(i, i + CHUNK);
+    await prisma.assignedModule.createMany({
+      data: ids.map(employeeId => ({
+        moduleId, moduleName, broadcastTitle,
+        assignedTo: employeeId, assignedToType: 'individual', assignmentType: 'Mandatory',
+        message: `${ASSESSMENT_NAME} for ${q.key} — reassigned so you can attempt it afresh.`,
+        assignedBy, active: true, assessmentId: assessment.assessmentId, createdAt: reassignedAt,
+      })),
+    });
+    await prisma.assignedModule.updateMany({
+      where: {
+        assignedTo: { in: ids }, assignedToType: 'individual', assessmentId: assessment.assessmentId,
+        active: true, broadcastTitle: { startsWith: ISMS_TITLE_PREFIX }, createdAt: { lt: reassignedAt },
+      },
+      data: { active: false },
+    });
+  }
+
+  await audit({
+    userIdentity: assignedBy || 'system', userRole: assignedBy ? 'Admin' : 'system',
+    action: 'REASSIGN_ISMS_QUARTERLY', module: 'IsmsQuarterly', referenceId: q.key,
+    newValue: { quarter: q.key, newlyAssigned: fresh.assigned, restarted: toRestart.length, reassignedAt },
+  });
+  return { quarter: q.key, newlyAssigned: fresh.assigned, restarted: toRestart.length, totalEligible: eligible.size };
+}
+
 // Reporting: because the same assessmentId is reused unchanged every
 // quarter, assessment_results (one running best-ever row per employee+
 // assessment) cannot tell "this employee's Q1 result" apart from their Q2
@@ -198,6 +255,18 @@ export async function getIsmsQuarterlyReport({
     orderBy: [{ startedAt: 'asc' }],
   });
 
+  // A "Reassigned" row restarts a quarter: that quarter's window opens at its newest one.
+  const reassignRows = await prisma.assignedModule.findMany({
+    where: {
+      assignedTo: { in: employeeIds }, assignedToType: 'individual', assessmentId: { in: assessmentIds },
+      broadcastTitle: { contains: ' | Reassigned' },
+    },
+    select: { assignedTo: true, broadcastTitle: true, createdAt: true },
+  });
+  const reassignStart = (employee, quarterKey) => reassignRows
+    .filter(r => r.assignedTo === employee && String(r.broadcastTitle).startsWith(`${ISMS_TITLE_PREFIX}${quarterKey} | Reassigned`))
+    .reduce((latest, r) => (!latest || r.createdAt > latest ? r.createdAt : latest), null);
+
   const key = row => `${row.employeeId}|${row.assessmentId}`;
   const ledgerByKey = new Map();
   for (const row of ledgerRows) {
@@ -218,7 +287,8 @@ export async function getIsmsQuarterlyReport({
     for (let i = 0; i < sorted.length; i++) {
       const row = sorted[i];
       if (!wanted.has(row.id)) continue;
-      const windowStart = row.assignedAt;
+      const restarted = reassignStart(row.employeeId, row.quarterKey);
+      const windowStart = restarted && restarted > row.assignedAt ? restarted : row.assignedAt;
       const windowEnd = sorted[i + 1]?.assignedAt || null; // null = open-ended (their current quarter)
       const windowAttempts = allAttempts.filter(a => a.startedAt >= windowStart && (!windowEnd || a.startedAt < windowEnd));
 

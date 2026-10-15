@@ -44,3 +44,18 @@ test('report supports FY, quarter, employee, status and score filters with a Com
   assert.match(ui, /previewQuery="format=json"/);
   assert.match(read('../../frontend/src/pages/Admin/ReportsTab.jsx'), /<IsmsQuarterlyReport \/>/);
 });
+
+test('reassign restarts the current quarter without deleting history', () => {
+  const svc = read('../src/services/ismsQuarterlyAssessment.js');
+  const fn = svc.slice(svc.indexOf('export async function reassignCurrentQuarter'), svc.indexOf('// Reporting: because the same assessmentId'));
+  assert.match(fn, /assignedModule\.createMany/);
+  assert.match(fn, /data: \{ active: false \}/);
+  assert.match(fn, /isExcludedDesignation/);
+  assert.doesNotMatch(fn, /\.(delete|deleteMany)\(/);
+  assert.doesNotMatch(fn, /prisma\.(ismsQuarterlyAssignment|assessmentAttempt|assessmentResult)\.(update|updateMany|upsert)/);
+  // the cycle helper treats a Reassigned/new ISMS assignment row as the cycle start
+  const cyc = read('../src/services/ismsCycle.js');
+  assert.match(cyc, /assignedModule\.findFirst/);
+  assert.match(read('../src/routes/ismsQuarterly.js'), /router\.post\('\/reassign-now', \.\.\.superAuth, reassignIsmsQuarterly\)/);
+  assert.match(read('../../frontend/src/pages/Admin/IsmsQuarterlyTab.jsx'), /\/isms-quarterly\/reassign-now/);
+});

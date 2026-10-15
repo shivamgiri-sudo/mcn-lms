@@ -32,6 +32,19 @@ export default function IsmsQuarterlyTab({ isSuper }) {
     else setMsg({ type: 'bad', text: res.message || 'Run failed.' });
   }
 
+  async function reassignNow() {
+    const warning = "Restart this quarter's ISMS test for EVERY eligible employee so they can attempt it afresh?\n\n"
+      + "Their status will show Not Attempted with a full set of attempts. Earlier attempts and results stay in the records but no longer count toward this quarter. "
+      + "Employees without this quarter's assignment are assigned now. This cannot be undone.";
+    if (!window.confirm(warning)) return;
+    setRunning(true);
+    setMsg(null);
+    const res = await api.post('/isms-quarterly/reassign-now', {}, 'admin');
+    setRunning(false);
+    if (res.ok) { setMsg({ type: 'ok', text: res.message }); load(); }
+    else setMsg({ type: 'bad', text: res.message || 'Reassign failed.' });
+  }
+
   async function exportReport() {
     try { await downloadCsv('/isms-quarterly/report', `isms-quarterly-${new Date().toISOString().slice(0, 10)}.csv`, 'admin'); }
     catch { setMsg({ type: 'bad', text: 'Download failed.' }); }
@@ -77,6 +90,11 @@ export default function IsmsQuarterlyTab({ isSuper }) {
         {isSuper && (
           <button className="btn" style={{ background: '#7c3aed' }} onClick={runNow} disabled={running}>
             {running ? 'Running…' : '▶ Run Now (recovery/verification)'}
+          </button>
+        )}
+        {isSuper && (
+          <button className="btn" style={{ background: '#dc2626' }} onClick={reassignNow} disabled={running}>
+            {running ? 'Working…' : '↻ Reassign current quarter to all (fresh attempt)'}
           </button>
         )}
       </div>

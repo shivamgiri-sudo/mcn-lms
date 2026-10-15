@@ -2,7 +2,7 @@ import { prisma } from '../utils/db.js';
 import { audit } from '../utils/audit.js';
 import { xlsxRes } from '../utils/xlsx.js';
 import {
-  getFinancialQuarter, getIsmsQuarterlyReport, runQuarterlyAssignment, ISMS_COMPLETION_STATUSES,
+  getFinancialQuarter, getIsmsQuarterlyReport, runQuarterlyAssignment, reassignCurrentQuarter, ISMS_COMPLETION_STATUSES,
 } from '../services/ismsQuarterlyAssessment.js';
 
 const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
@@ -98,5 +98,21 @@ export async function triggerIsmsQuarterlyRun(req, res) {
   } catch (err) {
     console.error('[ismsQuarterly] manual trigger failed:', err);
     res.status(500).json({ ok: false, message: 'Server error' });
+  }
+}
+
+// Restarts the current quarter for every eligible employee so they can attempt it
+// afresh (see reassignCurrentQuarter). Super admin only, like run-now.
+export async function reassignIsmsQuarterly(req, res) {
+  try {
+    const result = await reassignCurrentQuarter({ assignedBy: req.userId });
+    if (result.error) return res.status(409).json({ ok: false, message: 'The ISMS Test - Quarterly assessment was not found.' });
+    return res.json({
+      ok: true, data: result,
+      message: `${result.quarter}: ${result.restarted} employee(s) restarted for a fresh attempt, ${result.newlyAssigned} newly assigned.`,
+    });
+  } catch (err) {
+    console.error('[ismsQuarterly] reassign failed:', err);
+    return res.status(500).json({ ok: false, message: 'Server error' });
   }
 }
