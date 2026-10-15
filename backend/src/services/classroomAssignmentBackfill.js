@@ -54,6 +54,7 @@ export async function backfillMissingBatchClassroomAssignments() {
            'Backfilled: batch classroom had not been mapped to this trainee'
       FROM trainee_master t
       INNER JOIN batch_classroom_map bcm ON bcm.batch_no = t.batch_no AND bcm.active = 1
+      INNER JOIN classroom_master cm ON cm.classroom_id = bcm.classroom_id
      WHERE t.status <> 'Deleted'
        AND NOT EXISTS (
          SELECT 1 FROM trainee_classroom_map m
@@ -73,6 +74,7 @@ export async function backfillMissingBatchClassroomAssignments() {
            'Backfilled: batch classroom had not been mapped to this trainee'
       FROM trainee_master t
       INNER JOIN batch_master b ON b.batch_no = t.batch_no
+      INNER JOIN classroom_master cm2 ON cm2.classroom_id = b.classroom_id
      WHERE b.classroom_id IS NOT NULL
        AND t.status <> 'Deleted'
        AND NOT EXISTS (
