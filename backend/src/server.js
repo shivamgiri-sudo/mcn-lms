@@ -18,6 +18,8 @@ import { expireAllStaleVerifications } from './services/talentGovernance.js';
 import { syncCertificationLifecycleForEmployee } from './services/developmentGovernance.js';
 import { provisionHrmsEmployees, deprovisionHrmsEmployees } from './controllers/hrmsSeed.js';
 import { normalizeIltAttendanceRequest } from './middleware/iltAttendanceStability.js';
+import { requireSession, requireRole, requireSuperAdmin } from './middleware/auth.js';
+import { reassignIsmsQuarterly } from './controllers/ismsQuarterlyReport.js';
 import { buildHttpSecurityPolicy } from './security/httpSecurity.js';
 import { ensureCertificationRuleColumns } from './services/certificationSchema.js';
 import { ensureContentProgressAcknowledgementColumns } from './services/contentProgressSchema.js';
@@ -188,6 +190,9 @@ async function readiness(_req, res) {
 
 app.get('/api/health/ready', readiness);
 app.get('/api/health', readiness);
+
+// Direct route for reassign-now - bypasses broad-/api middleware ordering
+app.post('/api/isms-quarterly/reassign-now', requireSession, requireRole('admin'), requireSuperAdmin, reassignIsmsQuarterly);
 
 // Secure cookie/CSRF routes are mounted first and own every authentication
 // state change. Legacy route modules remain for non-overlapping recovery and
